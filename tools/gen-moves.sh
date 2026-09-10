@@ -110,6 +110,21 @@ SPECIALS="
 # window lives on its script frames and the generated port loses it (deforeign strips the two
 # GAOGAEN status flags, correctly, and their frame numbers are the only record of the timing).
 Revenge counter (Incineroar)|gaogaen|SpecialLw|speciallw
+# Game & Watch up-B, GENERATED now rather than hand-placed in src/specials/acmd.
+#
+# It was hand-written because deforeign strips FIGHTER_GAMEWATCH_* statements and the three
+# SPECIAL_HI flags it raises are load-bearing -- DECIDE_DIRECTION on frame 9, LANDING_ENABLE on 11,
+# PARACHUTE_OPEN on 33, each read by src/specials/specialhi. deforeign's KEEP_STATUS_IDS now
+# preserves exactly those, so the exemption no longer requires living outside the generator.
+#
+# MOVING IT BACK IN IS NOT COSMETIC. tools/reach topscale is NOT idempotent -- it multiplies
+# top-anchored offsets in place -- and it is safe only because every file it touches is
+# regenerated from scratch each build. Making it recursive (needed, since it had never scanned two
+# levels down and the up-B hitboxes were entirely unscaled) brought the hand-written module into
+# its reach, and one build turned 6.0 into 6.2500005. The next would have compounded it. A file
+# topscale edits MUST be a generated file.
+up-B ground (Game & Watch)|gamewatch|SpecialHi|specialhi
+up-B air (Game & Watch)|gamewatch|SpecialAirHi|specialairhi
 # Alolan Whip. The victim side is engine-global (FIGHTER_STATUS_KIND_SWING_GAOGAEN_*), so only
 # Pikachu's own six scripts are ported; the CATCH in specialsstart names the victim status
 # directly and works for any grabber.

@@ -36,7 +36,6 @@ pub mod cargo;
 pub mod specialhi;
 pub mod specialhiclose;
 pub mod specialhifall;
-pub mod acmd;
 
 pub fn install() {
     lockout::install();
@@ -47,5 +46,4 @@ pub fn install() {
     specialhi::install();
     specialhiclose::install();
     specialhifall::install();
-    acmd::install();
 }

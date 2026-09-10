@@ -22,3 +22,13 @@ koopa     DownAttackU downattacku f03downattacku defensive getup_up_bowser
 koopa     DownAttackD downattackd f04downattackd defensive getup_down_bowser
 koopa     SlipAttack  slipattack  g03slipattack  defensive trip_bowser
 ganon     CliffAttack cliffattack g02cliffattack defensive ledge_ganon
+# Added after an audit found the moves changed most were the least measured: the up-B, Revenge and
+# every Alolan Whip hitbox were outside the trace entirely. tools/gen-fk.sh supplies their FK data.
+gamewatch	SpecialHi	specialhi	d02specialhi	specials_acmd	upb_ground_gw
+gamewatch	SpecialAirHi	specialairhi	d02specialairhi	specials_acmd	upb_air_gw
+gaogaen	SpecialLw	speciallw	d03speciallw	specials_acmd	revenge_hit_incineroar
+gaogaen	SpecialSStart	specialsstart	d01specialsstart	specials_acmd	whip_lunge_incineroar
+gaogaen	SpecialSShoulder	specialsshoulder	d01specialsshoulder	specials_acmd	whip_shoulder_incineroar
+gaogaen	SpecialSLariat	specialslariat	d01specialslariat	specials_acmd	whip_lariat_incineroar
+gaogaen	SpecialSFailure	specialsfailure	d01specialsfailure	specials_acmd	whip_failure_incineroar
+krool	LandingAirLw	landingairlw	c05landingairlw	landings	dair_landing_k_rool
