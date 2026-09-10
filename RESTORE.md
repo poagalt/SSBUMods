@@ -79,9 +79,14 @@ Rebuilding requires `extracted/`, which comes from the console via `tools/arc-pu
 
 ## Disabled mod
 
-`ultimate/mods/Ken Sugimori style Pikachu` was renamed to `.Ken Sugimori style Pikachu`.
-ARCropolis skips dot-prefixed folders. **All its files are intact** — remove the leading dot to
-re-enable it.
+`Ken Sugimori style Pikachu` was **moved out of the scan path** to
+`ultimate/mods-disabled/Ken Sugimori style Pikachu`. **All its files are intact** — move the
+folder back into `ultimate/mods/` to re-enable it.
+
+**A dot prefix does NOT disable a mod in ARCropolis 4.0.9.** That was tried first and the very
+next `conflicts.json` still listed `sd:/ultimate/mods/.Ken Sugimori style Pikachu` in all six
+entries. The dot-prefix convention comes from older loaders; 4.x uses workspaces/presets. Moving
+the folder outside `ultimate/mods/` is what actually works.
 
 It conflicted with this mod on six files:
 `fighter/pikachu/model/body/c00/model.{adjb,numatb,numdlb,numshb,numshexb,nusktb}`. Only one mod

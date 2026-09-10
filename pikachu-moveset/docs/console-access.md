@@ -157,3 +157,18 @@ manual handoffs are needed.
 `librat_of_doom.nro` (53,248 B) is in the Skyline plugins folder, verified byte-identical after
 upload. It sits alongside George's `plugin.nro`; no conflict, since George registers the `diddy`
 agent and this registers `pikachu`.
+
+## Disabling a mod in ARCropolis 4.0.9
+
+**A leading dot does not disable a mod.** Renaming
+`ultimate/mods/Ken Sugimori style Pikachu` to `.Ken Sugimori style Pikachu` had no effect — the
+next `conflicts.json` still listed `sd:/ultimate/mods/.Ken Sugimori style Pikachu` in all six
+conflicting entries. The dot-prefix convention is from older loaders.
+
+What works: **move the folder out of `ultimate/mods/` entirely.** It now lives at
+`ultimate/mods-disabled/`, which ARCropolis does not scan.
+
+Also worth knowing when diagnosing: comparing two mods' *whole* file lists produces false
+positives on `info.toml` and `config.json`, which every mod has at its own root and which are
+loader metadata rather than game paths. Only compare paths under `fighter/`, `effect/`, `ui/`
+and friends.
