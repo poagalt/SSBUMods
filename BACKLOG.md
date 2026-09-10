@@ -553,3 +553,40 @@ those.
 - [ ] **Dash attack over-travels by 18.33 units.** Fix is to clear `move` and drive the 29.7 via
       script, as done for f-smash. Not yet applied.
 - [ ] f-tilt is missing 3.67 units of forward motion (minor).
+
+## Endlag: cancel_frame IS being honoured -- do not "fix" it
+
+The original report was that move lag felt "bounded by the animations of Pikachu's normal
+attacks". I was close to applying a global `FT_MOTION_RATE` retime to force animation length to
+match source FAF. **The telemetry says that would have been wrong** and would have corrupted the
+frame data to chase a visual artifact.
+
+Observed motion durations against the patched FAF and Pikachu's animation length:
+
+| move | source FAF | pikachu anim | observed durations |
+|---|---|---|---|
+| jab (Chrom) | 23 | 29 | **22**, 29, 29 |
+| u-tilt (Falco) | 30 | 36 | **29**, 36 x5 |
+| f-tilt (Mythra) | 37 | 45 | **41**, 44, 45 |
+| d-smash (G&W) | 34 | 73 | 8, **40**, 40, 54 |
+| u-smash (Fox) | 56 | 56 | 56 x3 |
+| d-tilt (R.O.B.) | 15 | 37 | **27**, 33, 37 |
+
+The *minimum* duration tracks the source FAF, not the animation: jab interrupted at 22 against a
+FAF of 23 and a 29-frame animation; u-tilt at 29 against FAF 30 and a 36-frame animation. If the
+animation were governing, no duration could fall below it. D-tilt's 27 against FAF 15 is
+plausibly human reaction time -- acting on frame 15 needs deliberate buffering.
+
+**Conclusion:** frame data is correct and actionability follows the patched FAF. What is wrong is
+purely *visual* -- Pikachu's animation keeps playing past the actionable frame, so the move looks
+laggier than it is. That is an inherent consequence of the script-first decision and is fixed by
+the animation pass, not by touching timing.
+
+Movement measured this session, confirming the earlier root-motion table:
+
+| move | moved x | expected |
+|---|---|---|
+| f-smash | **+9.62 avg** | lunge working |
+| f-tilt | +0.00 | should be ~+4 (Mythra moves 3.67) |
+| u-tilt, d-tilt, u-smash, d-smash | +0.00 | correct, no source root motion |
+| dash attack | *not used this session* | over-travels by 18.33 when tested |
