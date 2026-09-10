@@ -38,6 +38,20 @@ const CALLS: &[(&str, &[usize])] = &[
     ("macros::FT_MOTION_RATE(", &[]),
     ("macros::FT_MOTION_RATE_RANGE(", &[]),
     ("macros::WHOLE_HIT(", &[]),
+    // EFFECTS. sysfx.rs keeps sys_ ones and drops fighter-owned ones (ADR 0002), and it currently
+    // drops zero -- so every effect call that survives should be byte-identical to the source's.
+    // If a future port makes it drop something, the call-count check names both sequences and the
+    // right answer is a declared exception, not a looser comparison.
+    ("macros::EFFECT(", &[]),
+    ("macros::EFFECT_FLIP(", &[]),
+    ("macros::EFFECT_FOLLOW(", &[]),
+    ("macros::EFFECT_FLIP_ALPHA(", &[]),
+    ("macros::EFFECT_BRANCH_SITUATION(", &[]),
+    ("macros::LANDING_EFFECT(", &[]),
+    ("macros::LANDING_EFFECT_FLIP(", &[]),
+    ("macros::FOOT_EFFECT(", &[]),
+    ("macros::CHECK_FINISH_CAMERA(", &[]),
+    ("macros::REVERSE_LR(", &[]),
     ("macros::ATK_HIT_ABS(", &[]),
     ("macros::SET_SPEED_EX(", &[]),
     // THE BANG MACROS, AND ONE OF THEM IS LITTLE MAC'S SUPER ARMOR.
@@ -130,6 +144,46 @@ fn main() {
 
     let mut bad = 0usize;
     let mut checked = 0usize;
+
+    // SUBSET MODE, for the effect scripts, where dropping is the correct behaviour.
+    //
+    // ADR 0002 says the mod must work without CSK, so tools/reach/src/bin/sysfx.rs keeps only
+    // sys_ effects and drops every fighter-owned one. Measured: Mythra's dash attack loses five
+    // of its eight calls. An exact comparison therefore fails by design and says nothing -- but
+    // there is still a real question underneath it, and it had no answer: does sysfx ever ALTER a
+    // call instead of dropping it?
+    //
+    // So every call we KEEP must appear in the source, identically, in order. Drops are free;
+    // changes and inventions are not.
+    if a.iter().any(|x| x == "--subset") {
+        let mut si = 0usize;
+        let mut dropped = 0usize;
+        for (oc, oa) in &o {
+            let found = loop {
+                let Some((sc, sa)) = s.get(si) else { break false };
+                si += 1;
+                if sc == oc && sa == oa {
+                    break true;
+                }
+                dropped += 1;
+            };
+            if !found {
+                println!("  ours has {oc} that the source does not, or with different arguments");
+                println!("    {}", oa.join(", "));
+                bad += 1;
+                si = 0;
+            } else {
+                checked += oa.len();
+            }
+        }
+        dropped += s.len().saturating_sub(si);
+        println!(
+            "  {bad} altered, {} kept and identical, {dropped} dropped of {} source call(s)",
+            o.len() - bad,
+            s.len()
+        );
+        std::process::exit(if bad > 0 { 1 } else { 0 });
+    }
 
     // COUNT FIRST. A dropped call is the failure this exists to catch, and comparing pairwise
     // after a drop would report every later call as wrong -- an avalanche that buries the one

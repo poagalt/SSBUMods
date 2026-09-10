@@ -19,6 +19,8 @@ S=pikachu-moveset/plugin/src
 fail=0
 moves=0
 args=0
+kept=0
+drop=0
 while read -r f acmd fn stem mod label; do
     [ -z "${f// }" ] && continue
     case "$f" in \#*) continue ;; esac
@@ -26,19 +28,42 @@ while read -r f acmd fn stem mod label; do
     if [ ! -f "$src" ]; then
         echo "FAIL: $label has no dumped source at $src"; fail=1; continue
     fi
-    out=$("$P" "$src" "game_$fn" "$S/$mod/mod.rs" "pikachu_game_$fn" 2>&1)
-    rc=$?
-    moves=$((moves+1))
-    n=$(echo "$out" | sed -n 's/.* of \([0-9]*\) non-geometric.*/\1/p')
-    args=$((args + ${n:-0}))
-    if [ "$rc" != "0" ]; then
-        echo "FAIL: $label"
-        echo "$out" | sed 's/^/      /'
-        fail=1
-    fi
+    # THE EFFECT SCRIPTS ARE CHECKED TOO, where both sides have one.
+    #
+    # tools/reach/src/bin/sysfx.rs rewrites them -- it keeps sys_ effects and drops fighter-owned
+    # ones per ADR 0002 -- and it currently drops zero, so a surviving effect call should be
+    # byte-identical to the source's. Nothing verified that, which meant sysfx could have ALTERED
+    # an effect rather than dropping it and no check would notice.
+    #
+    # Skipped rather than failed when either side lacks the function: a move whose source has no
+    # effect script is common, and a move whose effects were all dropped legitimately has none.
+    # The acmdparity call itself distinguishes a missing function from an empty one.
+    for kind in game effect; do
+        if ! grep -q "fn ${kind}_${fn}(" "$src" 2>/dev/null; then continue; fi
+        if ! grep -q "fn pikachu_${kind}_${fn}(" "$S/$mod/mod.rs" 2>/dev/null; then continue; fi
+        subset=""
+        [ "$kind" = "effect" ] && subset="--subset"
+        out=$("$P" "$src" "${kind}_$fn" "$S/$mod/mod.rs" "pikachu_${kind}_$fn" $subset 2>&1)
+        rc=$?
+        [ "$kind" = "game" ] && moves=$((moves+1))
+        if [ "$kind" = "game" ]; then
+            n=$(echo "$out" | sed -n 's/.* of \([0-9]*\) non-geometric.*/\1/p')
+            args=$((args + ${n:-0}))
+        else
+            k=$(echo "$out" | sed -n 's/.*altered, \([0-9]*\) kept.*/\1/p')
+            d=$(echo "$out" | sed -n 's/.* \([0-9]*\) dropped of.*/\1/p')
+            kept=$((kept + ${k:-0})); drop=$((drop + ${d:-0}))
+        fi
+        if [ "$rc" != "0" ]; then
+            echo "FAIL: $label ($kind)"
+            echo "$out" | sed 's/^/      /'
+            fail=1
+        fi
+    done
 done < tools/moves.tsv
 
 if [ "$fail" -eq 0 ]; then
     echo "acmd value check: OK ($moves moves, $args non-geometric args, all identical to the source)"
+    echo "  effects: $kept call(s) kept and identical, $drop dropped as fighter-owned (ADR 0002)"
 fi
 exit "$fail"
