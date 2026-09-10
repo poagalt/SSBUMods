@@ -44,9 +44,9 @@ ClavicleC/L/R  ShoulderL/R  ArmL/R  HandL/R  HaveL  HaveR
 Tail1-4  LegC  LegL/R  KneeL/R  FootL/R  ToeL/R  Throw  Mouth
 ```
 
-**Every attachment point from the George technique transfers.** Caveat: this mod restyles the
-geometry, so its `numshb`/`numdlb` are not vanilla — but a restyle does not touch the skeleton,
-so the `nusktb` is very likely vanilla bytes. Worth diffing against a real dump when we have one.
+**Every attachment point from the George technique transfers.** Superseded below: the assumption
+that a restyle leaves the skeleton alone turned out to be **false** — see "Two results worth
+keeping". Use the extracted vanilla `nusktb`, not this one.
 
 ## Getting at `data.arc`
 
