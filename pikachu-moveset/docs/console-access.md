@@ -172,3 +172,25 @@ Also worth knowing when diagnosing: comparing two mods' *whole* file lists produ
 positives on `info.toml` and `config.json`, which every mod has at its own root and which are
 loader metadata rather than game paths. Only compare paths under `fighter/`, `effect/`, `ui/`
 and friends.
+
+## Reading ARCropolis's own diagnosis
+
+`conflicts.json` at `sd:/ultimate/arcropolis/conflicts.json` names the exact files and the exact
+mods. The Skyline log says the same thing in prose, e.g.
+
+```
+[arcropolis::fs::discover] Mod root 'sd:/ultimate/mods/.Ken Sugimori style Pikachu' was
+rejected for a file conflict with 'sd:/ultimate/mods/Rat of Doom/fighter/pikachu/model/body/
+c00/model.adjb' during discovery.
+```
+
+Live logs need no FTP — `cargo skyline listen --ip <console-ip>` works while the game runs,
+which is exactly when FTP is unavailable.
+
+**Install `hashes.txt`.** Without `sd:/ultimate/arcropolis/hashes.txt` the log reports every path
+as `Unknown (0x…)`, which makes filesize and load errors impossible to attribute. Uploaded from
+`vendor/Hashes.txt` (4.9 MB, 149,870 names).
+
+To attribute a raw hash by hand: `tools/motion-patch/target/release/h40.exe <path>` computes
+hash40 for comparison. That is how the twelve `Failed to patch … filesize!` errors in the first
+capture were shown to belong to other mods rather than this one.

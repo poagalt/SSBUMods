@@ -16,3 +16,4 @@ releases/**/*.adjb
 releases/**/*.bin
 pikachu-moveset/mod/fighter/pikachu/model/
 pikachu-moveset/mod/fighter/pikachu/motion/
+disabled-mods/
