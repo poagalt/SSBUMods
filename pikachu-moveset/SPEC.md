@@ -1,4 +1,4 @@
-# Pikachu Custom Moveset — Brief
+# Rat of Doom — Pikachu Custom Moveset
 
 Status: **in design (grilling)**. Nothing below is settled until the open questions in
 `docs/decisions.md` are answered.
@@ -29,7 +29,7 @@ Status: **in design (grilling)**. Nothing below is settled until the open questi
 |---|---|---|
 | Jab | Chrom | sword |
 | Dash attack | Mythra | sword |
-| F-tilt | Terry | leg intangible f8-13 |
+| F-tilt | Mythra | sword; replaced Terry after ADR 0001 excluded special-cancel |
 | U-tilt | Falco | two-hit, hits both sides |
 | D-tilt | R.O.B. | f3, 14 total, -5 |
 | F-smash | Little Mac | **super armor f8-15 (9-15 down-angled)** |

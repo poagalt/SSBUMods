@@ -151,3 +151,49 @@ One local fix was required: w64devkit ships a slim GCC that folds the unwinder i
 and provides no separate `libgcc_eh.a`, which Rust's gnu host linker requests by name. Added an
 alias copy at `w64devkit/lib/gcc/x86_64-w64-mingw32/16.1.0/libgcc_eh.a`. Additive and reversible —
 delete that one file to undo.
+
+## Round 4
+
+**Trait rule boundary** — Terry's special-cancel is excluded as a character-wide trait, and rather
+than ship a hollowed-out Terry f-tilt (−8 instead of +11 on shield), **f-tilt changes source
+entirely to Mythra**. Little Mac's f-smash super armor stays as the named exception in ADR 0001.
+
+**Dodges** — Timing only. Fox's windows and totals port; Pikachu's roll and air-dodge distances
+are accepted. Since intangibility lives in `motion_list.yml` as `xlu_start`/`xlu_end` and totals
+as `cancel_frame`, this needs no animation work at all.
+
+**Parity table format** — Reversed from the earlier TOML recommendation. The table will not be
+read or hand-tuned by a human, so human-friendliness buys nothing and the priority is eliminating
+transcription error. The table is therefore **JSON, generated directly by scraping rubendal's
+`data.json` and normalised**, never hand-authored — matching the source shape removes an entire
+translation step. Codegen consumes it; the harness re-verifies the committed table against a
+fresh scrape.
+
+**Name** — Placeholder **"Rat of Doom"** across the mod folder, crate and `info.toml`. Tracked in
+`BACKLOG.md` for renaming.
+
+**Get-up vs ledge attack — confirmed distinct.** SmashWiki: *"While both are categorized as
+'get-up attacks', edge attacks and floor attacks are distinct moves."* A floor/get-up attack is
+performed while **lying on the ground** after a knockdown; a ledge attack while **hanging on an
+edge**. There are in fact three floor-adjacent moves, all separately parameterised and all
+standardized cast-wide:
+
+| Move | Performed from | Total frames | Damage |
+|---|---|---|---|
+| Get-up attack (face up / face down) | lying on the ground | 45 | 7.0 % |
+| Trip attack | the sitting/tripped state | 49 | 5.0 % |
+| Ledge attack | hanging on an edge | 55 | 9–10 % |
+
+Ultimate also made edge attacks *universally* intangible until their hitboxes stop being active.
+Get-up attack is **Bowser**; ledge attack is **Ganondorf**; the trip attack remains unassigned.
+
+**Appendages** — Sword visibility toggles per-move via `ModelModule::set_mesh_visibility`, with
+a permanently-attached prop as the declared fallback.
+
+**Runtime scaling** — Moved to Tier 2, off the critical path.
+
+**Effects** — `sys_*`-only rule adopted; recorded as ADR 0002. A CSK-requiring variant with full
+source effects is tracked as a separate future deliverable.
+
+**Codegen scope** — One JSON parity table drives two generated artifacts: the Rust hitbox scripts
+and the patched `motion_list.yml`.

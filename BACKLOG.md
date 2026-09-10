@@ -97,3 +97,20 @@ If it isn't in this file, it isn't tracked.
 - Appendage technique that *is* proven: extra sub-meshes under an existing mesh-object name,
   single-bound to the item-hold bones (`HaveR`/`HaveL`), new material in `model.numatb`, vanilla
   skeleton untouched.
+
+---
+
+## Added after round 4
+
+- [ ] **Rename from the placeholder "Rat of Doom"** — touches the mod folder, crate name,
+      `info.toml` display name, and the plugin's agent registration.
+- [ ] **CSK-requiring variant with full source effects.** ADR 0002 forbids fighter-prefixed
+      effects in the main mod. A second build that *does* require the CSK Collection could use
+      each move's real visuals (Cloud's sword trail, Mac's punch flash). Separate deliverable,
+      not a fix to the main one.
+- [ ] **Trip attack** (49 frames / 5 %, from the sitting state) is a third floor-adjacent move and
+      is still unassigned. Get-up is Bowser, ledge is Ganondorf.
+- [ ] Runtime scaling, moved here from Tier 1. **Note: the George mod is not a source for this
+      technique** — its plugin imports zero `ModelModule` symbols and does no runtime model
+      manipulation of any kind. What George *does* prove is the appendage attachment method
+      (extra sub-meshes on the item-hold bones). A different reference is needed for `set_scale`.
