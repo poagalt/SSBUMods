@@ -867,3 +867,112 @@ enabling steps are written at the call site.
   smash-script's own source so it cannot drift. Incineroar's shoulder toss calls
   CHECK_FINISH_CAMERA_IF_NOT_HP_MODE, absent from the 112 it provides. Audited: that one macro
   only, cosmetic, and none of the 21 traced moves reference any unsupported macro.
+
+## v0.23 — the one wrong premise that caused five defects
+
+**A ported move CAN have its own status kinds.** Everything below flowed from believing it could
+not. smashline's `set_status_scripts` (vendor/sl_create_agent.rs:738, :802) reads the fighter's
+status total out of `global_table[0xC]`, installs every registered script with
+`sv_set_status_func`, tracks `max_new = max_new.max(status.id + 1)`, and writes that back. An id
+past `FIGHTER_PIKACHU_STATUS_KIND_NUM` (0x1F0) is the documented path.
+
+`src/specials/status.rs` declares seven at 0x1F0..0x1F6. Compile-time assert on the range,
+check-status.sh gate on distinctness and on the deforeign KEEP list surviving.
+
+### What that premise cost
+- **Up-B**, twice over. First it kept Diddy's 0x1F0/0x1F1 and those were called "statuses that do
+  not exist"; then v0.22 remapped them onto Pikachu's SPECIAL_HI_WARP and SPECIAL_HI_END. WARP is
+  Quick Attack's second leg, and the port only registers Pre/Main/End, so Pikachu's own Init and
+  Exec still ran — model hidden, warp displacement applied, direction guide spawned. Every
+  symptom in one line: "teleport modified pikachu extremely high and/or turn him invisible" and
+  "spawns quick attack arrows around if I change the direction of the stick". Diddy's *numbers*
+  had been right all along.
+- **Alolan Whip**, all of it. catch-remap.sed retargeted the command grab at CAPTURE_PULLED
+  because Pikachu "has no equivalent of Incineroar's grabber statuses and none could be added" —
+  and that remap is exactly the reported "teleports back to where he was, facing the other
+  direction, and does the enemy freed from grab animation". Deleted. All seven SWING_GAOGAEN
+  victim statuses (0x176–0x17C) are in the engine's COMMON list; the victim side never needed
+  anything.
+- **The five follow-ups** were crammed into one status with a phase variable and a recursive
+  `pikachu_specials_main(fighter)` re-entry. They are five statuses now, as they are on Incineroar.
+
+### The follow-up mapping is no longer interpreted
+SmashWiki settles the rule: an attack button pressed after the grab but before the collision is
+the back body drop; pressed just as they collide, the lariat; never pressed, both take 4%. And
+which is which comes out of `param_special_s` — `special_s_lariat_offset_x` 24,
+`special_s_lariat_end_offset_x` 10, `special_s_failure_offset_x` 6, matched by his
+FLAG_LARIAT_AREA / FLAG_LARIAT_END_AREA / FLAG_FAILURE_AREA. 24 units is the lariat window because
+24 / `through_target_return_speed` 2.8 = 8.6 frames and `special_s_lariat_hit_frame` is 9. The old
+stick-direction reading is gone.
+
+Also: the lunge runs on `FIGHTER_KINETIC_TYPE_MOTION` with `special_s_start_speed_mul` 1.3, not
+UNIQ-then-GROUND_STOP. GROUND_STOP pinned him in place — "it also no longer travels anywhere".
+
+### Revenge: the rules were half right
+The tuning was already the game's own; the RULES were not, and SmashWiki's Revenge page has them.
+The boost is **consumed by the next landed attack** (60 seconds is only the ceiling on an unused
+one) — the 3600-frame timer with no consumption is "permanently stored the extra damage".
+Counters stack. `cancel_percent` 36 is a loss condition on a stored boost, not a ceiling on
+whether the counter fires; read the wrong way it also left the window stuck open after a big hit.
+Being thrown drops it.
+
+Active visual: an orange FLASH pulse plus a `sys_` aura followed on shoulderr/shoulderl/kneer/
+kneel — the bone list is Incineroar's own `effect_speciallwrevenge`, minus `feelerca` which
+Pikachu has no counterpart for. `gaogaen_revenge_aura` itself is CSK-blocked, but FLASH is what
+Incineroar uses on this very move (`effect_speciallwstart` pulses FLASH purple), tints through
+ColorBlendModule and needs no archive.
+
+**The counter window is left alone.** Script frame 8 and Ultimate Frame Data's frame 3 agree:
+`FT_MOTION_RATE(r)` is game frames per motion frame (smash_script's `FT_MOTION_RATE_RANGE`
+computes `r = game_frames / motion_span`), so the stance's 0.25 runs motion frames 1..9 four times
+faster than real time. The window really is ~25 real frames at the start of a long animation.
+"I can only get it to trigger at the very start of the move" is Incineroar's behaviour.
+
+### The vanilla-leak audit
+- `attack_s3_hi` / `attack_s3_lw` still played Pikachu's own angled animations, because **Mythra
+  has no angled f-tilt motions at all** — one animation for all three angles, which is why
+  gen-moves.sh aliases both angled ACMDs to her `attacks3`. motion-patch gains a REANIM table
+  pointing both entries at her `attack_s3_s` file.
+- All four up-B motions kept PIKACHU's animations while taking G&W's `move` flag, so his Quick
+  Attack root motion was driving a G&W move. They adopt `d02specialhi` / `airhi` / `hiopen` /
+  `hiclose` now (shipped, declared in config.json, in the dropin pre-flight).
+- `effect_specials` — Skull Bash's `pikachu_rocket_bomb`/`_aura`/`_jet` and a blue-green FLASH —
+  is nulled. gen-moves.sh gains an `N` marker for nulling both scripts.
+- **DONKEY was missing from deforeign's SOURCES** while gen-moves.sh had been porting five of his
+  scripts, so `FIGHTER_DONKEY_STATUS_SHOULDER_START_FLAG_SHOULDER_WAIT` reached the built plugin
+  unstripped. build.sh now diffs the two lists and refuses. A hand-maintained parallel list is a
+  bug waiting for a new port.
+- Audited and deliberately kept: the four `effect_landingair*` scripts are pure `sys_down_smoke`,
+  and `effect_escapeb` is `sys_smash_flash` + `sys_dash_smoke`. Both are generic landing/roll dust
+  every fighter has. `sound_*` and `expression_*` stay Pikachu's — porting them needs the source
+  sound archives, which is ADR 0002 territory.
+
+### deforeign gains KEEP_STATUS_IDS
+The blanket strip is right about INSTANCE work ids and article ids. Status-SCOPED ids are
+different: they index the region belonging to the running status, so they only collide with what
+the HOST uses IN THAT SAME STATUS — and where every line of a status is replaced, the region is
+ours. Stripping them threw away the only record of the move's timing (FLAG_THROW_ROPE on frame 37
+IS the whip; LANDING_ENABLE and PARACHUTE_OPEN ARE the up-B's landing and parachute). Ten names,
+with a three-point safety check written at the list.
+
+### Cargo carry: the victim now gets the engine's statuses
+`SHOULDERED_DONKEY_START` (0xC5), `SHOULDERED_DONKEY` (0xC6) and `_THROWN` (0xC7) are common, and
+Pikachu already carries `shouldered_donkey` plus the whole `thrown_f_donkey_*` family. Nothing on
+Pikachu reads DK's frame-16 SHOULDER_WAIT flag, so the victim sat in a generic caught state with
+no status driving them — "freezes the opponent mid-air for a second instead of holding the enemy".
+The carry requests the statuses directly. Still stationary; still needs DK's `e01throwf.nuanmb`.
+
+### What is left, in order of what unblocks the most
+1. **The article clone.** It is the only thing standing between the mod and both the visible ring
+   ropes and Ptooie — `WEAPON_KIND_GAOGAEN_ROPE` 0x1BA and `WEAPON_KIND_PACKUN_SPIKEBALL`. It
+   crashes on fighter LOAD, which blocks testing every other move, so it needs a test cycle of its
+   own rather than riding along with anything else. Everything else in the moveset is now
+   implemented, which makes this the right time.
+2. **One extraction with the game running**: `fighter/donkey/motion/body/c00/e01throwf.nuanmb`,
+   already listed in tools/arc-pull/paths-round3.txt. Ship it in anim-dropin AND add
+   `("throw_f", "throw_f", "donkey")` to motion-patch's MAP, both together.
+3. **Neutral-B is still Thunder Jolt** — the one slot with no port at all, waiting on (1).
+4. Verify on hardware that status ids past 0x1F0 are safe. smashline's code says yes and nothing
+   in the game's own tables is being resized by hand, but this is the first build to rely on it.
+   If Pikachu crashes on selection, this is the cause, and the fallback is to own SPECIAL_HI_WARP
+   and SPECIAL_HI_END completely by registering every status line rather than three.
