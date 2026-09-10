@@ -101,6 +101,9 @@ echo; echo "== 1c. verify no effect Pikachu cannot load survived (ADR 0002) =="
 echo; echo "== 2. graft on weapon bones the ported hitboxes need =="
 bash "$ROOT/tools/add-bones.sh" | tail -1
 
+echo; echo "== 2b. ship a cloned article's model and motion files (gated on CLONE_ENABLED) =="
+bash "$ROOT/tools/gen-article-assets.sh"
+
 echo; echo "== 3. ship the source animations, scale-compensated =="
 bash "$ROOT/tools/anim-dropin.sh" 2>&1 | grep -v "^Parse:" | tail -1
 
@@ -114,6 +117,9 @@ mkdir -p "$ROOT/work/ml"
 "$MP/synth.exe" "$ROOT/extracted" "$ROOT/work/ml/patched.bin" "$ML" | tail -1
 
 # Must run exactly once, on the verbatim source produced in step 1: it multiplies offsets in place.
+echo; echo "== 3c. generate config.json from what the mod tree actually contains =="
+bash "$ROOT/tools/gen-config.sh"
+
 echo; echo "== 4. scale top-anchored hitbox offsets =="
 "$ROOT/tools/reach/target/release/topscale.exe" \
   "$ROOT/pikachu-moveset/plugin/src" "$ROOT/tools/scales.tsv" | tail -1
