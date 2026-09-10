@@ -38,3 +38,9 @@ gaogaen	SpecialAirSShoulder	specialairsshoulder	d01specialairsshoulder	specials_
 gaogaen	SpecialAirSLariat	specialairslariat	d01specialairslariat	specials_acmd	whip_air_lariat_incineroar
 gaogaen	SpecialAirSFailure	specialairsfailure	d01specialairsfailure	specials_acmd	whip_air_failure_incineroar
 gaogaen	SpecialAirLw	specialairlw	d03specialairlw	specials_acmd	revenge_air_hit_incineroar
+# The grab, added last and it should have been first. All three of Palutena's grab boxes are
+# top-anchored CATCH capsules, which bypass the skeleton and so take the fighter `scale` param
+# straight -- exactly the case topscale exists for, and none of them were in its list or this one.
+palutena	Catch	catch	e00catch	throws	grab_palutena
+palutena	CatchDash	catchdash	e00catchdash	throws	grab_dash_palutena
+palutena	CatchTurn	catchturn	e00catchturn	throws	grab_turn_palutena

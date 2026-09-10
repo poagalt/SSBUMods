@@ -9,6 +9,7 @@ ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 TOL=0.05
 out=$(bash "$ROOT/tools/trace-all.sh" 2>&1 | grep -v "^Parse:")
 fail=0
+open_radii=""
 while IFS= read -r line; do
     [ -z "$line" ] && continue
     name=$(echo "$line" | awk '{print $1}')
@@ -30,8 +31,40 @@ while IFS= read -r line; do
     if awk -v w="$worst" -v t="$TOL" 'BEGIN{exit !(w > t)}'; then
         echo "FAIL: $name is $worst world units off the source character (tolerance $TOL)"; fail=1
     fi
+
+    # RADIUS IS GATED SEPARATELY, and only where the answer is known.
+    #
+    # A hitbox can sit exactly where the source's does and still cover less ground, and only
+    # position was ever checked. topscale corrects `top`-anchored radii, where both candidate
+    # engine behaviours give the same arithmetic, so those must come out exact. BONE-anchored radii
+    # are the open question (topscale's SCALE_BONE_RADII) -- counted and named here rather than
+    # failed, because failing a deliberate open question just teaches you to ignore the word FAIL.
+    rworst=$(echo "$line" | sed -n 's/.*worst radius \([0-9.]*\) at.*/\1/p')
+    rwhere=$(echo "$line" | sed -n 's/.*worst radius [0-9.]* at \(.*\)$/\1/p')
+    rbone=${rwhere##* }
+    if [ -n "$rworst" ] && awk -v w="$rworst" -v t="$TOL" 'BEGIN{exit !(w > t)}'; then
+        if [ "$rbone" = "top" ]; then
+            echo "FAIL: $name has a top-anchored radius $rworst off the source at $rwhere"; fail=1
+        else
+            open_radii="$open_radii $name:$rworst@$rbone"
+        fi
+    fi
 done <<< "$out"
 n=$(echo "$out" | grep -c "world units")
 frames=$(echo "$out" | sed -n 's/.*(n=\([0-9]*\)).*/\1/p' | awk '{s+=$1} END{print s+0}')
-[ "$fail" -eq 0 ] && echo "hitbox check: OK ($n moves, $frames hitbox-frames, all within $TOL world units of the source)"
+if [ "$fail" -eq 0 ]; then
+    echo "hitbox check: OK ($n moves, $frames hitbox-frames, all within $TOL world units of the source)"
+    if [ -n "$open_radii" ]; then
+        # Named, not hidden. These are the only geometry in the moveset that is not exact, they are
+        # all bone-anchored radii, and which way to correct them is one controller-observation away
+        # -- see SCALE_BONE_RADII in tools/reach/src/bin/topscale.rs.
+        nopen=$(echo "$open_radii" | tr ' ' '\n' | grep -c :)
+        echo "  open: $nopen move(s) with a bone-anchored radius off the source:"
+        for r in $open_radii; do
+            echo "          ${r%%:*} ${r#*:}"
+        done
+    else
+        echo "  ok  every radius matches too, bone-anchored included"
+    fi
+fi
 exit "$fail"

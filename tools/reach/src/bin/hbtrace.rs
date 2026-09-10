@@ -65,6 +65,13 @@ struct Sample {
     id: u32,
     bone: String,
     size: f32,
+    /// OUR radius, taken from our own script rather than back-computed from the reference's.
+    ///
+    /// This used to be printed as `size / source_scale * 0.96`, which silently assumes our raw
+    /// `size` argument equals the source's. It did, until topscale started scaling top-anchored
+    /// radii -- at which point the derived figure would have kept reporting the OLD error and the
+    /// fix would have been invisible to the very trace that motivated it.
+    size_ours: f32,
     reference: [f32; 3],
     ours: [f32; 3],
     dev: f32,
@@ -116,19 +123,36 @@ fn walk(text: &str, want: &str) -> Vec<(f32, f32, Vec<Hitbox>)> {
         if let Some(v) = num_after(line, "FT_MOTION_RATE(agent, ") {
             rate = v;
         }
-        if line.contains("AttackModule::clear_all") {
+        // Grab boxes are torn down by `grab!(MA_MSC_CMD_GRAB_CLEAR_ALL)`, not by
+        // AttackModule::clear_all. Both end the boxes they own, and this walk keeps one `live` set,
+        // so either clears it -- no script in the moveset has an ATTACK and a CATCH alive at once.
+        if line.contains("AttackModule::clear_all") || line.contains("MA_MSC_CMD_GRAB_CLEAR_ALL") {
             live.clear();
         }
-        if let Some(p) = line.find("macros::ATTACK(") {
-            let args = &line[p + 15..];
-            let id: u32 = nth(args, 1).and_then(|s| s.parse().ok()).unwrap_or(0);
-            let bone = nth(args, 3)
+        // ATTACK and CATCH, whose argument layouts differ because CATCH carries no damage or
+        // knockback block. Grab boxes were outside this trace entirely, which is how Palutena's
+        // three top-anchored grab capsules stayed unscaled with every check reporting OK -- the
+        // only geometry in the moveset that nothing was measuring.
+        //
+        // CATCH ids are offset by 1000 so a move with both cannot collide on id. Nothing in the
+        // game pairs them, but joining ours to the reference on id is what makes the comparison
+        // work and a silent collision there would compare two different boxes.
+        //   ATTACK(agent, id, group, bone, dmg, angle, kbg, fkb, bkb, size, x, y, z, ...)
+        //   CATCH (agent, id,        bone, size, x, y, z, x2, y2, z2, status, mask)
+        for &(call, id_bias, bone_i, size_i, off_i) in
+            &[("macros::ATTACK(", 0u32, 3usize, 9usize, 10usize),
+              ("macros::CATCH(", 1000, 2, 3, 4)]
+        {
+            let Some(p) = line.find(call) else { continue };
+            let args = &line[p + call.len()..];
+            let id: u32 = nth(args, 1).and_then(|s| s.parse().ok()).unwrap_or(0) + id_bias;
+            let bone = nth(args, bone_i)
                 .unwrap_or("")
                 .trim_start_matches("Hash40::new(\"")
                 .trim_end_matches("\")")
                 .to_string();
-            live.insert(id, Hitbox { id, bone, size: fnum(args, 9),
-                                     off: [fnum(args, 10), fnum(args, 11), fnum(args, 12)] });
+            live.insert(id, Hitbox { id, bone, size: fnum(args, size_i),
+                                     off: [fnum(args, off_i), fnum(args, off_i + 1), fnum(args, off_i + 2)] });
         }
     }
     timeline
@@ -207,9 +231,11 @@ fn main() {
                     }
                     let dev = ((r[0] - o[0]).powi(2) + (r[1] - o[1]).powi(2) + (r[2] - o[2]).powi(2)).sqrt();
                     out.push(Sample { gf: *gf, id: h.id, bone: h.bone.clone(), size: h.size * sscale,
+                                      size_ours: ho.size * PIKACHU_SCALE,
                                       reference: r, ours: o, dev, ok: true });
                 }
                 _ => out.push(Sample { gf: *gf, id: h.id, bone: h.bone.clone(), size: h.size * sscale,
+                                       size_ours: ho.size * PIKACHU_SCALE,
                                        reference: [0.0; 3], ours: [0.0; 3], dev: f32::NAN, ok: false }),
             }
         }
@@ -219,7 +245,7 @@ fn main() {
         let hits: Vec<String> = out.iter().map(|s| format!(
             "{{\"f\":{},\"id\":{},\"bone\":\"{}\",\"size\":{:.3},\"size_ours\":{:.3},\"ok\":{},\
              \"ref\":[{:.3},{:.3},{:.3}],\"ours\":[{:.3},{:.3},{:.3}],\"dev\":{:.3}}}",
-            s.gf, s.id, s.bone, s.size, s.size / sscale * PIKACHU_SCALE, s.ok,
+            s.gf, s.id, s.bone, s.size, s.size_ours, s.ok,
             s.reference[0], s.reference[1], s.reference[2], s.ours[0], s.ours[1], s.ours[2],
             if s.ok { s.dev } else { -1.0 })).collect();
         println!("{{\"move\":\"{want}\",\"fighter\":\"{fighter}\",\"scale\":{sscale},\"hits\":[{}]}}", hits.join(","));
@@ -257,8 +283,18 @@ fn main() {
             if s.dev > acc.0 { (s.dev, format!("f{} id{} {}", s.gf, s.id, s.bone)) } else { acc }
         });
         let mean = v.iter().map(|s| s.dev).sum::<f32>() / v.len() as f32;
-        print!("\n  mean deviation {:.2}, worst {:.2} world units at {} (n={})",
-               mean, worst.0, worst.1, v.len());
+        // RADIUS IS A SECOND, INDEPENDENT WAY TO BE WRONG, and it was never reported. A hitbox can
+        // sit exactly where the source's does and still cover less of the stage, and the only
+        // number here was the centre-to-centre distance -- so "all within 0.05 world units" was
+        // saying nothing at all about reach. Printed for every move, whether or not it is
+        // top-anchored, because bone-anchored radii are the half of the question still open.
+        let rworst = out.iter().fold((0.0f32, String::new()), |acc, s| {
+            let d = (s.size - s.size_ours).abs();
+            if d > acc.0 { (d, format!("f{} id{} {}", s.gf, s.id, s.bone)) } else { acc }
+        });
+        print!("\n  mean deviation {:.2}, worst {:.2} world units at {} (n={}), worst radius {:.2} at {}",
+               mean, worst.0, worst.1, v.len(), rworst.0,
+               if rworst.1.is_empty() { "-".to_string() } else { rworst.1 });
         if skipped > 0 {
             let bones: Vec<&str> = out.iter().filter(|s| !s.ok).map(|s| s.bone.as_str())
                 .collect::<std::collections::BTreeSet<_>>().into_iter().collect();
