@@ -252,3 +252,33 @@ Revenge without countering — worse than leaving Thunder in place.
 `FIGHTER_GAMEWATCH_INSTANCE_WORK_ID_FLAG_SPECIAL_HI`. Instance work IDs are per-fighter, so using
 G&W's index on Pikachu may collide with a Pikachu variable. George ships exactly this pattern on
 Diddy, so it is the proven path, but it is untested here and it replaces the recovery.
+
+## Superseded
+
+Three findings in "Implementation findings" were true when written and are not now. They are left
+in place because the reasoning still explains how the mod got here, but a reader should not act on
+them.
+
+**"Little Mac's angled f-smash variants are deliberately omitted"** — superseded. Pikachu had no
+`attack_s4_hi` / `attack_s4_lw` entries, but `synth.rs` creates entries that did not exist rather
+than only repointing ones that did, so both angles ship and both are in the hitbox trace as
+`fsmash_up_mac` and `fsmash_down_mac`.
+
+**"Revenge is deliberately not shipped"** — superseded. Its counter detection, stacking, timer and
+multiplier are reimplemented by hand in `plugin/src/specials/speciallw/`, driven by the source's
+own param values from `gaogaen`'s vl.prc, and `tools/check-srcparams.sh` holds them to those
+values. The reasoning that ruled it out was correct about the difficulty and wrong that it made
+the move not worth having.
+
+**"Risk on the up-B: G&W's instance work IDs may collide"** — superseded, and the risk was real.
+`FIGHTER_GAMEWATCH_INSTANCE_WORK_ID_FLAG_SPECIAL_HI` is 0x200000E2, which on Pikachu is
+`FLAG_MTRANS_SMPL_GROUND`, so the port was corrupting his motion-transition state on every up-B.
+Nothing in the port ever read the flag, so the write is simply gone.
+`tools/reach/src/bin/deforeign.rs` now strips foreign work and article ids generally, and
+`tools/check.sh` step 4c fails the build if hand-written code names another fighter's constant.
+
+**Super armor is not missing.** Worth stating because it looks missing: Little Mac's f-smash armor
+is `damage!(MA_MSC_DAMAGE_DAMAGE_NO_REACTION, DAMAGE_NO_REACTION_MODE_ALWAYS, 0)` on script frame 8,
+returning to `_MODE_NORMAL` on 14. It is copied verbatim from his script and
+`tools/check-acmd-values.sh` now holds it there. The word "armor" appears nowhere in the code,
+which is exactly why this note exists.

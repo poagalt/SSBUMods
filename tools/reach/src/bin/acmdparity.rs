@@ -40,6 +40,21 @@ const CALLS: &[(&str, &[usize])] = &[
     ("macros::WHOLE_HIT(", &[]),
     ("macros::ATK_HIT_ABS(", &[]),
     ("macros::SET_SPEED_EX(", &[]),
+    // THE BANG MACROS, AND ONE OF THEM IS LITTLE MAC'S SUPER ARMOR.
+    //
+    // `damage!(agent, MA_MSC_DAMAGE_DAMAGE_NO_REACTION, DAMAGE_NO_REACTION_MODE_ALWAYS, 0)` on
+    // script frame 8 of his f-smash, back to _MODE_NORMAL on 14, IS the armor -- the one named
+    // exception to ADR 0001's no-character-traits rule and the only non-hitbox property this
+    // project committed to shipping. It was easy to believe it was missing, because it is not
+    // spelled "armor" anywhere and grepping for that word finds nothing.
+    //
+    // Twenty `damage!`, five `grab!` and four `notify_event_msc_cmd!` calls across the generated
+    // scripts, and none of them was checked by anything.
+    ("damage!(", &[]),
+    ("grab!(", &[]),
+    ("search!(", &[]),
+    ("slope!(", &[]),
+    ("notify_event_msc_cmd!(", &[]),
 ];
 
 /// Splits a macro call's arguments on top-level commas, so Hash40::new("x") and Some(1.0) survive.
