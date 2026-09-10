@@ -33,9 +33,15 @@ const MAP: &[(&str, &str, &str, f32)] = &[
     ("pikachu_game_attackairhi", "kamui",     "c05attackairhi", 0.99),
 ];
 
+// Only genuine limbs. `haver`/`havel` are the ITEM-HOLD bones: for a ported move they stand in
+// for a weapon Pikachu does not have, and absolute reach is the wrong model there. Palutena's
+// n-air proved it -- her staff hitboxes ring HER body, so transplanting them absolutely put them
+// in a shell above a much smaller Pikachu and the move lost its range. Falco's u-tilt, anchored
+// to a real limb, improved by the same change. Weapon-anchored moves are fixed by the appendage
+// work instead.
 const LIMBS: &[&str] = &[
     "armr", "arml", "kneer", "kneel", "toel", "toer",
-    "shoulderl", "shoulderr", "haver", "havel", "handr", "handl",
+    "shoulderl", "shoulderr", "handr", "handl",
 ];
 
 fn nth_arg(args: &str, n: usize) -> Option<&str> {

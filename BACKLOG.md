@@ -444,3 +444,40 @@ re-examine.
 - [ ] Calibrate the f-smash lunge speed from the logged `moved x`.
 - [ ] Re-examine Mythra f-tilt's second-hit x/y.
 - [ ] Appendages next, per the agreed order.
+
+## Playtest round 2: one fix confirmed, one regression, one wrong claim
+
+**Falco u-tilt: confirmed improved** by re-anchoring. Its hitboxes ride a real limb.
+
+**Palutena n-air: regressed.** Range went from roughly correct to tiny. Cause: her 11 hitboxes
+anchor to `haver`, the **item-hold bone**, which stands in for a staff Pikachu does not have. Her
+staff hitboxes ring *her* body; transplanted at absolute world positions they formed a shell at
+y=13-22 around a fighter a fraction that tall, so nothing near Pikachu was covered.
+
+That gives the rule the first pass was missing, and the two results split on exactly this line:
+
+| anchor | meaning | absolute reach |
+|---|---|---|
+| real limb (`armr`, `arml`, `kneer`, `toel`, `shoulder*`) | an extended body part | **correct** — keep re-anchoring |
+| `haver` / `havel` | a weapon the host does not have | **wrong** — leave bone-anchored until appendages exist |
+
+`reanchor.rs` now excludes the item-hold bones. Re-anchored count 34 → 12: Falco u-tilt 6,
+Fox u-smash 4, Kazuya f-air 2. The 22 weapon-anchored hitboxes (Palutena n-air, Mythra f-tilt,
+Corrin u-air, Chrom jab) revert to their previous behaviour and are the appendage work's job.
+
+**Mythra f-tilt does NOT have a second hit — I was wrong.** Hitbox IDs 0-3 are created on frame
+10 and *re-created with the same IDs* on frame 11, which repositions the sweeping sword;
+`clear_all` follows on frame 12. One hit, active f10-11. My "second hit" wording came from
+counting ATTACK calls rather than reading the IDs.
+
+**The lunge did not work, for a mundane reason.** The speed was applied before the first
+`frame()` call, i.e. frame 1, but a smash attack holds its charge at frame 5 and does not swing
+until frame 14 -- the speed had decayed long before. Now applied at frame 8 and cleared with the
+hitboxes. A second bug: the frame number was hardcoded to `8.0`, which silently skipped the
+down-angled variant that starts on frame 9. All three angles now carry it.
+
+`tools/build.sh` runs generate → re-anchor → lunge → compile in order, since running the passes
+by hand in the wrong order produces silently wrong output.
+
+- [ ] Calibrate lunge speed (3.0 estimate) against the ~11.6 world units Mac covers f8-f14.
+- [ ] Verify Fox u-smash and Kazuya f-air, which were re-anchored but not yet reported on.

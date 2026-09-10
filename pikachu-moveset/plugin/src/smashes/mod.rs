@@ -16,16 +16,16 @@ use {
 
 // ---- f-smash (Little Mac) : game_attacks4 ----
 unsafe extern "C" fn pikachu_game_attacks4(agent: &mut L2CAgentBase) {
-    // Reproduces Little Mac.s forward lunge, which lives in his animation root
-    // motion and is absent from Pikachu.s f-smash animation. See tools/lunge.sh.
-    if macros::is_excute(agent) {
-        macros::SET_SPEED_EX(agent, 1.8, 0.0, *KINETIC_ENERGY_RESERVE_ATTRIBUTE_MAIN);
-    }
     frame(agent.lua_state_agent, 5.0);
     if macros::is_excute(agent) {
         WorkModule::on_flag(agent.module_accessor, *FIGHTER_STATUS_ATTACK_FLAG_START_SMASH_HOLD);
     }
     frame(agent.lua_state_agent, 8.0);
+    // Synthesised Little Mac lunge: his 21.45-unit forward root motion lives in his
+    // animation and Pikachu's f-smash animation has none. See tools/lunge.sh.
+    if macros::is_excute(agent) {
+        macros::SET_SPEED_EX(agent, 3.0, 0.0, *KINETIC_ENERGY_RESERVE_ATTRIBUTE_MAIN);
+    }
     if macros::is_excute(agent) {
         damage!(agent, *MA_MSC_DAMAGE_DAMAGE_NO_REACTION, *DAMAGE_NO_REACTION_MODE_ALWAYS, 0);
     }
@@ -39,21 +39,24 @@ unsafe extern "C" fn pikachu_game_attacks4(agent: &mut L2CAgentBase) {
         damage!(agent, *MA_MSC_DAMAGE_DAMAGE_NO_REACTION, *DAMAGE_NO_REACTION_MODE_NORMAL, 0);
         AttackModule::clear_all(agent.module_accessor);
     }
+    if macros::is_excute(agent) {
+        macros::SET_SPEED_EX(agent, 0.0, 0.0, *KINETIC_ENERGY_RESERVE_ATTRIBUTE_MAIN);
+    }
 }
 
 
 // ---- f-smash up (Little Mac) : game_attacks4hi ----
 unsafe extern "C" fn pikachu_game_attacks4hi(agent: &mut L2CAgentBase) {
-    // Reproduces Little Mac.s forward lunge, which lives in his animation root
-    // motion and is absent from Pikachu.s f-smash animation. See tools/lunge.sh.
-    if macros::is_excute(agent) {
-        macros::SET_SPEED_EX(agent, 1.8, 0.0, *KINETIC_ENERGY_RESERVE_ATTRIBUTE_MAIN);
-    }
     frame(agent.lua_state_agent, 5.0);
     if macros::is_excute(agent) {
         WorkModule::on_flag(agent.module_accessor, *FIGHTER_STATUS_ATTACK_FLAG_START_SMASH_HOLD);
     }
     frame(agent.lua_state_agent, 8.0);
+    // Synthesised Little Mac lunge: his 21.45-unit forward root motion lives in his
+    // animation and Pikachu's f-smash animation has none. See tools/lunge.sh.
+    if macros::is_excute(agent) {
+        macros::SET_SPEED_EX(agent, 3.0, 0.0, *KINETIC_ENERGY_RESERVE_ATTRIBUTE_MAIN);
+    }
     if macros::is_excute(agent) {
         damage!(agent, *MA_MSC_DAMAGE_DAMAGE_NO_REACTION, *DAMAGE_NO_REACTION_MODE_ALWAYS, 0);
     }
@@ -67,21 +70,24 @@ unsafe extern "C" fn pikachu_game_attacks4hi(agent: &mut L2CAgentBase) {
         damage!(agent, *MA_MSC_DAMAGE_DAMAGE_NO_REACTION, *DAMAGE_NO_REACTION_MODE_NORMAL, 0);
         AttackModule::clear_all(agent.module_accessor);
     }
+    if macros::is_excute(agent) {
+        macros::SET_SPEED_EX(agent, 0.0, 0.0, *KINETIC_ENERGY_RESERVE_ATTRIBUTE_MAIN);
+    }
 }
 
 
 // ---- f-smash down (Little Mac) : game_attacks4lw ----
 unsafe extern "C" fn pikachu_game_attacks4lw(agent: &mut L2CAgentBase) {
-    // Reproduces Little Mac.s forward lunge, which lives in his animation root
-    // motion and is absent from Pikachu.s f-smash animation. See tools/lunge.sh.
-    if macros::is_excute(agent) {
-        macros::SET_SPEED_EX(agent, 1.8, 0.0, *KINETIC_ENERGY_RESERVE_ATTRIBUTE_MAIN);
-    }
     frame(agent.lua_state_agent, 5.0);
     if macros::is_excute(agent) {
         WorkModule::on_flag(agent.module_accessor, *FIGHTER_STATUS_ATTACK_FLAG_START_SMASH_HOLD);
     }
     frame(agent.lua_state_agent, 9.0);
+    // Synthesised Little Mac lunge: his 21.45-unit forward root motion lives in his
+    // animation and Pikachu's f-smash animation has none. See tools/lunge.sh.
+    if macros::is_excute(agent) {
+        macros::SET_SPEED_EX(agent, 3.0, 0.0, *KINETIC_ENERGY_RESERVE_ATTRIBUTE_MAIN);
+    }
     if macros::is_excute(agent) {
         damage!(agent, *MA_MSC_DAMAGE_DAMAGE_NO_REACTION, *DAMAGE_NO_REACTION_MODE_ALWAYS, 0);
     }
@@ -95,6 +101,9 @@ unsafe extern "C" fn pikachu_game_attacks4lw(agent: &mut L2CAgentBase) {
     if macros::is_excute(agent) {
         damage!(agent, *MA_MSC_DAMAGE_DAMAGE_NO_REACTION, *DAMAGE_NO_REACTION_MODE_NORMAL, 0);
         AttackModule::clear_all(agent.module_accessor);
+    }
+    if macros::is_excute(agent) {
+        macros::SET_SPEED_EX(agent, 0.0, 0.0, *KINETIC_ENERGY_RESERVE_ATTRIBUTE_MAIN);
     }
 }
 
