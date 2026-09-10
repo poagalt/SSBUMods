@@ -1,0 +1,6 @@
+fighter/gaogaen/motion/body/c00/motion_list.bin
+fighter/donkey/motion/body/c00/motion_list.bin
+fighter/packun/motion/body/c00/motion_list.bin
+fighter/packun/param/vl.prc
+fighter/gaogaen/param/vl.prc
+fighter/donkey/param/vl.prc

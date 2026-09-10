@@ -261,3 +261,29 @@ DK does not name that way — the real entry names still need to be found with `
    `cargo skyline listen --ip <console-ip>` for live panics. Everything above benefits.
 2. **One test session** with the current build, to confirm the up-B works and calibrate the
    sword's orientation.
+
+## Ptooie — unblocked on assets
+
+Extracted during the game-running window: `fighter/packun/model/spikeball/c00/` (12 files:
+2 mesh objects `spike_all1Shape` + `ballShape`, an 8-bone skeleton `Root/Trans/Rot/Rot2` plus
+four `Collision` bones, one material `metal_spikeball_001`, three textures) and
+`fighter/packun/motion/spikeball/c00/motion_list.bin`. Also grabbed `vl.prc` for packun,
+gaogaen and donkey. `model.nuanmb`, `main.nuanmb` and `update.prc` do not exist for this article.
+
+- [x] Assets staged under `fighter/pikachu/{model,motion}/spikeball/c00/` and declared in
+      `config.json` `new-dir-files`.
+- [x] `smashline::clone_weapon("packun", *WEAPON_KIND_PACKUN_SPIKEBALL, "pikachu", "spikeball",
+      true)` with `FIGHTER_PIKACHU_GENERATE_ARTICLE_SPIKEBALL = 0x7`. Pikachu has exactly seven
+      vanilla articles, so 0x7 is the first free index.
+- [ ] **Nothing spawns it yet.** Piranha Plant's `special_n` status must be ported for the ball
+      to be spat out. Pikachu has `special_n`/`special_air_n`; packun uses `special_n_start` and
+      friends, so motion synthesis is needed on top. This is the same untestable status work as
+      Revenge, and it is now the *only* thing between here and a working neutral B.
+- [ ] Possible `vl.prc` entry for the article. Packun's `vl.prc` is extracted; whether spikeball
+      needs params is unverified.
+
+## Conflict with "Ken Sugimori style Pikachu"
+
+Both mods ship `fighter/pikachu/model/body/c00/model.{adjb,numatb,numdlb,numshb,numshexb,nusktb}`
+— six files. Introduced by v0.3, the first version to touch Pikachu's model. Resolution chosen:
+disable the Ken Sugimori mod by prefixing its folder with a dot, which ARCropolis skips.

@@ -1,0 +1,3 @@
+fighter/packun/model/spikeball/c00/metal_spikeball_001_col.nutexb
+fighter/packun/model/spikeball/c00/metal_spikeball_001_nor.nutexb
+fighter/packun/model/spikeball/c00/metal_spikeball_001_prm.nutexb

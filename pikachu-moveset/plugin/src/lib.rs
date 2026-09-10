@@ -17,6 +17,7 @@ mod throws;
 mod defensive;
 mod specials;
 mod sword;
+mod articles;
 
 #[skyline::main(name = "rat_of_doom")]
 pub fn main() {
@@ -27,4 +28,5 @@ pub fn main() {
     defensive::install();
     specials::install();
     sword::install();
+    articles::install();
 }

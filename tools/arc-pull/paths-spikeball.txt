@@ -1,0 +1,15 @@
+fighter/packun/model/spikeball/c00/model.numdlb
+fighter/packun/model/spikeball/c00/model.numshb
+fighter/packun/model/spikeball/c00/model.nusktb
+fighter/packun/model/spikeball/c00/model.numatb
+fighter/packun/model/spikeball/c00/model.nuhlpb
+fighter/packun/model/spikeball/c00/model.numshexb
+fighter/packun/model/spikeball/c00/model.xmb
+fighter/packun/model/spikeball/c00/model.nusrcmdlb
+fighter/packun/model/spikeball/c00/model.nuanmb
+fighter/packun/model/spikeball/c00/dark_model.numatb
+fighter/packun/model/spikeball/c00/light_model.numatb
+fighter/packun/model/spikeball/c00/metamon_model.numatb
+fighter/packun/motion/spikeball/c00/motion_list.bin
+fighter/packun/motion/spikeball/c00/main.nuanmb
+fighter/packun/motion/spikeball/c00/update.prc
