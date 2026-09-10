@@ -27,11 +27,44 @@
 #                      remove_exist_object_id.
 #
 # Regenerate with:  bash tools/gen-vlprc.sh
+#
+# ============================================================================================
+# DISABLED, AND THIS IS WHY. Shipping this crashed Pikachu on FIGHTER LOAD.
+#
+# The v0.24 crash report (work/crash/01789067844_*.log) is a null dereference on TaskWorker2 with
+# `smashline + 0x1769c (load_fighter_effects + 0x48)` as the top frame. That is the SAME signature
+# as the article-clone crash documented in src/articles/mod.rs, and the cause there was also a
+# vl.prc disagreement: smashline's params.rs (init_fighter_p_object) reads the HOST fighter's own
+# vl.prc to build its param object list, and a layout it does not expect null-derefs during
+# fighter init.
+#
+# And the diff is unambiguous. Between the v0.23 boot and the v0.24 boot, the only param file that
+# changed is this one -- `git diff --stat v0.23 v0.24 -- pikachu-moveset/` reports exactly
+# `fighter/pikachu/param/vl.prc | Bin 0 -> 7293 bytes`. Incineroar's param_special_s is a list[4]
+# of ~50 entries against Pikachu's Skull Bash object; same shape, different size.
+#
+# WHAT IS LOST BY TURNING IT OFF: the whipped victim's engine-side statuses read
+# special_s_through_target_speed off the grabber, and Pikachu's own param_special_s has no such
+# key, so those lookups return 0. Alolan Whip's rebound distance may therefore be wrong or absent.
+# That is a worse move, not a broken game, and it trades correctly against a crash on load.
+#
+# TO TRY IT AGAIN, the thing to establish first is whether smashline tolerates a replaced param
+# object at all, or only an ADDED one. If only added, the way to get these numbers to the engine is
+# a differently-named object plus a plugin-side reader, not a replacement.
+SHIP_PARAM_SPECIAL_S=0
+# ============================================================================================
 set -euo pipefail
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 VAN="$ROOT/extracted/fighter/pikachu/param/vl.prc"
 OUT="$ROOT/pikachu-moveset/mod/fighter/pikachu/param/vl.prc"
 VLMERGE="$ROOT/tools/prc-tool/target/release/vlmerge.exe"
+
+if [ "$SHIP_PARAM_SPECIAL_S" = "0" ]; then
+    rm -f "$OUT"
+    echo "  param_special_s override DISABLED -- Pikachu keeps his vanilla vl.prc"
+    echo "  (it null-dereferenced in smashline's load_fighter_effects on fighter load)"
+    exit 0
+fi
 
 [ -f "$VAN" ] || { echo "no extracted vanilla vl.prc at $VAN" >&2; exit 1; }
 

@@ -59,7 +59,18 @@ fi
 # object would still be Skull Bash's, every through_target lookup the victim's status makes would
 # return 0, and the whipped opponent would go nowhere. Checking a key that only Incineroar's object
 # has catches that.
-if [ -f "$V" ]; then
+# The param_special_s override and what is shipped must agree in BOTH directions. It is gated off
+# in tools/gen-vlprc.sh because shipping it null-dereferenced smashline's load_fighter_effects on
+# fighter load -- so a check that only fired when the file was PRESENT would have missed the case
+# that actually happened.
+want_vl=$(grep -cx 'SHIP_PARAM_SPECIAL_S=1' "$ROOT/tools/gen-vlprc.sh" || true)
+if [ "$want_vl" != "0" ] && [ ! -f "$V" ]; then
+  echo "  FAIL gen-vlprc.sh ships param_special_s but no vl.prc is present"; rc=1
+elif [ "$want_vl" = "0" ] && [ -f "$V" ]; then
+  echo "  FAIL a vl.prc is shipped but the override is disabled -- delete it or re-enable the gate"; rc=1
+elif [ "$want_vl" = "0" ]; then
+  echo "  ok  param_special_s override off, no vl.prc shipped (vanilla, no load-time risk)"
+else
   n=$("$ROOT/tools/prc-tool/target/release/vlkeys.exe" "$V" 2>/dev/null | grep -c '^ *0x' || true)
   if [ "$n" != "20" ]; then
     echo "  FAIL shipped vl.prc has $n top-level entries, expected 20 -- something was ADDED, not replaced"; rc=1
@@ -72,8 +83,17 @@ if [ -f "$V" ]; then
   else
     echo "  ok  vl.prc carries Incineroar's param_special_s ($n entries, article count unchanged)"
   fi
-else
-  echo "  FAIL no vl.prc shipped -- Alolan Whip's victim has no through_target params to read"; rc=1
+fi
+
+echo; echo "== 3d. no replaced move plays one of Pikachu's own animations =="
+# The exhaustive version of the bug that made two of the three f-tilt angles keep his tail whip:
+# a source fighter need not have every variant Pikachu has. Classifies each into REPOINTED (the
+# shipped motion_list names a different file than vanilla), LOCKED OUT (only reachable through a
+# status src/specials/lockout bounces out of), or GAP -- and only GAP fails.
+VAR="$ROOT/tools/motion-patch/target/release/variants.exe"
+"$VAR" "$ROOT/extracted" "$M" 2>/dev/null | tail -1
+if "$VAR" "$ROOT/extracted" "$M" 2>/dev/null | grep -q 'GAP --'; then
+  echo "  FAIL a replaced move still plays one of Pikachu's own animations"; rc=1
 fi
 
 echo; echo "== 3c. ported hitboxes land where the source character's do =="
@@ -89,7 +109,9 @@ echo; echo "== 4. fighter_param.prcxml parses and carries Pikachu's attributes =
   "$ROOT/pikachu-moveset/mod/fighter/common/param/fighter_param.prcxml" 7 \
   weight=135 walk_speed_max=1.575 dash_speed=2.42 run_speed_max=2.464 \
   jump_y=50.51 mini_jump_y=17.34 jump_aerial_y=50.51 jump_initial_y=27.7805 \
-  air_speed_x_stable=1.332 air_speed_y_stable=1.63 dive_speed_y=3.097 air_accel_y=0.13 \n  landing_attack_air_frame_n=12 landing_attack_air_frame_f=10 landing_attack_air_frame_b=8 \n  landing_attack_air_frame_hi=9 landing_attack_air_frame_lw=14 || rc=1
+  air_speed_x_stable=1.332 air_speed_y_stable=1.63 dive_speed_y=3.097 air_accel_y=0.13 \
+  landing_attack_air_frame_n=12 landing_attack_air_frame_f=10 landing_attack_air_frame_b=8 \
+  landing_attack_air_frame_hi=9 landing_attack_air_frame_lw=14 || rc=1
 
 echo; echo "== 4b. fighter_param_motion.prcxml carries Fox's dodge windows =="
 "$ROOT/tools/prc-tool/target/release/prcxmlcheck.exe" \

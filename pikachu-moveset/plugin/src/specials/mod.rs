@@ -28,6 +28,7 @@
 // tools/motion-patch/src/bin/synth.rs, and they ADOPT G&W's animations -- they used to keep
 // Pikachu's Quick Attack ones, which is its own reason the move looked like a teleport.
 pub mod status;
+pub mod lockout;
 pub mod speciallw;
 pub mod acmd_speciallw;
 pub mod specials;
@@ -38,6 +39,7 @@ pub mod specialhifall;
 pub mod acmd;
 
 pub fn install() {
+    lockout::install();
     speciallw::install();
     acmd_speciallw::install();
     specials::install();

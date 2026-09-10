@@ -2,8 +2,8 @@
 # Runs the parity harness, deploys the plugin and the whole mod folder to the console, then
 # VERIFIES every uploaded file against its local size. Refuses to deploy if any check fails.
 #
-# FTP is only reachable when Smash is NOT running: the server answering is a hand-launched
-# ftpd-classic, which exits when a game starts.
+# FTP works REGARDLESS of what the console is running, as long as the login is supplied -- see the
+# credentials block below. It used to require Smash closed and ftpd-classic launched by hand.
 #
 # TWO LESSONS ARE BUILT IN HERE, both paid for:
 #
@@ -22,6 +22,29 @@ ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 HOST=<console-ip>
 PORT=5000
 B="ftp://$HOST:$PORT"
+
+# CREDENTIALS, AND WHY THIS MATTERS MORE THAN IT LOOKS.
+#
+# There are TWO FTP servers in play on this console and they behave differently:
+#
+#   ftpd-classic   hand-launched from hbmenu, ANONYMOUS, and it exits the moment a game starts.
+#   sys-ftpd       a background SYSMODULE at atmosphere/contents/420000000000000E with a
+#                  boot2.flag, so it runs from boot and does not care what else is running --
+#                  but config/sys-ftpd/config.ini sets anonymous:=0, so it REQUIRES a login.
+#
+# Every FTP call here used to be credential-less, which silently meant "only works against
+# ftpd-classic", which in turn meant every deploy needed Smash closed AND ftpd launched by hand.
+# A credential-less request to sys-ftpd returns FTP 430 (invalid username or password) -- and
+# because 430 is not an obviously-auth-shaped failure, it read for a long time as "FTP is down".
+#
+# With the login supplied, sys-ftpd answers regardless of what the console is doing, which is what
+# makes deploying and reading crash reports possible without asking for anything.
+FTP_USER=poaga
+FTP_PASS="$(cat "$ROOT/.ftp-credentials.local" 2>/dev/null | tr -d '\r\n')"
+CURL_AUTH=()
+if [ -n "$FTP_PASS" ]; then
+    CURL_AUTH=(-u "$FTP_USER:$FTP_PASS")
+fi
 NRO="$ROOT/pikachu-moveset/plugin/target/aarch64-skyline-switch/release/librat_of_doom.nro"
 MOD="$ROOT/pikachu-moveset/mod"
 DEST="$B/ultimate/mods/Rat%20of%20Doom"
@@ -49,8 +72,8 @@ if [ "$VERIFY_ONLY" = "0" ]; then
 fi
 
 echo
-if ! curl -s --connect-timeout 5 --max-time 10 -l "$B/" >/dev/null 2>&1; then
-    echo "FTP unreachable on $HOST:$PORT. Smash is probably running."
+if ! curl -s "${CURL_AUTH[@]}" --connect-timeout 5 --max-time 10 -l "$B/" >/dev/null 2>&1; then
+    echo "FTP unreachable on $HOST:$PORT (sys-ftpd should answer regardless of what is running)."
     exit 1
 fi
 
@@ -59,7 +82,7 @@ if [ "$VERIFY_ONLY" = "1" ]; then
 else
 echo "== deploying plugin =="
 printf "  %-56s " "librat_of_doom.nro"
-curl -s --max-time 180 -T "$NRO" "$PLUGINS/librat_of_doom.nro" -w "http=%{http_code} %{size_upload}\n"
+curl -s "${CURL_AUTH[@]}" --max-time 180 -T "$NRO" "$PLUGINS/librat_of_doom.nro" -w "http=%{http_code} %{size_upload}\n"
 
 echo "== deploying mod folder =="
 cd "$MOD"
@@ -67,7 +90,7 @@ mapfile -t FILES < <(find . -type f | sed 's|^\./||' | sort)
 for f in "${FILES[@]}"; do
     enc=$(printf '%s' "$f" | sed 's/ /%20/g')
     printf "  %-56s " "$f"
-    code=$(curl -s --max-time 300 --ftp-create-dirs -T "$f" "$DEST/$enc" -w "%{http_code}")
+    code=$(curl -s "${CURL_AUTH[@]}" --max-time 300 --ftp-create-dirs -T "$f" "$DEST/$enc" -w "%{http_code}")
     if [ "$code" = "226" ]; then echo "ok"; else echo "FAILED ($code)"; fail=1; fi
 done
 
@@ -75,12 +98,11 @@ done
 # a file dropped from the mod folder would otherwise linger and keep overriding vanilla --
 # `vl.prc` declared a 21st article param with no weapon behind it. Explicit rather than a diff of
 # the remote tree, so this can never delete something unrelated.
-# Empty on purpose. fighter/pikachu/param/vl.prc lived here while the mod shipped no override; it
-# ships one again (Incineroar's param_special_s, so Alolan Whip's victim has through_target
-# numbers to read), so it is a normal shipped file now. The loop below SKIPs anything still
-# present in the mod tree rather than deleting it, but leaving a stale name here would print a
-# warning on every deploy and eventually be ignored.
+# vl.prc is back here because the param_special_s override is disabled -- it null-dereferenced in
+# smashline load_fighter_effects on fighter load. See tools/gen-vlprc.sh. The loop SKIPs anything
+# still present in the mod tree, so this stays correct if the override is ever re-enabled.
 RETIRED="
+fighter/pikachu/param/vl.prc
 "
 echo
 echo "== retiring files the mod no longer ships =="
@@ -90,7 +112,7 @@ while read -r f; do
         echo "  SKIP  $f is still shipped -- remove it from RETIRED"; continue
     fi
     printf "  %-56s " "$f"
-    out=$(curl -s --max-time 60 -Q "-DELE $REMOTE_ROOT/$f" "$DEST/" 2>&1)
+    out=$(curl -s "${CURL_AUTH[@]}" --max-time 60 -Q "-DELE $REMOTE_ROOT/$f" "$DEST/" 2>&1)
     case "$out" in
         *550*) echo "already gone" ;;
         *)     echo "deleted" ;;
@@ -113,11 +135,12 @@ for d in $(printf '%s\n' "${FILES[@]}" | xargs -n1 dirname | sort -u); do
     denc=$(printf '%s' "$d" | sed 's/ /%20/g')
     safe=$(printf '%s' "$d" | tr '/.' '__')
     url="$DEST/"; [ "$d" != "." ] && url="$DEST/$denc/"
-    curl -s --max-time 90 "$url" 2>/dev/null | tr -d '\r' > "$LS/$safe.txt"
+    curl -s "${CURL_AUTH[@]}" --max-time 90 "$url" 2>/dev/null | tr -d '\r' > "$LS/$safe.txt"
     if [ ! -s "$LS/$safe.txt" ]; then
         echo "  could not list $d -- cannot verify it"; bad=$((bad+1))
     fi
 done
+BROKEN=()
 for f in "${FILES[@]}"; do
     want=$(stat -c%s "$f")
     d=$(dirname "$f"); b=$(basename "$f")
@@ -128,8 +151,50 @@ for f in "${FILES[@]}"; do
     if [ "$got" != "$want" ]; then
         printf "  MISMATCH %-52s local %s remote %s\n" "$f" "$want" "${got:-absent}"
         bad=$((bad+1))
+        BROKEN+=("$f")
     fi
 done
+
+# A REPAIR PASS, because sys-ftpd drops files under load and noticing by hand does not scale.
+#
+# Observed on a single 69-file deploy: one upload returned FTP 200 instead of 226, one landed at
+# zero bytes, and one directory listing came back empty so its two files could not be verified at
+# all. The verifier caught every one -- that is what it is for -- but a deploy that reports failure
+# and stops is a deploy that needs a human, and the whole point of the credentials work was to stop
+# needing one. So re-upload exactly the files that failed and check them again.
+#
+# Bounded and per-file: this retries the named mismatches only, never a blanket re-run, so a
+# genuinely broken file cannot hide behind an endless loop.
+if [ "$bad" -gt 0 ] && [ "$VERIFY_ONLY" = "0" ]; then
+    echo
+    echo "== repairing ${#BROKEN[@]} file(s) =="
+    still=0
+    for f in "${BROKEN[@]}"; do
+        want=$(stat -c%s "$f")
+        enc=$(printf '%s' "$f" | sed 's/ /%20/g')
+        ok=0
+        for attempt in 1 2 3; do
+            printf "  %-52s try %d " "$f" "$attempt"
+            code=$(curl -s "${CURL_AUTH[@]}" --max-time 300 --ftp-create-dirs -T "$f" "$DEST/$enc" -w "%{http_code}")
+            # Re-list just this file's directory rather than trusting the upload's return code --
+            # the zero-byte case reported success.
+            denc=$(printf '%s' "$(dirname "$f")" | sed 's/ /%20/g')
+            url="$DEST/"; [ "$(dirname "$f")" != "." ] && url="$DEST/$denc/"
+            got=$(curl -s "${CURL_AUTH[@]}" --max-time 90 "$url" 2>/dev/null | tr -d '\r' \
+                  | awk -v n="$(basename "$f")" '$NF == n { print $5; exit }')
+            if [ "$got" = "$want" ]; then echo "ok ($code)"; ok=1; break; fi
+            echo "still wrong (${got:-absent})"
+        done
+        [ "$ok" = "1" ] || still=$((still+1))
+    done
+    if [ "$still" -eq 0 ]; then
+        echo "  ok  all ${#BROKEN[@]} repaired, all ${#FILES[@]} files now verified"
+        bad=0
+    else
+        echo "  $still file(s) still wrong after 3 attempts"
+    fi
+fi
+
 if [ "$bad" -eq 0 ]; then
     echo "  ok  all ${#FILES[@]} files verified by size"
 else
