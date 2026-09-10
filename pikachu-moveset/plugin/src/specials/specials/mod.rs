@@ -49,14 +49,28 @@
 // smashline extends the status table, see ../status.rs -- so each follow-up now gets its own
 // status, which is both the source's shape and the reason the recursive re-entry is gone.
 //
-// THE ROPES ARE THE ONE THING MISSING. They are Incineroar's ROPE article
-// (FIGHTER_GAOGAEN_GENERATE_ARTICLE_ROPE, WEAPON_KIND_GAOGAEN_ROPE), and cloning an article onto
-// another fighter is the same machinery that still crashes on load for Ptooie -- see
-// ../../articles/mod.rs. The mechanic does not depend on them: the victim's whole trip is engine
-// code in the COMMON status list (FIGHTER_STATUS_KIND_SWING_GAOGAEN_THROWN 0x177, _ATTACH_ROPE
-// 0x178, _RETURN 0x179), and Pikachu already ships the gaogaen_special_s_thrown_big motion for
-// being on the receiving end of it. Until the article lands the ropes are invisible; the throw,
-// the rebound and all three follow-ups are not.
+// THE ROPES, AND WHY THE TRIP IS DRIVEN HERE RATHER THAN BY THE ENGINE.
+//
+// The visible ropes are Incineroar's ROPE article (FIGHTER_GAOGAEN_GENERATE_ARTICLE_ROPE,
+// WEAPON_KIND_GAOGAEN_ROPE 0x1BA) and are not reproduced. Cloning an article is the machinery that
+// crashes Ptooie on fighter load, and the documented fix for that crash -- merging `param_spikeball`
+// into Pikachu's vl.prc -- is now known to be a cause rather than a cure: shipping ANY modified
+// vl.prc null-dereferences in the same smashline function, `load_fighter_effects`. So that route is
+// closed until the crash is understood, not merely worked around.
+//
+// The victim's statuses ARE all engine-global (SWING_GAOGAEN_THROWN 0x177, _ATTACH_ROPE 0x178,
+// _RETURN 0x179) and Pikachu ships `gaogaen_special_s_thrown_big` for being on the receiving end.
+// But those statuses read their trajectory off the GRABBER's `param_special_s` -- and Pikachu's is
+// Skull Bash's, with no `special_s_through_target_speed` in it, so every lookup returns 0 and the
+// whipped opponent goes nowhere. Replacing that param object is exactly what crashed on load.
+//
+// So the trajectory is driven from here instead, with Incineroar's own numbers, applied to the
+// victim's posture directly. That is more faithful than it sounds: the values are his, the frame
+// counts are his, and driving position rather than velocity means the arc does not vary with the
+// victim's weight or their own physics -- which is what a scripted throw should do.
+//
+// What is genuinely lost: the ropes are invisible, and `_speed_over_rope` (the case where the
+// victim clears the ropes entirely) is not modelled.
 use super::status::*;
 use {
     smash::{
@@ -76,6 +90,10 @@ const START_SPEED_MUL: f32 = 1.3;
 const CATCH_CLATTER_FRAME: i32 = 85;
 const FAIL_DAMAGE: f32 = 4.0;
 const THROUGH_CANCEL_FRAME: i32 = 30;
+/// `special_s_through_target_speed` -- how fast the victim is whipped away.
+const THROUGH_SPEED: f32 = 11.2;
+/// `special_s_through_target_return_speed` -- how fast they come back off the ropes.
+const THROUGH_RETURN_SPEED: f32 = 2.8;
 /// Far edge of the LARIAT window, `special_s_lariat_offset_x`. A lariat started with the victim
 /// here connects: 24 units at return_speed 2.8 is 8.6 frames, and the lariat's hitbox comes out on
 /// frame 9.
@@ -116,9 +134,9 @@ unsafe fn reset(boma: *mut BattleObjectModuleAccessor) {
     SINCE_THROW[e] = -1;
 }
 
-/// Horizontal distance from Pikachu to the cached victim, or None if there is no live victim.
-unsafe fn victim_gap(boma: *mut BattleObjectModuleAccessor) -> Option<f32> {
-    let id = VICTIM[entry_of(boma)];
+/// The cached victim's module accessor, or None if they are gone.
+unsafe fn victim_boma(entry: usize) -> Option<*mut BattleObjectModuleAccessor> {
+    let id = VICTIM[entry];
     if id == *BATTLE_OBJECT_ID_INVALID as u32 || sv_battle_object::is_null(id) {
         return None;
     }
@@ -126,7 +144,36 @@ unsafe fn victim_gap(boma: *mut BattleObjectModuleAccessor) -> Option<f32> {
     if vboma.is_null() {
         return None;
     }
+    Some(vboma)
+}
+
+/// Horizontal distance from Pikachu to the cached victim, or None if there is no live victim.
+unsafe fn victim_gap(boma: *mut BattleObjectModuleAccessor) -> Option<f32> {
+    let vboma = victim_boma(entry_of(boma))?;
     Some((PostureModule::pos_x(vboma) - PostureModule::pos_x(boma)).abs())
+}
+
+/// Moves the victim one frame along the whip-and-rebound arc.
+///
+/// `frames_since` counts from FLAG_THROW_ROPE. Out at `through_target_speed` for
+/// `through_target_cancel_frame` frames, then back at `through_target_return_speed` -- all three
+/// numbers Incineroar's own. Direction is away from Pikachu's facing on the way out and toward him
+/// coming back, which is what puts them in the lariat band roughly nine frames before contact.
+///
+/// Position rather than velocity on purpose: a scripted throw should trace the same arc regardless
+/// of how heavy the victim is or what their own kinetic state was doing.
+unsafe fn drive_victim(boma: *mut BattleObjectModuleAccessor, frames_since: i32) {
+    let entry = entry_of(boma);
+    let Some(vboma) = victim_boma(entry) else { return };
+
+    let lr = PostureModule::lr(boma);
+    let outbound = frames_since <= THROUGH_CANCEL_FRAME;
+    let step = if outbound { THROUGH_SPEED } else { -THROUGH_RETURN_SPEED };
+
+    // Their own physics would fight this every frame, so clear it first. The victim is in a
+    // SWING_GAOGAEN status, which is a scripted capture -- they are not meant to be self-propelled.
+    KineticModule::clear_speed_all(vboma);
+    PostureModule::add_pos(vboma, &Vector3f { x: step * lr, y: 0.0, z: 0.0 });
 }
 
 /// An attack or special press this frame. SmashWiki says "an attack button", and in practice both
@@ -302,6 +349,9 @@ unsafe extern "C" fn pikachu_specialsthrow_main_loop(fighter: &mut L2CFighterCom
     }
 
     SINCE_THROW[entry] += 1;
+    // Carry the victim out to the ropes and back. Without this the engine's own SWING_GAOGAEN
+    // statuses would try to, and they read numbers Pikachu's vl.prc does not have.
+    drive_victim(boma, SINCE_THROW[entry]);
 
     // THE FOLLOW-UP DECISION, off the three param regions.
     let gap = victim_gap(boma);

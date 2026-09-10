@@ -13,16 +13,37 @@
 // tools/reach/src/bin/deforeign.rs.
 //
 // The first attempt at this crashed the game on fighter load -- a null dereference on
-// TaskWorker2 inside smashline (fighter_initialize_object_data / load_fighter_effects).
+// TaskWorker2 inside smashline, with `load_fighter_effects + 0x48` as the top frame.
 //
-// Root cause was NOT missing effects, despite appearances. smashline's params.rs
-// (init_fighter_p_object) builds its allowed-name list as `param_<new_article_name>` and reads
-// it from the HOST fighter's own vl.prc. `param_spikeball` (0xf679aaf13) exists in packun's
-// vl.prc and was absent from Pikachu's, so the lookup found nothing. Every one of Pikachu's own
-// seven articles has its `param_*` entry; the cloned one had none.
+// WHAT THE PARAM MACHINERY ACTUALLY DOES, read out of vendor/sl_params.rs rather than inferred.
+// `init_fighter_p_object` returns immediately unless the fighter has a registered new article or a
+// whitelisted param; otherwise it reads the prc stream the game is ALREADY loading for that
+// fighter -- the host's own vl.prc -- builds `allowed_names` (automatically including
+// `param_<new_article_name>` for every registered clone), filters the prc to those keys, and
+// serves them through a replaced `get_param_object`. So the article's param object really does
+// have to be present in the HOST's vl.prc; that part of the old note was right.
 //
-// Fix: tools/prc-tool/src/bin/vlmerge.rs copies that one param object into Pikachu's vl.prc,
-// which the mod now ships. No effect archive is involved, so this stays CSK-free.
+// TWO THINGS IN THE OLD NOTE WERE WRONG, and both matter:
+//
+// 1. It claimed the missing param was the crash's root cause. The evidence never supported that.
+//    `init_fighter_p_object` and `load_fighter_effects` are different functions, and the crash was
+//    in the latter -- which handles effect search indices and never touches params.
+// 2. `smashline::add_param_object(fighter, object)` exists and was never tried. It feeds the same
+//    WHITELISTED_PARAMS the filter reads. For a CLONE it is redundant (the article registration
+//    already adds the name), but it is the supported way to whitelist a param object without
+//    editing a vl.prc at all.
+//
+// AND SHIPPING A MODIFIED vl.prc IS NOW ITSELF SUSPECT. v0.24 shipped one -- Incineroar's
+// param_special_s, nothing to do with articles -- and crashed on fighter load in
+// load_fighter_effects, the same function. Removing it fixed the crash. But that deploy ALSO had a
+// failed upload and a zero-byte .nuanmb on the card, and those files are declared in config.json's
+// new-dir-files, which injects them into the search filesystem that load_fighter_effects indexes
+// into. Two candidates, one data point each. tools/deploy.sh now repairs truncated uploads
+// automatically, which removes the second candidate from future runs and makes the next attempt
+// actually informative.
+//
+// tools/prc-tool/src/bin/vlmerge.rs still exists to copy the param object in, and tools/check.sh
+// step 3b enforces that it and CLONE_ENABLED agree in both directions.
 //
 // Visual note: the ball's appearance comes from its MODEL files, which are shipped, not from
 // effects. Absent packun's effect archive the particle work will not play, but the ball itself

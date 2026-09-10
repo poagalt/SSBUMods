@@ -65,6 +65,7 @@ trap 'rm -f "$LOCK"' EXIT
 VERIFY_ONLY=0
 [ "${1:-}" = "--verify-only" ] && VERIFY_ONLY=1
 fail=0
+warn=0
 
 if [ "$VERIFY_ONLY" = "0" ]; then
   echo "== parity harness =="
@@ -91,8 +92,15 @@ for f in "${FILES[@]}"; do
     enc=$(printf '%s' "$f" | sed 's/ /%20/g')
     printf "  %-56s " "$f"
     code=$(curl -s "${CURL_AUTH[@]}" --max-time 300 --ftp-create-dirs -T "$f" "$DEST/$enc" -w "%{http_code}")
-    if [ "$code" = "226" ]; then echo "ok"; else echo "FAILED ($code)"; fail=1; fi
+    # A bad code is a WARNING, not a failure. VERIFICATION IS THE AUTHORITY -- which is the whole
+    # lesson in this file's header, and this loop was contradicting it: a file that returned FTP 200
+    # and then landed byte-perfect (or landed at zero bytes and was repaired) still forced
+    # "DEPLOY HAD FAILURES", which trains you to ignore the word. Both directions of that mistake
+    # have now been observed on real deploys. The only thing that decides the outcome is whether the
+    # bytes on the card match the bytes here.
+    if [ "$code" = "226" ]; then echo "ok"; else echo "warn ($code)"; warn=$((warn+1)); fi
 done
+[ "$warn" -eq 0 ] || echo "  $warn upload(s) returned an odd code -- verification below is what counts"
 
 # Files the mod used to ship and must no longer be present. Uploading cannot remove anything, so
 # a file dropped from the mod folder would otherwise linger and keep overriding vanilla --

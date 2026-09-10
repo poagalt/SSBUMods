@@ -53,6 +53,20 @@ unsafe extern "C" fn pikachu_specialhi_main(fighter: &mut L2CFighterCommon) -> L
     // 0x200000E2, which on Pikachu is FLAG_MTRANS_SMPL_GROUND -- so the port was corrupting his
     // motion-transition state on every up-B. Nothing in this port ever READS the flag (only
     // G&W's own C++ does), so the write is simply removed rather than remapped.
+
+    // INSURANCE AGAINST A PERMANENTLY INVISIBLE PIKACHU.
+    //
+    // Pikachu's own Quick Attack hides his model: expression_specialairhi1, _2, _end and
+    // expression_specialhiend all call VisibilityModule::set_whole, and the ONLY thing that turns
+    // it back on is the tail of those same scripts. So any path that hides him and then leaves
+    // early strands him invisible for the rest of the stock -- which is exactly what playtest saw
+    // ("turn him invisible") while the up-B was wrongly routed through SPECIAL_HI_WARP.
+    //
+    // Those motions are unreachable now: the status remap is gone and ../lockout bounces out of
+    // SPECIAL_HI_END before any motion change. This is belt to that braces, because the cost of
+    // being wrong is a mod that looks completely broken and the cost of the call is nothing.
+    VisibilityModule::set_whole(fighter.module_accessor, true);
+
     if fighter.global_table[0x16] != *SITUATION_KIND_GROUND {
         MotionModule::change_motion(fighter.module_accessor, Hash40::new("special_air_hi"), 0.0, 1.0, false, 0.0, false, false);
     } else {
