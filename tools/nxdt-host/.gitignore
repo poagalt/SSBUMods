@@ -1,0 +1,4 @@
+.venv/
+out/
+smoke.log
+libusb-1.0.dll
