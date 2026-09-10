@@ -131,13 +131,25 @@ pub fn bone_world(
     let mut cur = bi as i64;
     while cur >= 0 {
         let i = cur as usize;
-        let local = if names[i] == "trans" || names[i] == "rot" {
-            binds[i]
-        } else {
-            anim.get(&names[i])
-                .map(|fr| fr[frame.min(fr.len().saturating_sub(1))])
-                .unwrap_or(binds[i])
-        };
+        // Take every bone from the animation when it has a track, including `Rot`: its
+        // translation is the fighter's standing height and the animation carries the SOURCE's
+        // value (Corrin 11.0, Mythra 9.42, Little Mac 8.33 -- each equal to that fighter's own
+        // bind). A dropped-in animation therefore lifts the host to the source's height, so
+        // substituting the host's bind here understated the drop-in's accuracy by ~6 units.
+        //
+        // `Trans` is different: its translation is root motion, which the game consumes to move
+        // the fighter (Little Mac's f-smash runs 0 -> 17.77 there). A position expressed
+        // relative to `top` is already relative to the moved fighter, so counting it again
+        // inflated reach by the whole length of the lunge. Its translation alone is dropped.
+        let mut local = anim
+            .get(&names[i])
+            .map(|fr| fr[frame.min(fr.len().saturating_sub(1))])
+            .unwrap_or(binds[i]);
+        if names[i] == "trans" {
+            local[3][0] = 0.0;
+            local[3][1] = 0.0;
+            local[3][2] = 0.0;
+        }
         m = mul(m, local);
         cur = parents[i];
     }
