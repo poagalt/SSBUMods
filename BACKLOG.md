@@ -228,3 +228,36 @@ longer speculative — only unproven.
       motion, which reads better than popping in and out but deviates from the brief.
 - [ ] Verify `share-to-added` resolves a *vanilla* source path. If the blade renders untextured,
       ship the three `.nutexb` files instead — a one-line change in `merge-sword.sh`.
+
+## The four remaining features — what actually blocks each
+
+**Neutral B — Ptooie.** Blocked only on **asset extraction**. The recipe is
+`smashline::clone_weapon` plus `ssbu-mod-workshop/episode46/ArticleCloningGuide.md`, and
+Pikachu is confirmed cloneable. Needs `fighter/packun/model/<article>/` and
+`fighter/packun/motion/<article>/`, which require `arc-network`, which requires the game
+running. Ready to go the moment there is a window.
+
+**Down B — Revenge.** Blocked on **novel implementation, no reference exists**. Marth's counter
+ACMD only toggles `FIGHTER_MARTH_STATUS_SPECIAL_LW_FLAG_SHIELD`; the detection is engine-side and
+keyed to fighter-specific statuses Pikachu does not have. HewDraw-Remix, the largest open-source
+moveset project, only *tweaks* vanilla counters — `bayonetta/src/status/speciallw.rs` overrides
+`Pre` and nothing else. So adding a counter to a fighter without one means writing the
+`StatusLine::CheckDamage` protocol, a new status kind, damage nullification and the buff system
+from scratch. `AttackModule::set_power_up` / `set_reaction_mul` are the right APIs for the
+multiplier half. Plausible failure mode is a soft-lock, so this needs in-game iteration, not a
+blind write.
+
+**Side B — Alolan Whip.** Command grab with three branching follow-ups that holds the opponent.
+Needs catch and throw statuses plus the opponent's `gaogaen_special_s_thrown_*` motions, which
+*are* present on Pikachu. Motion synthesis handles the caster side.
+
+**F-throw — DK cargo.** Motion entries `throw_f_{f,b,hi,lw}` are synthesized and carry DK's real
+FAF. What remains is the carry state machine: `catch_cargo_wait` and its walk/jump/turn, which
+DK does not name that way — the real entry names still need to be found with `tools/dump.exe`.
+
+## What would unblock the most, in order
+
+1. **A window with Smash running** — extracts Piranha Plant's article files, and gives
+   `cargo skyline listen --ip <console-ip>` for live panics. Everything above benefits.
+2. **One test session** with the current build, to confirm the up-B works and calibrate the
+   sword's orientation.
