@@ -65,3 +65,20 @@ _Avoid_: projectile, entity, spawn
 **Motion**:
 An animation entry, declared in `motion_list.yml` and backed by a `.nuanmb` file.
 _Avoid_: anim, animation file
+
+### Fidelity, continued
+
+**Move property**:
+A non-hitbox behaviour belonging to one specific move — an armor window, a limb intangibility
+window, an autocancel point. Ports with the move.
+_Avoid_: special property, quirk
+
+**Character-wide trait**:
+A property the source fighter carries across their whole moveset (K. Rool's belly armor, Terry's
+special-cancel, Cloud's Limit gauge). Does **not** port. See ADR 0001.
+_Avoid_: passive, universal trait
+
+**Parity table**:
+The single checked-in machine-readable record of every hitbox's source-of-truth values. Move
+scripts are generated from it, so it is the only place a value is edited by hand.
+_Avoid_: hitbox data, spec sheet
