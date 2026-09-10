@@ -42,13 +42,27 @@ const SYNTH: &[(&str, &str, &str, &str, bool)] = &[
     // angled animations rather than playing his straight swing.
     ("attack_s4_hi",     "attack_s4_s",          "littlemac", "attack_s4_hi",     true),
     ("attack_s4_lw",     "attack_s4_s",          "littlemac", "attack_s4_lw",     true),
-    // DK cargo throws. Animations adopted; the carry itself is stationary -- see
-    // src/specials/cargo/mod.rs for why the eleven SHOULDER_* locomotion statuses are not
-    // reproduced.
+    // DK cargo throws.
     ("throw_f_f",        "throw_f",              "donkey",    "throw_f_f",        true),
     ("throw_f_b",        "throw_b",              "donkey",    "throw_f_b",        true),
     ("throw_f_hi",       "throw_hi",             "donkey",    "throw_f_hi",       true),
     ("throw_f_lw",       "throw_lw",             "donkey",    "throw_f_lw",       true),
+    // DK cargo CARRY -- the nine poses he uses while holding someone. The template for each is
+    // Pikachu's own equivalent movement motion, because the carry keeps his locomotion (his walk
+    // speeds, his jump) and changes only the pose; see src/specials/cargo/mod.rs.
+    //
+    // All nine animations were already on disk when this was written: the full c00 extraction
+    // covers every fighter, so a feature that had been filed as "blocked on a console session"
+    // turned out to be entirely local work.
+    ("shoulder_wait",        "wait",          "donkey", "shoulder_wait",        true),
+    ("shoulder_walk_slow",   "walk_slow",     "donkey", "shoulder_walk_slow",   true),
+    ("shoulder_walk_middle", "walk_middle",   "donkey", "shoulder_walk_middle", true),
+    ("shoulder_walk_fast",   "walk_fast",     "donkey", "shoulder_walk_fast",   true),
+    ("shoulder_turn",        "turn",          "donkey", "shoulder_turn",        true),
+    ("shoulder_jump_squat",  "jump_squat",    "donkey", "shoulder_jump_squat",  true),
+    ("shoulder_jump",        "jump_f",        "donkey", "shoulder_jump",        true),
+    ("shoulder_fall",        "fall",          "donkey", "shoulder_fall",        true),
+    ("shoulder_landing",     "landing_light", "donkey", "shoulder_landing",     true),
 ];
 
 fn main() {

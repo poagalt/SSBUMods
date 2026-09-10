@@ -24,9 +24,29 @@
 // one-status-with-phases approach used for Revenge and Alolan Whip does not apply, because the
 // defining feature of cargo carry is retaining NORMAL movement while carrying.
 //
-// SO: the carry here is STATIONARY. You get the cargo grab and all four directional throws,
-// including the cargo up-throw, but you cannot walk or jump while holding. That is a real
-// deviation from the brief and is called out rather than papered over.
+// THE CARRY NOW MOVES, and the way it gets there is worth explaining because it is not DK's own
+// shape.
+//
+// DK implements the carry as eleven fighter-specific statuses -- SHOULDER_WAIT, _WALK, _TURN,
+// _JUMP_SQUAT, _JUMP, _FALL, _LANDING, _PASS, _END and so on -- each with its own locomotion. That
+// could be reproduced now that new status kinds are known to work (see ../status.rs), and it was
+// still the wrong choice: it would mean reimplementing walking, turning, jumping and landing, and
+// then getting Pikachu's own speeds, weights and jump heights back into them by hand.
+//
+// Instead Pikachu stays in HIS OWN movement statuses -- WAIT, WALK, TURN, JUMP_SQUAT, JUMP, FALL,
+// LANDING, all engine-global -- and the carry only overrides the MOTION to DK's matching
+// `shoulder_*` pose and suppresses the actions a carrier should not have. The locomotion is
+// therefore Pikachu's, correct by construction and already tuned by the attribute work, which is
+// exactly what "dropped into our modified Pikachu's circumstances" asks for. What is DK's is the
+// pose, the throws and the fact that you keep your movement at all.
+//
+// The nine poses are synthesised motions adopting DK's animations (tools/motion-patch synth), and
+// all nine files were already on disk: the full c00 extraction covers every fighter, so this
+// stopped being blocked on a console session without anyone noticing.
+//
+// STILL NOT REPRODUCED: DK's _PASS (carrying someone through a soft platform) and the precise
+// action-restriction set. Attacking, shielding and specials are suppressed here because dropping
+// the victim mid-attack is worse than not being able to attack.
 //
 // ONE MORE THING STILL MISSING: the cargo grab plays PIKACHU's f-throw animation, because DK's
 // e01throwf.nuanmb has not been extracted -- it is in tools/arc-pull/paths-round3.txt and needs
@@ -128,6 +148,16 @@ pub unsafe extern "C" fn pikachu_cargo_frame(fighter: &mut L2CFighterCommon) {
         tell_victim(entry, *FIGHTER_STATUS_KIND_SHOULDERED_DONKEY);
     }
 
+    // THE CARRY POSE. Pikachu is in his own movement status, so his speeds and jump are his; only
+    // the motion is DK's. change_motion is guarded on the motion actually differing, because
+    // calling it every frame would restart the animation every frame.
+    if let Some(pose) = carry_pose(boma) {
+        if MotionModule::motion_kind(boma) != smash::hash40(pose) {
+            MotionModule::change_motion(boma, Hash40::new(pose), 0.0, 1.0, false, 0.0, false, false);
+        }
+    }
+    suppress_carry_actions(boma);
+
     // Losing the victim for any reason -- they mashed out, we got hit -- ends the carry.
     // is_catch is not consulted after the handoff: the victim is in a shouldered status now, not
     // an ordinary capture, so it reads false and used to end the carry immediately.
@@ -165,6 +195,69 @@ unsafe fn throw_cargo(boma: *mut BattleObjectModuleAccessor, entry: usize, motio
     CARRYING[entry] = false;
     CARRY_FRAMES[entry] = 0;
     VICTIM[entry] = *BATTLE_OBJECT_ID_INVALID as u32;
+}
+
+/// Which of DK's carry poses matches the movement status Pikachu is currently in.
+///
+/// Returns None for a status the carry does not cover, which leaves whatever motion is playing
+/// alone rather than forcing a pose onto a state this has not thought about -- being knocked down
+/// while carrying, for instance, should look like being knocked down.
+///
+/// The three walk speeds map off Pikachu's own walk motion rather than off a speed threshold,
+/// because the engine has already picked slow/middle/fast from his stick input and his
+/// walk_speed_max. Reading its choice keeps the pose in step with the locomotion for free.
+unsafe fn carry_pose(boma: *mut BattleObjectModuleAccessor) -> Option<&'static str> {
+    let status = StatusModule::status_kind(boma);
+    if status == *FIGHTER_STATUS_KIND_WAIT {
+        return Some("shoulder_wait");
+    }
+    if status == *FIGHTER_STATUS_KIND_TURN {
+        return Some("shoulder_turn");
+    }
+    if status == *FIGHTER_STATUS_KIND_JUMP_SQUAT {
+        return Some("shoulder_jump_squat");
+    }
+    if status == *FIGHTER_STATUS_KIND_JUMP {
+        return Some("shoulder_jump");
+    }
+    if status == *FIGHTER_STATUS_KIND_FALL {
+        return Some("shoulder_fall");
+    }
+    if status == *FIGHTER_STATUS_KIND_LANDING {
+        return Some("shoulder_landing");
+    }
+    // WALK and DASH both get a walk pose; DK has no carried dash, and his fast walk is the closest
+    // thing he owns.
+    if status == *FIGHTER_STATUS_KIND_WALK || status == *FIGHTER_STATUS_KIND_DASH {
+        let m = MotionModule::motion_kind(boma);
+        if m == smash::hash40("walk_slow") {
+            return Some("shoulder_walk_slow");
+        }
+        if m == smash::hash40("walk_fast") || status == *FIGHTER_STATUS_KIND_DASH {
+            return Some("shoulder_walk_fast");
+        }
+        return Some("shoulder_walk_middle");
+    }
+    None
+}
+
+/// Takes away the actions a carrier should not have.
+///
+/// Without this, Pikachu is in an ordinary WALK or WAIT and can attack, shield or throw out a
+/// special while holding someone -- and each of those drops the victim in a state nothing is
+/// tracking. DK simply does not have those options while carrying. Disabling the transition groups
+/// is the engine's own mechanism for exactly that, and it lasts one frame, so it is reapplied every
+/// frame the carry is live and never has to be undone when the carry ends.
+unsafe fn suppress_carry_actions(boma: *mut BattleObjectModuleAccessor) {
+    for group in [
+        *FIGHTER_STATUS_TRANSITION_GROUP_CHK_GROUND_ATTACK,
+        *FIGHTER_STATUS_TRANSITION_GROUP_CHK_GROUND_SPECIAL,
+        *FIGHTER_STATUS_TRANSITION_GROUP_CHK_GROUND_GUARD,
+        *FIGHTER_STATUS_TRANSITION_GROUP_CHK_AIR_ATTACK,
+        *FIGHTER_STATUS_TRANSITION_GROUP_CHK_AIR_SPECIAL,
+    ] {
+        WorkModule::unable_transition_term_group(boma, group);
+    }
 }
 
 /// Whether the carried fighter is still in one of the shouldered statuses.

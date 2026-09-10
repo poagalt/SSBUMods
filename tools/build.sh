@@ -130,7 +130,10 @@ echo; echo "== 5. pre-flight the motion entries against the dropped-in animation
   gaogaen:special_s_failure gaogaen:special_lw_start gaogaen:special_lw_turn \
   donkey:throw_f donkey:throw_f_f donkey:throw_f_b donkey:throw_f_hi donkey:throw_f_lw \
   gamewatch:special_hi gamewatch:special_air_hi gamewatch:special_hi_open \
-  gamewatch:special_hi_close | tail -4
+  gamewatch:special_hi_close \
+  donkey:shoulder_wait donkey:shoulder_walk_slow donkey:shoulder_walk_middle \
+  donkey:shoulder_walk_fast donkey:shoulder_turn donkey:shoulder_jump_squat \
+  donkey:shoulder_jump donkey:shoulder_fall donkey:shoulder_landing | tail -4
 
 echo; echo "== 6. compile =="
 cd "$ROOT/pikachu-moveset/plugin"

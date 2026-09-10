@@ -87,3 +87,15 @@ donkey:throw_f_f
 donkey:throw_f_b
 donkey:throw_f_hi
 donkey:throw_f_lw
+
+# DK cargo CARRY poses (synth). Pikachu keeps his own movement statuses and locomotion; only the
+# pose is DK's -- see pikachu-moveset/plugin/src/specials/cargo/mod.rs.
+donkey:shoulder_wait
+donkey:shoulder_walk_slow
+donkey:shoulder_walk_middle
+donkey:shoulder_walk_fast
+donkey:shoulder_turn
+donkey:shoulder_jump_squat
+donkey:shoulder_jump
+donkey:shoulder_fall
+donkey:shoulder_landing
