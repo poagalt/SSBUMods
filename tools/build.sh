@@ -36,7 +36,16 @@ bash "$ROOT/tools/add-bones.sh" | tail -1
 echo; echo "== 3. ship the source animations, scale-compensated =="
 bash "$ROOT/tools/anim-dropin.sh" 2>&1 | grep -v "^Parse:" | tail -1
 
-# Must run exactly once, on the verbatim source produced above: it multiplies offsets in place.
+# The shipped motion_list was previously built by hand from RESTORE.md; regenerating it here
+# means a change to the FAF/flag table or to synth cannot silently fail to reach the console.
+echo; echo "== 3b. rebuild motion_list.bin (FAF, intangibility, flags, synthesised entries) =="
+MP="$ROOT/tools/motion-patch/target/release"
+ML="$ROOT/pikachu-moveset/mod/fighter/pikachu/motion/body/c00/motion_list.bin"
+mkdir -p "$ROOT/work/ml"
+"$MP/motion-patch.exe" "$ROOT/extracted" "$ROOT/work/ml/patched.bin" | tail -1
+"$MP/synth.exe" "$ROOT/extracted" "$ROOT/work/ml/patched.bin" "$ML" | tail -1
+
+# Must run exactly once, on the verbatim source produced in step 1: it multiplies offsets in place.
 echo; echo "== 4. scale top-anchored hitbox offsets =="
 "$ROOT/tools/reach/target/release/topscale.exe" \
   "$ROOT/pikachu-moveset/plugin/src" "$ROOT/tools/scales.tsv" | tail -1

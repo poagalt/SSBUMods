@@ -1,30 +1,41 @@
 // Adds motion entries that Pikachu lacks, so ported special-move status scripts have
 // something to MotionModule::change_motion into.
 //
-// Each new entry is cloned from an existing Pikachu entry (so `animations` and `scripts`
-// point at real Pikachu files that certainly load), then given the source fighter's
-// `extra` (FAF + intangibility) and `flags`. Consistent with the script-first decision:
-// correct timing, Pikachu's animation.
+// Each new entry is cloned from an existing Pikachu entry (so `scripts` points at real Pikachu
+// files that certainly load), then given the source fighter's `extra` (FAF + intangibility),
+// `flags` and `game_script`.
+//
+// The last column additionally adopts the SOURCE's animation filename. Under the original
+// script-first design every synthesised entry kept Pikachu's animation; under ADR 0003 an entry
+// whose source has its own animation should name it. Little Mac's angled f-smashes forced this:
+// Pikachu has no attack_s4_hi or attack_s4_lw motion at all, so both were cloned from
+// attack_s4_s and played his STRAIGHT swing. Measured against Mac's real angled animations the
+// up-angled hitboxes were up to 18.65 world units out of place, by far the worst error left.
+//
+// An adopted animation is a filename Pikachu does not have, so it must ALSO be shipped by
+// tools/anim-dropin.sh and declared in the mod's config.json under new-dir-files
+// "fighter/pikachu/c00", or ARCropolis will not load it.
 use hash40::hash40;
 
-// new entry | pikachu template entry | source fighter | source entry
-const SYNTH: &[(&str, &str, &str, &str)] = &[
+// new entry | pikachu template entry | source fighter | source entry | adopt source animation
+const SYNTH: &[(&str, &str, &str, &str, bool)] = &[
     // Game & Watch up-B (Fire + parachute)
-    ("special_hi",        "special_hi_start",     "gamewatch", "special_hi"),
-    ("special_air_hi",    "special_air_hi_start", "gamewatch", "special_air_hi"),
-    ("special_hi_open",   "special_air_hi1",      "gamewatch", "special_hi_open"),
-    ("special_hi_close",  "special_air_hi_end",   "gamewatch", "special_hi_close"),
+    ("special_hi",       "special_hi_start",     "gamewatch", "special_hi",       false),
+    ("special_air_hi",   "special_air_hi_start", "gamewatch", "special_air_hi",   false),
+    ("special_hi_open",  "special_air_hi1",      "gamewatch", "special_hi_open",  false),
+    ("special_hi_close", "special_air_hi_end",   "gamewatch", "special_hi_close", false),
     // Incineroar Revenge
-    ("special_lw_start",  "special_lw",           "gaogaen",   "special_lw_start"),
-    ("special_lw_turn",   "special_lw",           "gaogaen",   "special_lw_turn"),
-    // Little Mac angled f-smash -- Pikachu has only attack_s4_s
-    ("attack_s4_hi",     "attack_s4_s",          "littlemac", "attack_s4_hi"),
-    ("attack_s4_lw",     "attack_s4_s",          "littlemac", "attack_s4_lw"),
-    // DK cargo throws
-    ("throw_f_f",         "throw_f",              "donkey",    "throw_f_f"),
-    ("throw_f_b",         "throw_b",              "donkey",    "throw_f_b"),
-    ("throw_f_hi",        "throw_hi",             "donkey",    "throw_f_hi"),
-    ("throw_f_lw",        "throw_lw",             "donkey",    "throw_f_lw"),
+    ("special_lw_start", "special_lw",           "gaogaen",   "special_lw_start", false),
+    ("special_lw_turn",  "special_lw",           "gaogaen",   "special_lw_turn",  false),
+    // Little Mac angled f-smash -- Pikachu has only attack_s4_s, so these adopt Mac's own
+    // angled animations rather than playing his straight swing.
+    ("attack_s4_hi",     "attack_s4_s",          "littlemac", "attack_s4_hi",     true),
+    ("attack_s4_lw",     "attack_s4_s",          "littlemac", "attack_s4_lw",     true),
+    // DK cargo throws -- animations not extracted yet, so still Pikachu's.
+    ("throw_f_f",        "throw_f",              "donkey",    "throw_f_f",        false),
+    ("throw_f_b",        "throw_b",              "donkey",    "throw_f_b",        false),
+    ("throw_f_hi",       "throw_hi",             "donkey",    "throw_f_hi",       false),
+    ("throw_f_lw",       "throw_lw",             "donkey",    "throw_f_lw",       false),
 ];
 
 fn main() {
@@ -34,7 +45,7 @@ fn main() {
     let mut pika = motion_lib::open(&inp).expect("open pikachu motion_list");
 
     let mut added = 0;
-    for (new, template, fighter, src_entry) in SYNTH {
+    for (new, template, fighter, src_entry, adopt_anim) in SYNTH {
         let nk = hash40(new);
         if pika.list.contains_key(&nk) {
             println!("  -- {new:<20} already present, skipped");
@@ -56,12 +67,17 @@ fn main() {
         // Take the source fighter's game_script too. Without this the new entry keeps the
         // template's script name and any ACMD we register against the source name is dead.
         m.game_script = s.game_script;
+        let mut anim_note = String::new();
+        if *adopt_anim {
+            m.animations = s.animations.clone();
+            anim_note = format!(" anim<-{fighter}");
+        }
         let f = match &m.extra {
             Some(x) => format!("faf {:>3} xlu {}-{}", x.cancel_frame, x.xlu_start, x.xlu_end),
             None => "none".into(),
         };
         pika.list.insert(nk, m);
-        println!("  ok {new:<20} <- template {template:<22} {f}  ({fighter}/{src_entry})");
+        println!("  ok {new:<20} <- template {template:<22} {f}{anim_note}  ({fighter}/{src_entry})");
         added += 1;
     }
     motion_lib::save(&out, &pika).expect("save");

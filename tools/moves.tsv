@@ -6,6 +6,8 @@ elight    AttackS3    attacks3    c01attacks3s   normals   ftilt_mythra
 falco     AttackHi3   attackhi3   c02attackhi3   normals   utilt_falco
 robot     AttackLw3   attacklw3   c02attacklw3   normals   dtilt_rob
 littlemac AttackS4    attacks4    c03attacks4s   smashes   fsmash_little_mac
+littlemac AttackS4Hi  attacks4hi  c03attacks4hi  smashes   fsmash_up_mac
+littlemac AttackS4Lw  attacks4lw  c03attacks4lw  smashes   fsmash_down_mac
 fox       AttackHi4   attackhi4   c04attackhi4   smashes   usmash_fox
 gamewatch AttackLw4   attacklw4   c04attacklw4   smashes   dsmash_gw
 palutena  AttackAirN  attackairn  c05attackairn  aerials   nair_palutena

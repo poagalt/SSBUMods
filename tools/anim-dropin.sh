@@ -55,11 +55,9 @@ scale_of() {
 # own bind transform stays in the chain and inserts an offset the source never had. Giving it an
 # identity track removes it. tools/chain-audit.sh finds these.
 #
-# Little Mac's ANGLED f-smash animations (c03attacks4hi/lw) are extracted but not shipped yet.
-# Pikachu has no such motion in vanilla; our synthesised attack_s4_hi/attack_s4_lw entries point
-# at c03attacks4s, so the angled files would be new paths that also need a config.json
-# `new-dir-files` entry and a motion_list repoint. Shipping them unreferenced would just be dead
-# weight. Tracked in the backlog.
+# Little Mac's ANGLED f-smash animations are filenames Pikachu does not have, so they are NEW
+# paths: they need a config.json new-dir-files entry AND tools/motion-patch synth must point
+# attack_s4_hi/attack_s4_lw at them (adopt_anim). Without both they simply do not load.
 #
 # source fighter | animation file | neutralise | move it drives
 MOVES="
@@ -69,6 +67,8 @@ elight    | c01attacks3s.nuanmb       | -    | f-tilt (all three angles; she has
 falco     | c02attackhi3.nuanmb       | -    | u-tilt
 robot     | c02attacklw3.nuanmb       | -    | d-tilt
 littlemac | c03attacks4s.nuanmb       | -    | f-smash, straight
+littlemac | c03attacks4hi.nuanmb      | -    | f-smash, up-angled (new file: see config.json new-dir-files)
+littlemac | c03attacks4lw.nuanmb      | -    | f-smash, down-angled (new file: see config.json new-dir-files)
 littlemac | c03attacks4charge.nuanmb  | -    | f-smash charge hold
 fox       | c04attackhi4.nuanmb       | LegC | u-smash
 fox       | c04attackhi4charge.nuanmb | -    | u-smash charge hold

@@ -78,3 +78,31 @@ Four measurements establish that this works:
 - Moves whose animation is not yet extracted (d-tilt, d-smash, throws, defensive, dodges, and the
   angled f-tilt/f-smash variants) keep Pikachu's animation for now and remain subject to the old
   mismatch. Tracked in the backlog.
+
+## Addendum: the body lift is accepted, 2026-09-10
+
+A dropped-in animation supplies the source's `Rot` standing height in place of Pikachu's 5.22
+model units, so his body is drawn 5.4 to 6.0 world units higher during these moves:
+
+| aerial | source standing height (world) | Pikachu's own | lift |
+|---|---|---|---|
+| n-air (Palutena) | 10.45 | 5.01 | +5.44 |
+| f-air (Kazuya)   | 10.71 | 5.01 | +5.70 |
+| b-air (Cloud)    | 11.02 | 5.01 | +6.00 |
+| u-air (Corrin)   | 10.89 | 5.01 | +5.88 |
+| d-air (K. Rool)  | 10.51 | 5.01 | +5.50 |
+
+Playtest read this as the aerials "carrying pikachu higher/lower depending on the jump height of
+the character the attack came from". It is not movement: all ten aerial and landing motions have
+the `move` flag clear and their `Trans` vertical tracks are flat (range 0.00-0.01), so his
+trajectory is his own physics. The variation between sources is only 0.56 world units.
+
+The lift is load-bearing. It is the same thing that makes his visible limb reach the hitbox, and
+grounded moves need it for his feet to stay on the ground, because the leg chain scales with it.
+Removing it would drag the hitboxes down by the same amount -- they would stay matched to his
+limbs but would no longer be at the source's absolute height, cutting vertical reach on aerials.
+
+Decision (user, 2026-09-10): **keep source-exact.** Accepted consequence: during these moves he is
+drawn taller and his bone-anchored hurtboxes ride up with him, so he is a bigger target than at
+rest. Two alternatives were offered and declined -- anchoring his body at his own height
+everywhere, and anchoring only the five aerials.
