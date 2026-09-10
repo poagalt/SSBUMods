@@ -41,14 +41,26 @@ pub const CLONE_ENABLED: bool = false;
 pub const FIGHTER_PIKACHU_GENERATE_ARTICLE_SPIKEBALL: i32 = 0x6;
 
 pub fn install() {
-    // BISECT STEP A: clone disabled to test whether it or the merged model is the crash.
-    /*
-    smashline::clone_weapon(
-        "packun",
-        *smash::lib::lua_const::WEAPON_KIND_PACKUN_SPIKEBALL,
-        "pikachu",
-        "spikeball",
-        true,
-    );
-    */
+    // Gated rather than commented out, so enabling this is a one-line change and the call itself
+    // stays compiled and type-checked. TO TRY IT, three steps in order:
+    //
+    //   1. set CLONE_ENABLED = true above
+    //   2. ship Pikachu's vl.prc with param_spikeball merged in
+    //      (tools/prc-tool/src/bin/vlmerge.rs) -- check.sh step 3b enforces this pairing in both
+    //      directions and will refuse to deploy if only one of the two is done
+    //   3. port Piranha Plant's neutral-B ACMD, which is deliberately NOT ported yet: without a
+    //      working article it would spawn nothing, making neutral-B strictly worse than the
+    //      Thunder Jolt it replaces
+    //
+    // Do it AFTER testing everything else. The previous attempt crashed on fighter LOAD, which
+    // blocks testing every other move rather than just this one.
+    if CLONE_ENABLED {
+        smashline::clone_weapon(
+            "packun",
+            *smash::lib::lua_const::WEAPON_KIND_PACKUN_SPIKEBALL,
+            "pikachu",
+            "spikeball",
+            true,
+        );
+    }
 }

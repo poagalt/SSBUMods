@@ -69,6 +69,11 @@ grab (Palutena)|palutena|Catch|catch
 dash grab (Palutena)|palutena|CatchDash|catchdash
 pivot grab (Palutena)|palutena|CatchTurn|catchturn
 pummel (Kazuya)|demon|CatchAttack|catchattack
+f-throw cargo grab (Donkey Kong)|donkey|ThrowF|throwf
+cargo throw forward (Donkey Kong)|donkey|ThrowFF|throwff
+cargo throw back (Donkey Kong)|donkey|ThrowFB|throwfb
+cargo throw up (Donkey Kong)|donkey|ThrowFHi|throwfhi
+cargo throw down (Donkey Kong)|donkey|ThrowFLw|throwflw
 b-throw (Incineroar)|gaogaen|ThrowB|throwb
 u-throw (Mewtwo)|mewtwo|ThrowHi|throwhi
 "

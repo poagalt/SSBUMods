@@ -108,6 +108,10 @@ gaogaen   | d01specialsshoulder.nuanmb| -    | Alolan Whip shoulder toss (new fi
 gaogaen   | d01specialslariat.nuanmb  | -    | Alolan Whip lariat (new file)
 gaogaen   | d01specialsthrow.nuanmb   | -    | Alolan Whip throw (new file)
 gaogaen   | d01specialsfailure.nuanmb | -    | Alolan Whip whiff (new file)
+donkey    | e01throwff.nuanmb         | -    | cargo throw forward (new file)
+donkey    | e01throwfb.nuanmb         | -    | cargo throw back (new file)
+donkey    | e01throwfhi.nuanmb        | -    | cargo throw up (new file)
+donkey    | e01throwflw.nuanmb        | -    | cargo throw down (new file)
 "
 
 n=0; miss=0; scaled=0; neutralised=0

@@ -10,6 +10,7 @@
 // synthesized into motion_list.bin by tools/motion-patch/src/bin/synth.rs.
 pub mod speciallw;
 pub mod specials;
+pub mod cargo;
 pub mod specialhi;
 pub mod specialhiclose;
 pub mod specialhifall;
@@ -18,6 +19,7 @@ pub mod acmd;
 pub fn install() {
     speciallw::install();
     specials::install();
+    cargo::install();
     specialhi::install();
     specialhiclose::install();
     specialhifall::install();

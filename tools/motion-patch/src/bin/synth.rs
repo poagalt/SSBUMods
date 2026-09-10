@@ -37,11 +37,13 @@ const SYNTH: &[(&str, &str, &str, &str, bool)] = &[
     // angled animations rather than playing his straight swing.
     ("attack_s4_hi",     "attack_s4_s",          "littlemac", "attack_s4_hi",     true),
     ("attack_s4_lw",     "attack_s4_s",          "littlemac", "attack_s4_lw",     true),
-    // DK cargo throws -- animations not extracted yet, so still Pikachu's.
-    ("throw_f_f",        "throw_f",              "donkey",    "throw_f_f",        false),
-    ("throw_f_b",        "throw_b",              "donkey",    "throw_f_b",        false),
-    ("throw_f_hi",       "throw_hi",             "donkey",    "throw_f_hi",       false),
-    ("throw_f_lw",       "throw_lw",             "donkey",    "throw_f_lw",       false),
+    // DK cargo throws. Animations adopted; the carry itself is stationary -- see
+    // src/specials/cargo/mod.rs for why the eleven SHOULDER_* locomotion statuses are not
+    // reproduced.
+    ("throw_f_f",        "throw_f",              "donkey",    "throw_f_f",        true),
+    ("throw_f_b",        "throw_b",              "donkey",    "throw_f_b",        true),
+    ("throw_f_hi",       "throw_hi",             "donkey",    "throw_f_hi",       true),
+    ("throw_f_lw",       "throw_lw",             "donkey",    "throw_f_lw",       true),
 ];
 
 fn main() {
