@@ -80,6 +80,9 @@ fn main() {
         // Take the source fighter's game_script too. Without this the new entry keeps the
         // template's script name and any ACMD we register against the source name is dead.
         m.game_script = s.game_script;
+        // Same reasoning as motion-patch MAP: the source's cross-fade into the move is part of the
+        // move. A synthesised entry inherits the template's otherwise.
+        m.blend_frames = s.blend_frames;
         let mut anim_note = String::new();
         if *adopt_anim {
             m.animations = s.animations.clone();

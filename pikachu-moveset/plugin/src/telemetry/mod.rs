@@ -1,8 +1,12 @@
-// Playtest telemetry. Logs over Skyline's TCP channel, readable live with
+// Playtest telemetry, written to TWO places so neither has to be arranged in advance.
 //
-//     cargo skyline listen --ip <console-ip>
+//     cargo skyline listen --ip <console-ip>      live, needs attaching before the thing happens
+//     <sd>/rat-telemetry.log                       after the fact, over FTP -- see sink.rs
 //
-// which works while the game is running -- exactly when FTP does not.
+// The old note here said the TCP log works "exactly when FTP does not". That was wrong, and
+// believing it cost a lot of back and forth: sys-ftpd runs as a boot sysmodule and serves the card
+// whatever the console is doing. The file is therefore the primary channel -- a session can be
+// played with nobody watching and read afterwards.
 //
 // Every line is prefixed `[rat]` so it can be grepped out of the very chatty Skyline log,
 // and motion/status kinds are logged as raw hash40 values. Resolve them locally with
@@ -23,7 +27,23 @@ use {
     smashline::{*, Priority::*}
 };
 
+pub mod sink;
+
 pub const ENABLED: bool = true;
+
+// Every telemetry line goes to BOTH the TCP log and the file on the card.
+//
+// The TCP log needs `cargo skyline listen` attached at the moment the thing happens, which means
+// coordinating with whoever is holding the controller. The file does not -- sys-ftpd serves it
+// regardless of what the console is running, so a session can be played now and read later. Same
+// text either way, so nothing has to be re-derived from a different format.
+macro_rules! rat {
+    ($($arg:tt)*) => {{
+        let line = format!($($arg)*);
+        println!("{}", line);
+        crate::telemetry::sink::log(line);
+    }};
+}
 
 // One slot per player, indexed by entry id.
 static mut LAST_MOTION: [u64; 8] = [0; 8];
@@ -96,13 +116,13 @@ unsafe extern "C" fn pikachu_telemetry(fighter: &mut L2CFighterCommon) {
         // the height the motion started at, so a short hop's apex is directly comparable with
         // and without an aerial attack.
         if LAST_MOTION[entry] != 0 {
-            println!(
+            rat!(
                 "[rat] p{} motion {:#012x} ended after {:.0}f, moved x {:+.2} y {:+.2} peak {:+.2}",
                 entry, LAST_MOTION[entry], MOTION_START[entry],
                 pos_x - START_X[entry], pos_y - START_Y[entry], PEAK_Y[entry] - START_Y[entry]
             );
         }
-        println!(
+        rat!(
             "[rat] p{} motion {:#012x} start  end={:.0}  status={}  y={:.2}",
             entry, motion, end, status, pos_y
         );
@@ -122,12 +142,15 @@ unsafe extern "C" fn pikachu_telemetry(fighter: &mut L2CFighterCommon) {
     // frame you actually become actionable, which is the number that decides whether our
     // patched FAF is being honoured or whether the animation's length is governing instead.
     if status != LAST_STATUS[entry] {
-        println!(
+        rat!(
             "[rat] p{} status {} -> {} on frame {:.0} of {:#012x} (anim end {:.0})",
             entry, LAST_STATUS[entry], status, frame, motion, end
         );
         LAST_STATUS[entry] = status;
     }
+
+    // One flush check per frame; the sink itself decides when to actually write.
+    sink::tick();
 }
 
 pub fn install() {

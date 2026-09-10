@@ -88,7 +88,34 @@ curl -s "${CURL_AUTH[@]}" --max-time 180 -T "$NRO" "$PLUGINS/librat_of_doom.nro"
 echo "== deploying mod folder =="
 cd "$MOD"
 mapfile -t FILES < <(find . -type f | sed 's|^\./||' | sort)
+
+# UPLOAD ONLY WHAT CHANGED, because a full run over sys-ftpd takes about ten minutes and most of
+# those 68 files are byte-identical to the last deploy. Ten minutes per iteration throttles
+# everything upstream of it.
+#
+# SAFE BECAUSE SKIPPING IS NOT TRUSTED. The verification pass below still checks EVERY file's size
+# against the card, and the repair pass re-uploads anything that disagrees -- so a wrong skip
+# costs one extra round trip, not a broken install. The manifest is written only after
+# verification passes, so a failed deploy cannot poison the next one into skipping.
+#
+# Pass --all to force a full upload.
+MANIFEST="$ROOT/work/.deploy-manifest"
+FORCE_ALL=0
+[ "${1:-}" = "--all" ] && FORCE_ALL=1
+declare -A PREV=()
+if [ "$FORCE_ALL" = "0" ] && [ -f "$MANIFEST" ]; then
+    while IFS=$'\t' read -r msize mmtime mpath; do
+        [ -n "${mpath:-}" ] && PREV["$mpath"]="$msize:$mmtime"
+    done < "$MANIFEST"
+fi
+
+skipped=0
 for f in "${FILES[@]}"; do
+    sig="$(stat -c%s "$f"):$(stat -c%Y "$f")"
+    if [ "${PREV[$f]:-}" = "$sig" ]; then
+        skipped=$((skipped+1))
+        continue
+    fi
     enc=$(printf '%s' "$f" | sed 's/ /%20/g')
     printf "  %-56s " "$f"
     code=$(curl -s "${CURL_AUTH[@]}" --max-time 300 --ftp-create-dirs -T "$f" "$DEST/$enc" -w "%{http_code}")
@@ -100,6 +127,7 @@ for f in "${FILES[@]}"; do
     # bytes on the card match the bytes here.
     if [ "$code" = "226" ]; then echo "ok"; else echo "warn ($code)"; warn=$((warn+1)); fi
 done
+[ "$skipped" -eq 0 ] || echo "  skipped $skipped unchanged file(s) -- verification below still checks every one"
 [ "$warn" -eq 0 ] || echo "  $warn upload(s) returned an odd code -- verification below is what counts"
 
 # Files the mod used to ship and must no longer be present. Uploading cannot remove anything, so
@@ -156,6 +184,28 @@ for f in "${FILES[@]}"; do
     # `ls -l` style: perms links owner group size mon day time name. The name is the 9th field
     # onward, so compare the last field rather than slicing a fixed prefix.
     got=$(awk -v n="$b" '$NF == n { print $5; exit }' "$LS/$safe.txt" 2>/dev/null)
+
+    # A DIRECTORY LISTING IS NOT AUTHORITATIVE, and trusting it produced 64 false alarms in one
+    # run: files uploaded minutes earlier reported "absent" and the repair pass then re-uploaded
+    # all of them and still reported failure. sys-ftpd truncates LIST responses when it is busy --
+    # which is exactly whenever Smash is running, i.e. whenever we most want to deploy.
+    #
+    # So a file that looks absent or wrong gets a targeted SIZE query before being believed. FTP's
+    # SIZE is a single authoritative answer about one file, and it is only spent on the suspicious
+    # ones, so the cached-listing optimisation (one request per directory instead of per file)
+    # still holds for everything that looks fine.
+    if [ "$got" != "$want" ]; then
+        enc=$(printf '%s' "$f" | sed 's/ /%20/g')
+        confirmed=$(curl -sI "${CURL_AUTH[@]}" --max-time 45 "$DEST/$enc" 2>/dev/null \
+                    | tr -d '\r' | awk '/^Content-Length:/ { print $2; exit }')
+        if [ -n "$confirmed" ] && [ "$confirmed" = "$want" ]; then
+            # The listing lied. Nothing to do.
+            got="$want"
+        else
+            got="${confirmed:-${got:-absent}}"
+        fi
+    fi
+
     if [ "$got" != "$want" ]; then
         printf "  MISMATCH %-52s local %s remote %s\n" "$f" "$want" "${got:-absent}"
         bad=$((bad+1))
@@ -184,12 +234,12 @@ if [ "$bad" -gt 0 ] && [ "$VERIFY_ONLY" = "0" ]; then
         for attempt in 1 2 3; do
             printf "  %-52s try %d " "$f" "$attempt"
             code=$(curl -s "${CURL_AUTH[@]}" --max-time 300 --ftp-create-dirs -T "$f" "$DEST/$enc" -w "%{http_code}")
-            # Re-list just this file's directory rather than trusting the upload's return code --
-            # the zero-byte case reported success.
-            denc=$(printf '%s' "$(dirname "$f")" | sed 's/ /%20/g')
-            url="$DEST/"; [ "$(dirname "$f")" != "." ] && url="$DEST/$denc/"
-            got=$(curl -s "${CURL_AUTH[@]}" --max-time 90 "$url" 2>/dev/null | tr -d '\r' \
-                  | awk -v n="$(basename "$f")" '$NF == n { print $5; exit }')
+            # Confirm with a targeted SIZE, not the upload's return code and not a directory
+            # listing. The return code lied once (FTP 200 on a file that landed at zero bytes) and
+            # the listing lies whenever sys-ftpd is busy -- which is how the previous version of
+            # this loop burned three attempts each on 36 files that were already correct.
+            got=$(curl -sI "${CURL_AUTH[@]}" --max-time 45 "$DEST/$enc" 2>/dev/null \
+                  | tr -d '\r' | awk '/^Content-Length:/ { print $2; exit }')
             if [ "$got" = "$want" ]; then echo "ok ($code)"; ok=1; break; fi
             echo "still wrong (${got:-absent})"
         done
@@ -205,6 +255,14 @@ fi
 
 if [ "$bad" -eq 0 ]; then
     echo "  ok  all ${#FILES[@]} files verified by size"
+    # Only now is it safe to record what the card holds. Written after verification so a failed
+    # deploy can never teach the next run to skip a file that never landed.
+    if [ "$VERIFY_ONLY" = "0" ]; then
+        : > "$MANIFEST"
+        for f in "${FILES[@]}"; do
+            printf '%s\t%s\t%s\n' "$(stat -c%s "$f")" "$(stat -c%Y "$f")" "$f" >> "$MANIFEST"
+        done
+    fi
 else
     echo "  $bad file(s) wrong or missing on the card"
     fail=1

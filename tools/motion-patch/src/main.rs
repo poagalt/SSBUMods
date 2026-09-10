@@ -99,6 +99,13 @@ fn main() {
         let before = d.extra.clone();
         d.extra = s.extra.clone();
         d.flags = s.flags;
+        // blend_frames is how many frames the engine cross-fades from the previous pose INTO this
+        // motion -- so it is literally how a move feels coming in, and it had never been copied.
+        // Measured across all 48 ported motions, exactly one disagreed: Palutena's catch_dash
+        // blends over 3 frames and ours snapped in over 0. One instance, but the whole class is
+        // fixed by copying the field, and tools/motion-patch/src/bin/blend.rs now runs in check.sh
+        // so it cannot drift back.
+        d.blend_frames = s.blend_frames;
         let f = |e: &Option<motion_lib::mlist::Extra>| match e {
             Some(x) => format!("faf {:>3} xlu {}-{}", x.cancel_frame, x.xlu_start, x.xlu_end),
             None => "none".into(),

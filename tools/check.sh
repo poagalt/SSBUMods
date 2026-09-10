@@ -96,6 +96,16 @@ if "$VAR" "$ROOT/extracted" "$M" 2>/dev/null | grep -q 'GAP --'; then
   echo "  FAIL a replaced move still plays one of Pikachu's own animations"; rc=1
 fi
 
+echo; echo "== 3e. each ported move blends in on its source's timing =="
+# blend_frames is how many frames the engine cross-fades from the previous pose INTO the motion, so
+# it is literally how a move feels coming in -- the "seamless transition" requirement in numbers.
+# motion-patch had never copied it, and Palutena's catch_dash was snapping in over 0 frames instead
+# of 3. The tool itself used to report a clean pass when handed no motions; it now exits 2 on that.
+MOTIONS=$(grep -vE '^\s*#|^\s*$' "$ROOT/tools/ported-motions.txt" | tr '\n' ' ')
+"$ROOT/tools/motion-patch/target/release/blend.exe" "$ROOT/extracted" "$M" $MOTIONS 2>/dev/null | tail -1
+"$ROOT/tools/motion-patch/target/release/blend.exe" "$ROOT/extracted" "$M" $MOTIONS >/dev/null 2>&1 \
+  || { echo "  FAIL a ported move blends on Pikachu's timing rather than its source's"; rc=1; }
+
 echo; echo "== 3c. ported hitboxes land where the source character's do =="
 bash "$ROOT/tools/check-hitboxes.sh" || rc=1
 
