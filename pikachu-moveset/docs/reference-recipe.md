@@ -68,7 +68,7 @@ Notably absent: `smashline_clone_weapon` and `smashline_add_param_object` (so no
 
 George bolts geometry onto the host **without adding a bone and without adding a named mesh
 object**: two extra *sub-meshes* (sub-index 2 and 3) appended under an existing mesh-object name,
-~1660 verts each, single-bound to the existing item-hold bones `HaveR` / `HaveL`, with a new
+~1660 verts each, single-bound to existing bones — George uses five: `HaveL`, `HaveR`, `HandR`, `ShoulderL`, `ShoulderR`, with a new
 material added to `model.numatb`. Because they are new sub-indices of an existing name, the
 `numshexb` visibility-group table needs no edit. `model.nusktb` is deliberately **not shipped** —
 the vanilla skeleton is untouched.

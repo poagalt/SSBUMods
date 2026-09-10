@@ -89,7 +89,7 @@ If it isn't in this file, it isn't tracked.
 
 ### New risks
 
-- **Sword show/hide has no precedent.** George's appendage is permanently attached and always
+- [RETRACTED] ~~Sword show/hide has no precedent.~~ It does — LilyLavender Modding Workshop ep. 39 "Adding A Sword" toggles Chrom.s Falchion with `set_mesh_visibility`, and George is built on that recipe. George cannot toggle only because he reused an existing mesh-object name. Old text: George.s appendage is permanently attached and always
   visible; its plugin imports **zero `ModelModule` symbols**. Toggling mesh visibility per-move is
   the first place this project leaves the proven path.
 - **Runtime scaling has no precedent either** — same finding, same cause. The Incineroar b-throw
@@ -114,3 +114,33 @@ If it isn't in this file, it isn't tracked.
       technique** — its plugin imports zero `ModelModule` symbols and does no runtime model
       manipulation of any kind. What George *does* prove is the appendage attachment method
       (extra sub-meshes on the item-hold bones). A different reference is needed for `set_scale`.
+
+---
+
+## Added after the sword research — three risks retired, one added
+
+**Retired:**
+
+- ~~"Sword show/hide has no precedent."~~ LilyLavender Modding Workshop **episode 39** does
+  exactly this — Chrom's Falchion on Little Mac, toggled with `ModelModule::set_mesh_visibility`.
+  George is built on that recipe; it cannot toggle only because it reused an existing
+  mesh-object name instead of a distinct one.
+- ~~"Blender is a hard blocker for appendages."~~ `ssbh_data_json` / `ssbh_data_py` round-trip
+  `.numshb` to JSON. Merging a sword into a body model is a JSON edit.
+- ~~"No `data.arc` is a wall."~~ ArcExplorer + the `arc-network` Skyline plugin extract over the
+  network by IP. Atmosphère and Skyline already run on the target console.
+
+**Still true:** Blender *is* still required for the animation pass. Retargeting a humanoid
+animation onto Pikachu's quadruped skeleton is a different problem from merging a static mesh,
+and Tier 1 remains script-first.
+
+**Added:**
+
+- [ ] **Pikachu's `model.adjb` (168 KB) must stay consistent after any mesh merge.** Only Chrom,
+      Cloud and Pikachu have body adjacency buffers; George never had to handle this.
+      `ssbh_data_json` handles `.adjb`.
+- [ ] Correct `reference-recipe.md`: George binds to **five** points (`HaveL`, `HaveR`, `HandR`,
+      `ShoulderL`, `ShoulderR`), not two.
+- [ ] Console extraction session: Chrom's `fighter/chrom/model/sword/c00/` **and Pikachu's
+      vanilla `fighter/pikachu/model/body/c00/`**. The Pikachu body model is the real forcing
+      item — no download substitutes for it.
