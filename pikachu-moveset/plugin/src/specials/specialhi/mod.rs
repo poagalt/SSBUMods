@@ -48,8 +48,10 @@ unsafe extern "C" fn pikachu_specialhi_init(fighter: &mut L2CFighterCommon) -> L
 }
 
 unsafe extern "C" fn pikachu_specialhi_main(fighter: &mut L2CFighterCommon) -> L2CValue {
-    WorkModule::on_flag(fighter.module_accessor, *FIGHTER_GAMEWATCH_INSTANCE_WORK_ID_FLAG_SPECIAL_HI);    
-    
+    // G&W sets FIGHTER_GAMEWATCH_INSTANCE_WORK_ID_FLAG_SPECIAL_HI here, but that id is
+    // 0x200000E2, which on Pikachu is FLAG_MTRANS_SMPL_GROUND -- so the port was corrupting his
+    // motion-transition state on every up-B. Nothing in this port ever READS the flag (only
+    // G&W's own C++ does), so the write is simply removed rather than remapped.
     if fighter.global_table[0x16] != *SITUATION_KIND_GROUND {
         MotionModule::change_motion(fighter.module_accessor, Hash40::new("special_air_hi"), 0.0, 1.0, false, 0.0, false, false);
     } else {
@@ -76,7 +78,7 @@ unsafe extern "C" fn pikachu_specialhi_main_loop(fighter: &mut L2CFighterCommon)
         let attack_air_kind = ControlModule::get_attack_air_kind(fighter.module_accessor);
         WorkModule::set_int(fighter.module_accessor, attack_air_kind, *FIGHTER_GAMEWATCH_STATUS_SPECIAL_HI_WORK_INT_ATTACK_AIR_KIND);
         
-        fighter.change_status(FIGHTER_DIDDY_STATUS_KIND_SPECIAL_HI_CHARGE_DAMAGE.into(), false.into());
+        fighter.change_status(FIGHTER_PIKACHU_STATUS_KIND_SPECIAL_HI_END.into(), false.into());
     }
     return 1.into();
 }
@@ -110,7 +112,6 @@ unsafe extern "C" fn pikachu_specialhi_end(fighter: &mut L2CFighterCommon) -> L2
         }
     }
     
-    WorkModule::off_flag(fighter.module_accessor, *FIGHTER_GAMEWATCH_INSTANCE_WORK_ID_FLAG_SPECIAL_HI);
     0.into()
 }
 

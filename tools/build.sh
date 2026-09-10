@@ -48,6 +48,21 @@ bash "$ROOT/tools/gen-name.sh"
 echo; echo "== 1. generate move scripts from vanilla ACMD (verbatim, original bone anchors) =="
 bash "$ROOT/tools/gen-moves.sh"
 
+
+echo; echo "== 1a. retarget the command grab at a capture status Pikachu can complete =="
+# Applied as its own step rather than inside gen-moves' pipeline. See tools/catch-remap.sed.
+for m in "$ROOT"/pikachu-moveset/plugin/src/*/mod.rs; do
+  sed -i -f "$ROOT/tools/catch-remap.sed" "$m"
+done
+# `|| true` on the grep: with zero matches it exits 1, and under `set -e` that killed the build
+# right here. That is the THIRD time this pattern has bitten in this file -- grep is a predicate,
+# not a data source, and its exit code has to be neutralised whenever it feeds a pipeline.
+left=$( { grep -c SWING_GAOGAEN "$ROOT"/pikachu-moveset/plugin/src/*/mod.rs 2>/dev/null || true; } | awk -F: '{s+=$2} END{print s+0}')
+if [ "$left" -ne 0 ]; then
+  echo "  REFUSING: $left SWING_GAOGAEN reference(s) survived the remap" >&2
+  exit 1
+fi
+echo "  ok  command grab targets FIGHTER_STATUS_KIND_CAPTURE_PULLED"
 echo; echo "== 1b. strip foreign constants and unsupported macro calls =="
 # The macro allowlist is read from smash-script's own source, so it cannot drift from the crate
 # actually being compiled against.
@@ -88,7 +103,11 @@ echo; echo "== 5. pre-flight the motion entries against the dropped-in animation
   chrom:attack_11 elight:attack_dash elight:attack_s3_s falco:attack_hi3 robot:attack_lw3 \
   littlemac:attack_s4_s fox:attack_hi4 gamewatch:attack_lw4 \
   palutena:attack_air_n demon:attack_air_f cloud:attack_air_b kamui:attack_air_hi \
-  krool:attack_air_lw | tail -1
+  krool:attack_air_lw \
+  gaogaen:special_s_start gaogaen:special_s_end gaogaen:special_lw \
+  gaogaen:special_s_shoulder gaogaen:special_s_lariat gaogaen:special_s_throw \
+  gaogaen:special_s_failure gaogaen:special_lw_start gaogaen:special_lw_turn \
+  donkey:throw_f_f donkey:throw_f_b donkey:throw_f_hi donkey:throw_f_lw | tail -4
 
 echo; echo "== 6. compile =="
 cd "$ROOT/pikachu-moveset/plugin"

@@ -45,10 +45,25 @@ const CANCEL_PERCENT: f32 = 36.0;
 // turns out to last a frame-count instead.
 const REVENGE_TIME_FRAMES: i32 = 60 * 60;
 
-// The counter window, from Incineroar's game_speciallwstart: FLAG_STANCE_START is raised on
-// frame 8 and FLAG_STANCE_END on frame 28.
-const WINDOW_START: f32 = 8.0;
-const WINDOW_END: f32 = 28.0;
+// The counter window is opened and closed by the hand-written stance ACMD in ../acmd_speciallw,
+// at the SCRIPT frames Incineroar uses (8 and 28).
+//
+// It used to be derived from MotionModule::frame in the status loop, which was wrong twice over.
+// First, script frames and motion frames are not the same thing: the stance runs
+// FT_MOTION_RATE(0.25) from script frame 1 to 9, so at script frame 8 the motion frame is about
+// 2.75, and a window of 8..28 in motion-frame terms opened around script frame 13 instead of 8.
+// Second and worse, the status End handler cleared the flag -- and End runs at the exact moment
+// the hit lands, wiping the flag before the watcher could act on it. That is why Revenge was
+// purely cosmetic. ACMD frame() calls are script frames, so driving it from there is exact.
+pub unsafe fn open_window(boma: *mut BattleObjectModuleAccessor) {
+    let e = entry_of(boma);
+    WINDOW_OPEN[e] = true;
+    LAST_DAMAGE[e] = DamageModule::damage(boma, 0);
+}
+
+pub unsafe fn close_window(boma: *mut BattleObjectModuleAccessor) {
+    WINDOW_OPEN[entry_of(boma)] = false;
+}
 
 // Phase within FIGHTER_STATUS_KIND_SPECIAL_LW. Pikachu has no SPECIAL_LW_HIT status kind and
 // adding one is not necessary: the retaliation is the same status playing a different motion, so
@@ -118,13 +133,16 @@ unsafe extern "C" fn pikachu_speciallw_main(fighter: &mut L2CFighterCommon) -> L
 unsafe extern "C" fn pikachu_speciallw_main_loop(fighter: &mut L2CFighterCommon) -> L2CValue {
     let boma = fighter.module_accessor;
     let entry = entry_of(boma);
-    let frame = MotionModule::frame(boma);
-
-    // The window is open only during the stance, and only across the frames Incineroar's own
-    // script brackets with FLAG_STANCE_START and FLAG_STANCE_END.
-    WINDOW_OPEN[entry] = PHASE[entry] == PHASE_STANCE
-        && frame >= WINDOW_START
-        && frame <= WINDOW_END;
+    // Landing out of an airborne Revenge used to slide across the ground: the status runs on
+    // FIGHTER_KINETIC_TYPE_UNIQ, which keeps whatever horizontal momentum the jump had and never
+    // brakes. Switching to the grounded kinetic on touchdown hands the momentum back to normal
+    // ground friction.
+    if StatusModule::situation_kind(boma) == *SITUATION_KIND_GROUND
+        && KineticModule::get_kinetic_type(boma) == *FIGHTER_KINETIC_TYPE_AIR_STOP
+    {
+        KineticModule::change_kinetic(boma, *FIGHTER_KINETIC_TYPE_GROUND_STOP);
+        GroundModule::correct(boma, GroundCorrectKind(*GROUND_CORRECT_KIND_GROUND_CLIFF_STOP));
+    }
 
     if MotionModule::is_end(boma) {
         WINDOW_OPEN[entry] = false;
@@ -140,8 +158,11 @@ unsafe extern "C" fn pikachu_speciallw_main_loop(fighter: &mut L2CFighterCommon)
 }
 
 unsafe extern "C" fn pikachu_speciallw_end(fighter: &mut L2CFighterCommon) -> L2CValue {
-    let entry = entry_of(fighter.module_accessor);
-    WINDOW_OPEN[entry] = false;
+    // Deliberately does NOT clear WINDOW_OPEN. End runs at the moment the counter is hit -- the
+    // hit moves Pikachu into a damage status, which ends SPECIAL_LW -- so clearing it here wiped
+    // the flag before the watcher could read it, and Revenge never fired. The stance ACMD closes
+    // the window on its own frame 28, and the watcher clears it when it fires.
+    let _ = fighter;
     0.into()
 }
 

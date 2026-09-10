@@ -14,30 +14,6 @@ use {
     smashline::{*, Priority::*}
 };
 
-// ---- Revenge stance (Incineroar) : game_speciallwstart ----
-unsafe extern "C" fn pikachu_game_speciallwstart(agent: &mut L2CAgentBase) {
-    frame(agent.lua_state_agent, 1.0);
-    macros::FT_MOTION_RATE(agent, 0.25);
-    frame(agent.lua_state_agent, 8.0);
-    frame(agent.lua_state_agent, 9.0);
-    macros::FT_MOTION_RATE(agent, 1.5);
-    frame(agent.lua_state_agent, 21.0);
-    macros::FT_MOTION_RATE(agent, 1.0);
-    frame(agent.lua_state_agent, 28.0);
-    macros::FT_MOTION_RATE(agent, 0.5);
-    frame(agent.lua_state_agent, 32.0);
-    if macros::is_excute(agent) {
-        notify_event_msc_cmd!(agent, Hash40::new_raw(0x2127e37c07), *GROUND_CLIFF_CHECK_KIND_ALWAYS);
-    }
-    frame(agent.lua_state_agent, 46.0);
-    macros::FT_MOTION_RATE(agent, 1.0);
-}
-
-
-// ---- Revenge stance (Incineroar) : effect_speciallwstart, sys_ effects only (ADR 0002) ----
-unsafe extern "C" fn pikachu_effect_speciallwstart(agent: &mut L2CAgentBase) {
-}
-
 // ---- Revenge counter (Incineroar) : game_speciallw ----
 unsafe extern "C" fn pikachu_game_speciallw(agent: &mut L2CAgentBase) {
     frame(agent.lua_state_agent, 1.0);
@@ -89,8 +65,8 @@ unsafe extern "C" fn pikachu_game_specialsstart(agent: &mut L2CAgentBase) {
     frame(agent.lua_state_agent, 18.0);
     if macros::is_excute(agent) {
         AttackModule::clear_all(agent.module_accessor);
-        macros::CATCH(agent, 0, Hash40::new("top"), 4.0, 0.0, 8.0, 2.0, Some(0.0), Some(8.0), Some(8.0), *FIGHTER_STATUS_KIND_SWING_GAOGAEN_CATCHED, *COLLISION_SITUATION_MASK_G);
-        macros::CATCH(agent, 1, Hash40::new("top"), 1.5, 0.0, 8.0, 2.0, Some(0.0), Some(8.0), Some(10.5), *FIGHTER_STATUS_KIND_SWING_GAOGAEN_CATCHED, *COLLISION_SITUATION_MASK_GA);
+        macros::CATCH(agent, 0, Hash40::new("top"), 4.0, 0.0, 8.0, 2.0, Some(0.0), Some(8.0), Some(8.0), *FIGHTER_STATUS_KIND_CAPTURE_PULLED, *COLLISION_SITUATION_MASK_G);
+        macros::CATCH(agent, 1, Hash40::new("top"), 1.5, 0.0, 8.0, 2.0, Some(0.0), Some(8.0), Some(10.5), *FIGHTER_STATUS_KIND_CAPTURE_PULLED, *COLLISION_SITUATION_MASK_GA);
     }
     frame(agent.lua_state_agent, 35.0);
     if macros::is_excute(agent) {
@@ -289,8 +265,6 @@ unsafe extern "C" fn pikachu_effect_specialsend(agent: &mut L2CAgentBase) {
 
 pub fn install() {
     Agent::new("pikachu")
-        .game_acmd("game_speciallwstart", pikachu_game_speciallwstart, Default)
-        .effect_acmd("effect_speciallwstart", pikachu_effect_speciallwstart, Default)
         .game_acmd("game_speciallw", pikachu_game_speciallw, Default)
         .effect_acmd("effect_speciallw", pikachu_effect_speciallw, Default)
         .game_acmd("game_specialsstart", pikachu_game_specialsstart, Default)

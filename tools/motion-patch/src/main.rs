@@ -24,6 +24,14 @@ const MAP: &[(&str, &str, &str)] = &[
     ("attack_air_b", "attack_air_b", "cloud"),    ("landing_air_b", "landing_air_b", "cloud"),
     ("attack_air_hi", "attack_air_hi", "kamui"),   ("landing_air_hi", "landing_air_hi", "kamui"),
     ("attack_air_lw", "attack_air_lw", "krool"),   ("landing_air_lw", "landing_air_lw", "krool"),
+    // Specials whose motion Pikachu ALREADY has, so synth skips them and only motion-patch can
+    // give them the source's flags and FAF. Missing this cost Alolan Whip its entire lunge:
+    // Incineroar's d01specialsstart carries 34.93 units of root motion in Trans, which the engine
+    // only applies when the motion entry has the `move` flag -- and ours did not, so the command
+    // grab never travelled and could never connect. tools/motion-patch dropin had been reporting
+    // exactly this, but the build's pre-flight list did not include these motions.
+    ("special_s_start", "special_s_start", "gaogaen"), ("special_s_end", "special_s_end", "gaogaen"),
+    ("special_lw", "special_lw", "gaogaen"),
     // grab / throws
     ("catch", "catch", "palutena"), ("catch_dash", "catch_dash", "palutena"), ("catch_turn", "catch_turn", "palutena"),
     ("catch_wait", "catch_wait", "palutena"), ("catch_pull", "catch_pull", "palutena"), ("catch_cut", "catch_cut", "palutena"),

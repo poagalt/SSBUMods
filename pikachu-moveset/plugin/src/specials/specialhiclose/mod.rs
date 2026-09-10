@@ -76,8 +76,8 @@ unsafe extern "C" fn pikachu_specialhiclose_end(fighter: &mut L2CFighterCommon) 
 
 pub fn install() {
     Agent::new("pikachu")
-        .status(Pre, *FIGHTER_DIDDY_STATUS_KIND_SPECIAL_HI_CHARGE, pikachu_specialhiclose_pre)
-        .status(Main, *FIGHTER_DIDDY_STATUS_KIND_SPECIAL_HI_CHARGE, pikachu_specialhiclose_main)
-        .status(End, *FIGHTER_DIDDY_STATUS_KIND_SPECIAL_HI_CHARGE, pikachu_specialhiclose_end)
+        .status(Pre, *FIGHTER_PIKACHU_STATUS_KIND_SPECIAL_HI_WARP, pikachu_specialhiclose_pre)
+        .status(Main, *FIGHTER_PIKACHU_STATUS_KIND_SPECIAL_HI_WARP, pikachu_specialhiclose_main)
+        .status(End, *FIGHTER_PIKACHU_STATUS_KIND_SPECIAL_HI_WARP, pikachu_specialhiclose_end)
         .install();
 }

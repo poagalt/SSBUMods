@@ -101,7 +101,9 @@ SPECIALS="
 # FIGHTER_GAOGAEN_STATUS_SPECIAL_LW_FLAG_STANCE_START/END, which deforeign strips because those
 # ids collide with Pikachu's own flags. The frame numbers are read off them (8 and 28) and the
 # window is implemented in src/specials/speciallw/mod.rs instead.
-Revenge stance (Incineroar)|gaogaen|SpecialLwStart|speciallwstart
+# The stance script is HAND-WRITTEN in src/specials/acmd_speciallw, not generated: the counter
+# window lives on its script frames and the generated port loses it (deforeign strips the two
+# GAOGAEN status flags, correctly, and their frame numbers are the only record of the timing).
 Revenge counter (Incineroar)|gaogaen|SpecialLw|speciallw
 # Alolan Whip. The victim side is engine-global (FIGHTER_STATUS_KIND_SWING_GAOGAEN_*), so only
 # Pikachu's own six scripts are ported; the CATCH in specialsstart names the victim status
