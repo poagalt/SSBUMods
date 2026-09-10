@@ -317,3 +317,34 @@ CSK dependency the brief forbids. Options, none free:
 4. Keep Thunder Jolt.
 
 Needs a decision before any further work on neutral B.
+
+## Ptooie crash — root-caused and fixed without CSK
+
+The crash was **not** about effects, despite `load_fighter_effects` appearing in one of the three
+reports. Reading smashline's own source settled it: `src/params.rs`, `init_fighter_p_object`
+builds its allowed-name list as
+
+```rust
+allowed_names.push(Hash40::new(&format!("param_{}", agent.new_name)).0);
+```
+
+and reads it out of the **host** fighter's `vl.prc`. So a cloned article named `spikeball`
+requires a top-level `param_spikeball` object in Pikachu's `vl.prc`.
+
+Verified directly: `param_spikeball` = `0xf679aaf13` is present in packun's `vl.prc` and was
+**absent** from Pikachu's, while all seven of Pikachu's own articles have their `param_*` entry.
+`clone_weapon` whitelists the name automatically but finds nothing to read — hence the null.
+
+**Fix:** `tools/prc-tool/src/bin/vlmerge.rs` copies that one param object across
+(6,385 → 8,438 bytes, 20 → 21 entries) and the mod ships the merged `vl.prc`. No effect archive
+involved, so **the no-CSK constraint holds** and option 1 was never needed.
+
+Guarded by a new harness check: if an article clone is installed without `param_spikeball` in the
+shipped `vl.prc`, `tools/check.sh` fails and `deploy.sh` refuses to deploy.
+
+**Ball visibility:** its appearance comes from the model files, which ship. Without packun's
+effect archive the particle work will not play, but the ball should still have a physical form.
+
+- [ ] **Unverified in game.** Needs a training-mode load to confirm the crash is gone.
+- [ ] Nothing generates the article yet — neutral B still needs packun's `special_n` status
+      ported. That is unchanged by this fix.

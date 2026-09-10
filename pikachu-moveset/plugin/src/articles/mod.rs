@@ -1,30 +1,33 @@
-// Neutral B — Piranha Plant's Ptooie (the `spikeball` article).
+// Neutral B — Piranha Plant's Ptooie, whose spiked ball is the `spikeball` article.
 //
-// DISABLED. Enabling the clone below crashed the game on fighter load, every time,
-// with a null dereference inside smashline:
+// Recipe: ssbu-mod-workshop/episode46/ArticleCloningGuide.md. Pikachu has exactly seven
+// vanilla articles per ultimate-research/param-labels articles/Labels.txt, so 0x7 is free.
 //
-//   ReturnAddress[06]: (smashline + 0x2a68c) (fighter_initialize_object_data + 0x2c)
-//   ReturnAddress[00]: (smashline + 0x1769c) (load_fighter_effects + 0x48)
+// The first attempt at this crashed the game on fighter load -- a null dereference on
+// TaskWorker2 inside smashline (fighter_initialize_object_data / load_fighter_effects).
 //
-// Cause: episode46's guide warns that cloning an article which references fighter-specific
-// effects requires copying those effects to the receiving agent. Ptooie's spikeball uses
-// packun effects, and nothing under effect/fighter/pikachu/ provides them.
+// Root cause was NOT missing effects, despite appearances. smashline's params.rs
+// (init_fighter_p_object) builds its allowed-name list as `param_<new_article_name>` and reads
+// it from the HOST fighter's own vl.prc. `param_spikeball` (0xf679aaf13) exists in packun's
+// vl.prc and was absent from Pikachu's, so the lookup found nothing. Every one of Pikachu's own
+// seven articles has its `param_*` entry; the cloned one had none.
 //
-// Note the tension with ADR 0002: supplying them means shipping a fighter-prefixed effect
-// archive, which is the CSK dependency the brief forbids. Resolve that before re-enabling.
+// Fix: tools/prc-tool/src/bin/vlmerge.rs copies that one param object into Pikachu's vl.prc,
+// which the mod now ships. No effect archive is involved, so this stays CSK-free.
 //
-// Assets are extracted and staged; see BACKLOG.md.
-//
-// pub const FIGHTER_PIKACHU_GENERATE_ARTICLE_SPIKEBALL: i32 = 0x7;
+// Visual note: the ball's appearance comes from its MODEL files, which are shipped, not from
+// effects. Absent packun's effect archive the particle work will not play, but the ball itself
+// should still have a physical form -- which is the requirement.
+use smashline::*;
+
+pub const FIGHTER_PIKACHU_GENERATE_ARTICLE_SPIKEBALL: i32 = 0x7;
 
 pub fn install() {
-    // Intentionally empty. See above before re-enabling.
-    //
-    // smashline::clone_weapon(
-    //     "packun",
-    //     *smash::lib::lua_const::WEAPON_KIND_PACKUN_SPIKEBALL,
-    //     "pikachu",
-    //     "spikeball",
-    //     true,
-    // );
+    smashline::clone_weapon(
+        "packun",
+        *smash::lib::lua_const::WEAPON_KIND_PACKUN_SPIKEBALL,
+        "pikachu",
+        "spikeball",
+        true,
+    );
 }
