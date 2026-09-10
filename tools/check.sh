@@ -91,9 +91,17 @@ echo; echo "== 3d. no replaced move plays one of Pikachu's own animations =="
 # shipped motion_list names a different file than vanilla), LOCKED OUT (only reachable through a
 # status src/specials/lockout bounces out of), or GAP -- and only GAP fails.
 VAR="$ROOT/tools/motion-patch/target/release/variants.exe"
-"$VAR" "$ROOT/extracted" "$M" 2>/dev/null | tail -1
+"$VAR" "$ROOT/extracted" "$M" 2>/dev/null | tail -2
 if "$VAR" "$ROOT/extracted" "$M" 2>/dev/null | grep -q 'GAP --'; then
   echo "  FAIL a replaced move still plays one of Pikachu's own animations"; rc=1
+fi
+# THE INVERSE, which is the check that had never existed: a motion the SOURCE has in a ported
+# family and we have no entry for is a variant of the move that simply is not reproduced. That is
+# how the airborne Alolan Whip and airborne Revenge went unnoticed -- six and three motions each,
+# with the grounded animation and grounded hitboxes played in their place. Verified non-tautological
+# by running it against vanilla Pikachu's list, where it reports all 22 synthesised entries.
+if ! "$VAR" "$ROOT/extracted" "$M" 2>/dev/null | grep -q '^0 source motion'; then
+  echo "  FAIL a ported move has a variant on the source fighter that this moveset does not have"; rc=1
 fi
 
 echo; echo "== 3e. each ported move blends in on its source's timing =="

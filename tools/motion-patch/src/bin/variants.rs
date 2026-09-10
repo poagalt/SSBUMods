@@ -62,6 +62,9 @@ const FAMILIES: &[(&str, &str)] = &[
     ("special_s", "gaogaen"),
     ("special_lw", "gaogaen"),
     ("special_hi", "gamewatch"),
+    // The cargo carry poses are their own family -- they are not extensions of throw_f, so the
+    // inverse check would not have covered them without this line.
+    ("shoulder", "donkey"),
 ];
 
 // MOTION NAMES ARE IN ParamLabels.csv, NOT Hashes.txt, and the two files have different shapes:
@@ -118,6 +121,14 @@ fn main() {
     let vanilla = motion_lib::open(format!("{ex}/fighter/pikachu/motion/body/c00/motion_list.bin"))
         .expect("vanilla pikachu motion_list");
     let shipped = std::env::args().nth(2).and_then(|p| motion_lib::open(p).ok());
+    // The inverse check must ask what WE ship, not what vanilla Pikachu had -- synthesised entries
+    // are exactly the ones that make a variant reproduced.
+    let mut pika = pika;
+    if let Some(s) = &shipped {
+        for k in s.list.keys() {
+            if let Some(n) = labels.get(&k.0) { pika.insert(n.clone()); }
+        }
+    }
     if pika.is_empty() {
         eprintln!("no pikachu motion entries resolved -- is vendor/Hashes.txt reachable?");
         std::process::exit(1);
@@ -179,11 +190,56 @@ fn main() {
         }
     }
 
+    // THE INVERSE QUESTION, which is the one that had never been asked: for each slot, what
+    // motions does the SOURCE have in that family that our motion_list has no entry for?
+    //
+    // The forward check finds Pikachu animations leaking through. This finds VARIANTS OF THE MOVE
+    // that are simply not reproduced -- and it is how the air Alolan Whip and the air Revenge would
+    // have been found automatically instead of by manually listing special_air_* per fighter.
+    // Incineroar has six airborne Alolan Whip motions and three airborne Revenge ones; the port
+    // played the grounded animation and grounded hitboxes for both.
+    //
+    // A source's motion list also contains motions for BEING on the receiving end of other
+    // fighters' moves -- shizue_special_s_thrown_*, jack_special_hi_pulled, gaogaen_special_s_-
+    // thrown_big. Those are named after the fighter whose move they belong to, so anything with an
+    // underscore-separated fighter prefix is skipped: it is not a variant of this move.
+    println!();
+    println!("{:<30} {:<11} {}", "source motion we do not have", "source", "family");
+    println!("{}", "-".repeat(72));
+    let mut unreproduced = 0usize;
+    for (base, fighter) in FAMILIES {
+        let Some(src) = cache.get(*fighter) else { continue };
+        let mut missing: Vec<&String> = src
+            .iter()
+            .filter(|n| {
+                // In this family, either exactly the base or an extension of it -- and also the
+                // `air` spelling, which is where both misses hid: special_air_s_* is the airborne
+                // form of the special_s_* family and does not start with "special_s".
+                let air = base.replacen("special_", "special_air_", 1);
+                (n.as_str() == *base || n.starts_with(&format!("{base}_")))
+                    || (base.starts_with("special_")
+                        && (n.as_str() == air || n.starts_with(&format!("{air}_"))))
+            })
+            // Receiving-end motions belong to another fighter's move, not this one.
+            .filter(|n| !n.contains("_thrown") && !n.contains("_pulled") && !n.contains("_fear"))
+            .filter(|n| !pika.contains(*n))
+            .collect();
+        missing.sort();
+        for m in missing {
+            unreproduced += 1;
+            println!("{:<30} {:<11} {base}", m, fighter);
+        }
+    }
+    if unreproduced == 0 {
+        println!("  (none -- every motion in every ported family has an entry)");
+    }
+
     println!();
     println!(
         "{checked} motions checked across {} families: {gaps} gap(s), {repointed_n} repointed, {locked} locked out",
         FAMILIES.len()
     );
+    println!("{unreproduced} source motion(s) in a ported family with no entry of ours");
     if gaps > 0 {
         println!("each gap needs a deliberate decision: point it at a sibling via motion-patch's");
         println!("REANIM table, or record why keeping Pikachu's animation is correct.");

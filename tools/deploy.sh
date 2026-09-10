@@ -104,14 +104,27 @@ FORCE_ALL=0
 [ "${1:-}" = "--all" ] && FORCE_ALL=1
 declare -A PREV=()
 if [ "$FORCE_ALL" = "0" ] && [ -f "$MANIFEST" ]; then
-    while IFS=$'\t' read -r msize mmtime mpath; do
-        [ -n "${mpath:-}" ] && PREV["$mpath"]="$msize:$mmtime"
+    # Two fields: "<size>:<mtime>\t<path>". The signature is stored as one opaque string so the
+    # reader and the writer cannot disagree about how many columns there are -- which they briefly
+    # did, and the effect was a manifest that silently loaded nothing and skipped no files.
+    while IFS=$'\t' read -r msig mpath; do
+        [ -n "${mpath:-}" ] && PREV["$mpath"]="$msig"
     done < "$MANIFEST"
 fi
 
 skipped=0
+# SIGNATURES ARE SNAPSHOTTED AT UPLOAD TIME, not at verification time.
+#
+# The manifest used to be built from the files as they were when verification finished, which is
+# minutes after the upload. Rebuilding while a deploy was in flight therefore recorded the NEW
+# signature for a file whose OLD bytes were on the card, and the next deploy skipped it. Caught
+# exactly that way: motion_list.bin verified as 45284 remote against 45412 local right after a
+# rebuild landed mid-deploy. The verifier found it, which is what it is for -- but the manifest
+# must not be able to lie in the first place.
+declare -A SENT=()
 for f in "${FILES[@]}"; do
     sig="$(stat -c%s "$f"):$(stat -c%Y "$f")"
+    SENT["$f"]="$sig"
     if [ "${PREV[$f]:-}" = "$sig" ]; then
         skipped=$((skipped+1))
         continue
@@ -271,7 +284,10 @@ if [ "$bad" -eq 0 ]; then
     if [ "$VERIFY_ONLY" = "0" ]; then
         : > "$MANIFEST"
         for f in "${FILES[@]}"; do
-            printf '%s\t%s\t%s\n' "$(stat -c%s "$f")" "$(stat -c%Y "$f")" "$f" >> "$MANIFEST"
+            # SENT[] is what was on disk when this file was uploaded or deliberately skipped, not
+            # what is on disk now. A rebuild during the deploy must not be recorded as shipped.
+            printf '%s	%s
+' "${SENT[$f]:-0:0}" "$f" >> "$MANIFEST"
         done
     fi
 else
