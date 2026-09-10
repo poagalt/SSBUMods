@@ -19,7 +19,12 @@
 # Little Mac's root motion, which his animation now supplies natively via Trans).
 set -euo pipefail
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"
-export PATH="/c/Users/poaga/.cargo/bin:/c/Users/poaga/w64devkit/bin:$PATH"
+# w64devkit goes LAST. Prepending it shadowed six core utilities with minimal builds, and its
+# grep returns 0 for a pattern containing "/" -- so tools/check-name.sh passed standalone and
+# failed inside the build, on a byte-identical file. A check whose result depends on which grep
+# is first on PATH is worse than no check. cargo-skyline only needs w64devkit for the linker,
+# which it still finds when appended (verified with a forced relink).
+export PATH="/c/Users/poaga/.cargo/bin:$PATH:/c/Users/poaga/w64devkit/bin"
 
 echo "== 0. read every fighter's scale param out of the game =="
 bash "$ROOT/tools/gen-scales.sh"

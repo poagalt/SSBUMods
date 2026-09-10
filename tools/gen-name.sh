@@ -40,7 +40,15 @@ tmp=$(mktemp)
     echo '</xmsbt>'
 } > "$tmp"
 
-printf '\xff\xfe' > "$OUT"
-iconv -f UTF-8 -t UTF-16LE < "$tmp" >> "$OUT"
+# Assemble the whole file, THEN move it into place. The previous version wrote the BOM and
+# appended the converted body as two separate redirections to the live path, so anything reading
+# in between saw a half-written file -- tools/check-name.sh failed immediately after a build with
+# "5 <entry> against 0 </entry>" and then passed on the next read, with the file byte-identical.
+# An intermittent check failure is worse than none, because it teaches you to re-run instead of
+# to look. Same atomic pattern as tools/gen-params.sh.
+out_tmp=$(mktemp)
+printf '\xff\xfe' > "$out_tmp"
+iconv -f UTF-8 -t UTF-16LE < "$tmp" >> "$out_tmp"
 rm -f "$tmp"
+mv "$out_tmp" "$OUT"
 echo "wrote $OUT ($(wc -c < "$OUT") bytes, UTF-16LE with BOM)"

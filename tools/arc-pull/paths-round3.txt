@@ -1,0 +1,54 @@
+# Round 3 extraction: everything the mod still needs, blocked only on the game being open.
+#
+# arc_network serves rom:/data.arc from inside the running game process, so Smash must be
+# launched before this runs:
+#   grep -vE '^\s*#|^\s*$' tools/arc-pull/paths-round3.txt \
+#     | tools/arc-pull/target/release/arc-pull.exe <console-ip>:43022 extracted
+#
+# Filenames are read from Pikachu's own motion_list with
+# tools/motion-patch/target/release/animof.exe, because SSBU names an animation identically on
+# every fighter -- verified 11/11 on the first batch and 34/36 on the second, where the only two
+# misses were animations Mythra genuinely does not have.
+
+# --- fighter_param_motion.prc: the dodge timing params -----------------------------------------
+# escape_air_slide_speed / _distance and the escape cancel frames are NOT in fighter_param.prc --
+# getparam reports every one of them ABSENT for both Pikachu and Fox. They live here. Needed to
+# finish the Fox dodge port, whose ACMDs and motion timings are already in.
+fighter/common/param/fighter_param_motion.prc
+
+# --- Chrom's jab combo -------------------------------------------------------------------------
+# Pikachu has attack_11 only. Chrom's jab chains 1 -> 2 -> 3 with a rapid-jab branch, and his
+# attack_11 deliberately does NOT set FIGHTER_STATUS_ATTACK_FLAG_ENABLE_RESTART (Pikachu's does,
+# on frame 7, which is what makes his jab repeatable). Porting Chrom's jab faithfully therefore
+# leaves a jab that can neither repeat nor chain -- a real flow regression with no interim fix
+# that preserves parity. These animations plus synthesised motions plus
+# StatusModule::change_status_request_from_script (workshop episode 10) close it.
+fighter/chrom/motion/body/c00/c00attack12.nuanmb
+fighter/chrom/motion/body/c00/c00attack13.nuanmb
+fighter/chrom/motion/body/c00/c00attack100.nuanmb
+fighter/chrom/motion/body/c00/c00attack100end.nuanmb
+
+# --- Incineroar Revenge (down-B) ---------------------------------------------------------------
+# Motions are already synthesised (special_lw_start, special_lw_turn); animations are not.
+fighter/gaogaen/motion/body/c00/h00speciallwstart.nuanmb
+fighter/gaogaen/motion/body/c00/h00speciallw.nuanmb
+fighter/gaogaen/motion/body/c00/h00speciallwturn.nuanmb
+
+# --- Game & Watch up-B, already ported as scripts but still on Pikachu's animations ------------
+fighter/gamewatch/motion/body/c00/h00specialhi.nuanmb
+fighter/gamewatch/motion/body/c00/h00specialairhi.nuanmb
+
+# --- DK cargo throws (motions synthesised, animations not) -------------------------------------
+fighter/donkey/motion/body/c00/e01throwff.nuanmb
+fighter/donkey/motion/body/c00/e01throwfb.nuanmb
+fighter/donkey/motion/body/c00/e01throwfhi.nuanmb
+fighter/donkey/motion/body/c00/e01throwflw.nuanmb
+fighter/donkey/model/body/c00/model.nusktb
+
+# --- remaining grab-family and throw animations we ported scripts for ---------------------------
+fighter/palutena/motion/body/c00/e01throwf.nuanmb
+fighter/palutena/motion/body/c00/e01throwlw.nuanmb
+
+# --- skeletons for fighters whose moves the trace still cannot verify --------------------------
+fighter/marth/model/body/c00/model.nusktb
+fighter/szerosuit/model/body/c00/model.nusktb

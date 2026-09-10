@@ -1,7 +1,16 @@
 // Neutral B — Piranha Plant's Ptooie, whose spiked ball is the `spikeball` article.
 //
-// Recipe: ssbu-mod-workshop/episode46/ArticleCloningGuide.md. Pikachu has exactly seven
-// vanilla articles per ultimate-research/param-labels articles/Labels.txt, so 0x7 is free.
+// Recipe: ssbu-mod-workshop/episode46/ArticleCloningGuide.md.
+//
+// THE ARTICLE ID WAS WRONG. It was set to 0x7 on the belief that Pikachu has seven vanilla
+// articles. He has six, and skyline-smash's own constant table proves it -- his ids run
+// DENGEKIDAMA 0x0, DENGEKI 0x1, SPECIALUPDUMMY 0x2, CLOUD 0x3, VORTEX 0x4, MONSTERBALL 0x5.
+// So 0x6 is the next free id and 0x7 left a gap. Worth trying 0x6 before anything else when
+// this is next attempted; a clone registered into a gap is a plausible cause of the load crash.
+//
+// The same table is why the ported f-tilt and d-air were writing to Pikachu's own state: article
+// and work-flag ids are per-fighter enumerations that collide across fighters. See
+// tools/reach/src/bin/deforeign.rs.
 //
 // The first attempt at this crashed the game on fighter load -- a null dereference on
 // TaskWorker2 inside smashline (fighter_initialize_object_data / load_fighter_effects).
@@ -29,7 +38,7 @@ use smashline::*;
 // indices calling get_article and remove_exist_object_id.
 pub const CLONE_ENABLED: bool = false;
 
-pub const FIGHTER_PIKACHU_GENERATE_ARTICLE_SPIKEBALL: i32 = 0x7;
+pub const FIGHTER_PIKACHU_GENERATE_ARTICLE_SPIKEBALL: i32 = 0x6;
 
 pub fn install() {
     // BISECT STEP A: clone disabled to test whether it or the merged model is the crash.
