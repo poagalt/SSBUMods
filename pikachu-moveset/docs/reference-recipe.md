@@ -68,16 +68,19 @@ Notably absent: `smashline_clone_weapon` and `smashline_add_param_object` (so no
 
 George bolts geometry onto the host **without adding a bone and without adding a named mesh
 object**: two extra *sub-meshes* (sub-index 2 and 3) appended under an existing mesh-object name,
-~1660 verts each, single-bound to existing bones — George uses five: `HaveL`, `HaveR`, `HandR`, `ShoulderL`, `ShoulderR`, with a new
-material added to `model.numatb`. Because they are new sub-indices of an existing name, the
-`numshexb` visibility-group table needs no edit. `model.nusktb` is deliberately **not shipped** —
-the vanilla skeleton is untouched.
+~1660 verts each, with a new material added to `model.numatb`. Because they are new sub-indices
+of an existing name, the `numshexb` visibility-group table needs no edit. `model.nusktb` is
+deliberately **not shipped** — the vanilla skeleton is untouched. George single-binds to five
+existing bones: `HaveL`, `HaveR`, `HandR`, `ShoulderL`, `ShoulderR`.
 
-**The limit, and it matters for us:** the plugin's import table contains **zero `ModelModule`
-entries**. No `set_scale`, no `set_mesh_visibility`, no joint scaling. George's appendage is
-*permanently attached and always visible.* The reference mod therefore demonstrates **neither**
-show-on-active-frames appendages **nor** runtime character scaling. Both APIs exist; neither has
-a worked precedent here.
+**The limit, and why it exists:** the plugin's import table contains **zero `ModelModule`
+entries**. No `set_scale`, no `set_mesh_visibility`, no joint scaling — George's appendage is
+permanently attached and always visible. The cause is the technique itself: **reusing an existing
+mesh-object name means there is no distinct name for `set_mesh_visibility` to target.** Anything
+that needs to toggle must use a *distinct* mesh-object name instead, as LilyLavender's Modding
+Workshop episode 39 does. See `sword-options.md`.
+
+Runtime scaling still has no precedent here; George does no runtime model manipulation at all.
 
 `model.nuhlpb` is shipped as an 88-byte empty stub, stripping all helper-bone constraints so
 borrowed animations aren't fought by the rig. **We should not copy this** — Tier 1 drives
