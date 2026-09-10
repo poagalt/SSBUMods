@@ -199,6 +199,14 @@ MLP="$ROOT/tools/motion-patch/target/release/mlparity.exe"
 "$MLP" "$ROOT/extracted" "$M" $MOTIONS >/dev/null 2>&1 \
   || { echo "  FAIL a ported move's motion entry does not match its source's"; rc=1; }
 
+echo; echo "== 3i. every ported move carries its source's damage and knockback =="
+# check-hitboxes.sh measures WHERE a hitbox is and HOW BIG. This checks everything else the macro
+# carries -- damage, angle, KBG, FKB, BKB, hitlag, SDI, collision attribute, sound level -- plus
+# ATTACK_ABS, which holds the entire damage and knockback of the four DK cargo throws and has no
+# geometry for the trace to see. "Exact frame data, damage, and range" is the project's own
+# statement of intent, and only `range` had a gate.
+bash "$ROOT/tools/check-acmd-values.sh" || rc=1
+
 echo; echo "== 3c. ported hitboxes land where the source character's do =="
 bash "$ROOT/tools/check-hitboxes.sh" || rc=1
 

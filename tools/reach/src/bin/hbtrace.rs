@@ -223,12 +223,34 @@ fn main() {
 
     // Evaluate both skeletons on every active frame.
     let mut out: Vec<Sample> = vec![];
+    // Hitbox-frames the reference has and our generated script does not. Never a pass.
+    let mut missing: Vec<String> = vec![];
     for (gf, af, hbs) in &timeline {
         for h in hbs {
             let ai = af.max(0.0) as usize;
             // Our hitbox may carry a different offset than the reference's (topscale), so take
             // ours from our own script where available and fall back to the reference otherwise.
-            let ho = ours_at(*gf, h.id).unwrap_or_else(|| h.clone());
+            // A MISSING HITBOX USED TO COMPARE AGAINST ITSELF AND REPORT 0.00.
+            //
+            // The fallback here was `unwrap_or_else(|| h.clone())`, which is right when no
+            // --ours-acmd was given at all (that mode measures the source alone) and catastrophic
+            // when one WAS given and simply has no hitbox on this frame with this id. Then the
+            // reference was compared against a copy of itself: zero deviation, zero radius error,
+            // and a hitbox the mod does not ship reported as exact.
+            //
+            // That is reachable. tools/reach/src/bin/deforeign.rs removes whole statements and
+            // blocks containing another fighter's constants, and tools/reach/src/bin/sysfx.rs
+            // collapses effect blocks; either could take an ATTACK call with it. The only existing
+            // guard fired when EVERY hitbox was missing, not when one was.
+            let ho = match (ours_tl.is_some(), ours_at(*gf, h.id)) {
+                (_, Some(ours)) => ours,
+                // Reference-only mode: nothing to compare, so measure the source against itself.
+                (false, None) => h.clone(),
+                (true, None) => {
+                    missing.push(format!("f{} id{}", gf, h.id));
+                    continue;
+                }
+            };
             // `top` is the fighter's origin rather than a skeleton bone, so its transform is the
             // identity on both fighters. Such a hitbox still deviates by the scale ratio, so it
             // is measured rather than skipped as an absent bone.
@@ -282,6 +304,17 @@ fn main() {
         // A move whose source script has no ATTACK hitboxes at all is not a failure: Mewtwo's
         // u-throw does its damage through a throw collision (ATTACK_ABS). Distinguish that from
         // "the hitboxes exist but a bone is missing", which is a real unverified move.
+        // A hitbox the source has and we do not is the loudest possible result, so it is reported
+        // before anything else and before the "nothing to measure" early return -- a move where
+        // EVERY hitbox went missing would otherwise take that exit and read as a legitimate pass.
+        if !missing.is_empty() {
+            println!(
+                "\n  MISSING {} hitbox-frame(s) our script does not have: {}",
+                missing.len(),
+                missing.join(" ")
+            );
+            std::process::exit(6);
+        }
         if out.is_empty() {
             println!("\n  no ATTACK hitboxes in the source script (throw or catch collision only) -- nothing to measure");
             return;
