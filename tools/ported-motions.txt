@@ -99,3 +99,11 @@ donkey:shoulder_jump_squat
 donkey:shoulder_jump
 donkey:shoulder_fall
 donkey:shoulder_landing
+
+# Air Alolan Whip (start and end pre-exist on Pikachu; the four follow-ups are synth)
+gaogaen:special_air_s_start
+gaogaen:special_air_s_end
+gaogaen:special_air_s_throw
+gaogaen:special_air_s_shoulder
+gaogaen:special_air_s_lariat
+gaogaen:special_air_s_failure

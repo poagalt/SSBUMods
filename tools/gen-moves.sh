@@ -135,6 +135,15 @@ Alolan Whip lariat (Incineroar)|gaogaen|SpecialSLariat|specialslariat
 Alolan Whip throw (Incineroar)|gaogaen|SpecialSThrow|specialsthrow
 Alolan Whip whiff (Incineroar)|gaogaen|SpecialSFailure|specialsfailure
 Alolan Whip end (Incineroar)|gaogaen|SpecialSEnd|specialsend
+# Air Alolan Whip. Incineroar has a complete airborne version and the port was playing the
+# grounded animation and grounded hitboxes for it. specialairsstart and specialairsend were in the
+# nulled list below until now, because his air Skull Bash uses the same script names.
+Alolan Whip AIR lunge (Incineroar)|gaogaen|SpecialAirSStart|specialairsstart
+Alolan Whip AIR shoulder (Incineroar)|gaogaen|SpecialAirSShoulder|specialairsshoulder
+Alolan Whip AIR lariat (Incineroar)|gaogaen|SpecialAirSLariat|specialairslariat
+Alolan Whip AIR throw (Incineroar)|gaogaen|SpecialAirSThrow|specialairsthrow
+Alolan Whip AIR whiff (Incineroar)|gaogaen|SpecialAirSFailure|specialairsfailure
+Alolan Whip AIR end (Incineroar)|gaogaen|SpecialAirSEnd|specialairsend
 # EVERY REMAINING SCRIPT OF THE THREE REPLACED SPECIALS, nulled.
 #
 # Skull Bash (side-B), Quick Attack (up-B) and Thunder (down-B) are all replaced, but each has
@@ -162,9 +171,7 @@ Alolan Whip end (Incineroar)|gaogaen|SpecialSEnd|specialsend
 Skull Bash release, nulled|N|-|specials
 Skull Bash charge, nulled|N|-|specialshold
 Skull Bash weak release, nulled|N|-|specialsweak
-Skull Bash air start, nulled|N|-|specialairsstart
 Skull Bash air hold, nulled|N|-|specialairshold
-Skull Bash air end, nulled|N|-|specialairsend
 Skull Bash air miss end, nulled|N|-|specialairsmissend
 Quick Attack windup, nulled|N|-|specialhistart
 Quick Attack recovery, nulled|N|-|specialhiend

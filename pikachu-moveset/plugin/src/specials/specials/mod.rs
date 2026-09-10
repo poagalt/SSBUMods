@@ -215,6 +215,21 @@ unsafe fn common_pre(fighter: &mut L2CFighterCommon, kinetic: i32) {
     );
 }
 
+/// AIR OR GROUND, per Incineroar. He has a complete airborne Alolan Whip -- six motions, six ACMDs
+/// and its own params (special_air_s_catch_accel_y 0.01, _speed_y_max 0.05: he drifts slowly down
+/// while holding) -- and this port played the GROUNDED animation and grounded hitboxes for an
+/// airborne side-B until his motion list was read instead of assumed.
+///
+/// The two names differ only by the `air` infix on every one of the six, so one helper covers all
+/// of them and each status just names its own suffix.
+unsafe fn situated(fighter: &mut L2CFighterCommon, suffix: &str) -> String {
+    if fighter.global_table[0x16] == *SITUATION_KIND_GROUND {
+        format!("special_s{suffix}")
+    } else {
+        format!("special_air_s{suffix}")
+    }
+}
+
 /// Ground/air housekeeping shared by the follow-ups, which are all performed standing still.
 unsafe fn hold_still(fighter: &mut L2CFighterCommon) {
     let boma = fighter.module_accessor;
@@ -263,7 +278,7 @@ unsafe extern "C" fn pikachu_specials_main(fighter: &mut L2CFighterCommon) -> L2
     let boma = fighter.module_accessor;
     reset(boma);
     MotionModule::change_motion(
-        boma, Hash40::new("special_s_start"), 0.0, 1.0, false, 0.0, false, false
+        boma, Hash40::new(&situated(fighter, "_start")), 0.0, 1.0, false, 0.0, false, false
     );
     fighter.sub_shift_status_main(L2CValue::Ptr(pikachu_specials_main_loop as *const () as _))
 }
@@ -309,7 +324,7 @@ unsafe extern "C" fn pikachu_specialsthrow_main(fighter: &mut L2CFighterCommon) 
     HELD_FOR[entry_of(boma)] = 0;
     SINCE_THROW[entry_of(boma)] = -1;
     MotionModule::change_motion(
-        boma, Hash40::new("special_s_throw"), 0.0, 1.0, false, 0.0, false, false
+        boma, Hash40::new(&situated(fighter, "_throw")), 0.0, 1.0, false, 0.0, false, false
     );
     hold_still(fighter);
     fighter.sub_shift_status_main(L2CValue::Ptr(pikachu_specialsthrow_main_loop as *const () as _))
@@ -396,7 +411,7 @@ unsafe extern "C" fn pikachu_specialsshoulder_pre(fighter: &mut L2CFighterCommon
 
 unsafe extern "C" fn pikachu_specialsshoulder_main(fighter: &mut L2CFighterCommon) -> L2CValue {
     MotionModule::change_motion(
-        fighter.module_accessor, Hash40::new("special_s_shoulder"), 0.0, 1.0, false, 0.0, false, false
+        fighter.module_accessor, Hash40::new(&situated(fighter, "_shoulder")), 0.0, 1.0, false, 0.0, false, false
     );
     hold_still(fighter);
     fighter.sub_shift_status_main(L2CValue::Ptr(pikachu_followup_loop as *const () as _))
@@ -404,7 +419,7 @@ unsafe extern "C" fn pikachu_specialsshoulder_main(fighter: &mut L2CFighterCommo
 
 unsafe extern "C" fn pikachu_specialslariat_main(fighter: &mut L2CFighterCommon) -> L2CValue {
     MotionModule::change_motion(
-        fighter.module_accessor, Hash40::new("special_s_lariat"), 0.0, 1.0, false, 0.0, false, false
+        fighter.module_accessor, Hash40::new(&situated(fighter, "_lariat")), 0.0, 1.0, false, 0.0, false, false
     );
     hold_still(fighter);
     fighter.sub_shift_status_main(L2CValue::Ptr(pikachu_followup_loop as *const () as _))
@@ -416,7 +431,7 @@ unsafe extern "C" fn pikachu_specialsfailure_main(fighter: &mut L2CFighterCommon
     // game_specialsfailure, this is his.
     DamageModule::add_damage(boma, FAIL_DAMAGE, 0);
     MotionModule::change_motion(
-        boma, Hash40::new("special_s_failure"), 0.0, 1.0, false, 0.0, false, false
+        boma, Hash40::new(&situated(fighter, "_failure")), 0.0, 1.0, false, 0.0, false, false
     );
     hold_still(fighter);
     fighter.sub_shift_status_main(L2CValue::Ptr(pikachu_followup_loop as *const () as _))
@@ -439,7 +454,7 @@ unsafe extern "C" fn pikachu_specialsend_main(fighter: &mut L2CFighterCommon) ->
     let boma = fighter.module_accessor;
     reset(boma);
     MotionModule::change_motion(
-        boma, Hash40::new("special_s_end"), 0.0, 1.0, false, 0.0, false, false
+        boma, Hash40::new(&situated(fighter, "_end")), 0.0, 1.0, false, 0.0, false, false
     );
     hold_still(fighter);
     fighter.sub_shift_status_main(L2CValue::Ptr(pikachu_specialsend_main_loop as *const () as _))

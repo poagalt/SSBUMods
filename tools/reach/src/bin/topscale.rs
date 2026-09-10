@@ -68,6 +68,15 @@ const MAP: &[(&str, &str)] = &[
     ("pikachu_game_specialsthrow", "gaogaen"),
     ("pikachu_game_specialsfailure", "gaogaen"),
     ("pikachu_game_specialsend", "gaogaen"),
+    // Air Alolan Whip, added in the same breath as the port itself -- the gap this list had for
+    // every grounded special was fresh enough that leaving the air ones out would have been
+    // repeating it knowingly.
+    ("pikachu_game_specialairsstart", "gaogaen"),
+    ("pikachu_game_specialairsshoulder", "gaogaen"),
+    ("pikachu_game_specialairslariat", "gaogaen"),
+    ("pikachu_game_specialairsthrow", "gaogaen"),
+    ("pikachu_game_specialairsfailure", "gaogaen"),
+    ("pikachu_game_specialairsend", "gaogaen"),
 ];
 
 // Every mod.rs under the plugin source, at any depth.

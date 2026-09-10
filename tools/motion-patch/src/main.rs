@@ -33,6 +33,10 @@ const MAP: &[(&str, &str, &str)] = &[
     // grab never travelled and could never connect. tools/motion-patch dropin had been reporting
     // exactly this, but the build's pre-flight list did not include these motions.
     ("special_s_start", "special_s_start", "gaogaen"), ("special_s_end", "special_s_end", "gaogaen"),
+    // Air Alolan Whip's two pre-existing entries. Pikachu has special_air_s_start and _end from
+    // air Skull Bash, so they need Incineroar's flags and FAF rather than synthesis.
+    ("special_air_s_start", "special_air_s_start", "gaogaen"),
+    ("special_air_s_end", "special_air_s_end", "gaogaen"),
     ("special_lw", "special_lw", "gaogaen"),
     // grab / throws
     ("catch", "catch", "palutena"), ("catch_dash", "catch_dash", "palutena"), ("catch_turn", "catch_turn", "palutena"),

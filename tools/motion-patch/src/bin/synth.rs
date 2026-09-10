@@ -38,6 +38,16 @@ const SYNTH: &[(&str, &str, &str, &str, bool)] = &[
     ("special_s_lariat",   "special_s_start",     "gaogaen",   "special_s_lariat",   true),
     ("special_s_throw",    "special_s_start",     "gaogaen",   "special_s_throw",    true),
     ("special_s_failure",  "special_s_start",     "gaogaen",   "special_s_failure",  true),
+    // Alolan Whip has a full AIR variant -- six motions, six ACMDs and its own params
+    // (special_air_s_catch_accel_y, _speed_y_max: he drifts slowly down while holding). The port
+    // played the GROUNDED animation and grounded hitboxes for an airborne side-B until this was
+    // found by reading his motion list rather than assuming the move had one form.
+    // special_air_s_start and _end already exist on Pikachu (air Skull Bash), so motion-patch's MAP
+    // gives those two Incineroar's flags and FAF; only these four are new.
+    ("special_air_s_throw",    "special_air_s_start", "gaogaen", "special_air_s_throw",    true),
+    ("special_air_s_shoulder", "special_air_s_start", "gaogaen", "special_air_s_shoulder", true),
+    ("special_air_s_lariat",   "special_air_s_start", "gaogaen", "special_air_s_lariat",   true),
+    ("special_air_s_failure",  "special_air_s_start", "gaogaen", "special_air_s_failure",  true),
     // Little Mac angled f-smash -- Pikachu has only attack_s4_s, so these adopt Mac's own
     // angled animations rather than playing his straight swing.
     ("attack_s4_hi",     "attack_s4_s",          "littlemac", "attack_s4_hi",     true),
