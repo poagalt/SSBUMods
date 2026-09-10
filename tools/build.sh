@@ -147,6 +147,9 @@ echo; echo "== 5. pre-flight the motion entries against the dropped-in animation
   donkey:shoulder_walk_fast donkey:shoulder_turn donkey:shoulder_jump_squat \
   donkey:shoulder_jump donkey:shoulder_fall donkey:shoulder_landing | tail -4
 
+echo; echo "== 5b. stamp the plugin with the commit it is built from =="
+bash "$ROOT/tools/gen-buildstamp.sh"
+
 echo; echo "== 6. compile =="
 # GATED ON THE EXIT CODE, NOT ON GREPPING THE OUTPUT.
 #

@@ -31,6 +31,7 @@ pub mod sink;
 mod motions;
 pub mod selftest;
 pub mod probe;
+mod buildstamp;
 
 pub const ENABLED: bool = true;
 
@@ -179,7 +180,7 @@ unsafe extern "C" fn pikachu_telemetry(fighter: &mut L2CFighterCommon) {
 pub fn install() {
     // First thing written each boot, so the log always starts with a known marker and a missing
     // file means the sink itself failed rather than the plugin not loading.
-    sink::diag("[rat] telemetry installed; plugin loaded".to_string());
+    sink::diag(format!("[rat] telemetry installed; plugin BUILD {}", buildstamp::BUILD));
     Agent::new("pikachu")
         .on_line(Main, pikachu_telemetry)
         .install();
