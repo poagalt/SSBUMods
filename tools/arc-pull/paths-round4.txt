@@ -1,0 +1,34 @@
+# Round 4 extraction. Run with Smash OPEN -- arc_network serves rom:/data.arc from inside the
+# running game process:
+#
+#   grep -vE '^\s*#|^\s*$' tools/arc-pull/paths-round4.txt \
+#     | tools/arc-pull/target/release/arc-pull.exe <console-ip>:43022 extracted
+#
+# EVERY FILENAME HERE WAS READ, NOT GUESSED. Round 3 lost nine files because prefixes were
+# invented (h00speciallw...) instead of resolved; the tool for that is
+#   tools/motion-patch/target/release/animof.exe <extracted-root> <fighter> <motion>...
+# which reads the fighter's own motion_list. SSBU names an animation identically on every fighter.
+
+# --- DK's cargo GRAB animation ----------------------------------------------------------------
+# The last missing animation in the moveset. throw_f is the cargo grab; without this the grab runs
+# DK's script on Pikachu's own f-throw animation, which playtest reported as "cargo throw displays
+# pikachu's forward throw animation". His four cargo THROWS already use his animations.
+#
+# Shipping it needs BOTH tools/anim-dropin.sh and ("throw_f", "throw_f", "donkey") in
+# tools/motion-patch's MAP -- the flags and the animation have to move together, or the entry gets
+# DK's `move` flag over Pikachu's animation.
+fighter/donkey/motion/body/c00/e01throwf.nuanmb
+
+# --- Incineroar's ROPE article -----------------------------------------------------------------
+# Alolan Whip's ring ropes. The mechanic works without them (the victim's whole trip is common
+# engine code) but they are the one visible piece missing, and they are the same clone_weapon
+# machinery as Ptooie. Pulled now so that attempt is not blocked on the game being open a third
+# time. WEAPON_KIND_GAOGAEN_ROPE = 0x1BA, FIGHTER_GAOGAEN_GENERATE_ARTICLE_ROPE = 0x0.
+#
+# Model files, because the spikeball attempt proved the visible form comes from the MODEL and not
+# from the effect archive -- an article whose textures are absent still has a physical shape.
+fighter/gaogaen/model/rope/c00/model.numdlb
+fighter/gaogaen/model/rope/c00/model.numshb
+fighter/gaogaen/model/rope/c00/model.numatb
+fighter/gaogaen/model/rope/c00/model.nusktb
+fighter/gaogaen/model/rope/c00/model.numshexb

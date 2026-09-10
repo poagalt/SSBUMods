@@ -75,8 +75,12 @@ done
 # a file dropped from the mod folder would otherwise linger and keep overriding vanilla --
 # `vl.prc` declared a 21st article param with no weapon behind it. Explicit rather than a diff of
 # the remote tree, so this can never delete something unrelated.
+# Empty on purpose. fighter/pikachu/param/vl.prc lived here while the mod shipped no override; it
+# ships one again (Incineroar's param_special_s, so Alolan Whip's victim has through_target
+# numbers to read), so it is a normal shipped file now. The loop below SKIPs anything still
+# present in the mod tree rather than deleting it, but leaving a stale name here would print a
+# warning on every deploy and eventually be ignored.
 RETIRED="
-fighter/pikachu/param/vl.prc
 "
 echo
 echo "== retiring files the mod no longer ships =="

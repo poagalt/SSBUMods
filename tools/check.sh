@@ -44,9 +44,36 @@ if [ "$clone_on" != "0" ] && [ "$k" != "1" ]; then
 elif [ "$clone_on" = "0" ] && [ "$k" != "0" ]; then
   echo "  FAIL clone_weapon is disabled but vl.prc still ships param_spikeball -- dead article param"; rc=1
 elif [ "$clone_on" = "0" ]; then
-  echo "  ok  clone disabled, no vl.prc override shipped (Pikachu keeps his vanilla 20 article params)"
+  echo "  ok  clone disabled, vl.prc ships no article param"
 else
   echo "  ok  clone enabled and param_spikeball present"
+fi
+
+# THE OVERRIDE MUST NOT CHANGE THE ARTICLE COUNT, and it must actually be Incineroar's
+# param_special_s rather than Pikachu's.
+#
+# The two are separate failures with the same symptom. Vanilla Pikachu has 20 top-level vl.prc
+# entries; gen-vlprc.sh REPLACES param_special_s rather than adding one, so the count must stay 20
+# -- 21 would mean an article param crept in, which is what Training Modpack's save state walks.
+# And if the replace silently skipped (vlmerge without --replace just prints and returns), the
+# object would still be Skull Bash's, every through_target lookup the victim's status makes would
+# return 0, and the whipped opponent would go nowhere. Checking a key that only Incineroar's object
+# has catches that.
+if [ -f "$V" ]; then
+  n=$("$ROOT/tools/prc-tool/target/release/vlkeys.exe" "$V" 2>/dev/null | grep -c '^ *0x' || true)
+  if [ "$n" != "20" ]; then
+    echo "  FAIL shipped vl.prc has $n top-level entries, expected 20 -- something was ADDED, not replaced"; rc=1
+  fi
+  tts=$("$ROOT/tools/prc-tool/target/release/prcdump.exe" "$V" \
+          "$ROOT/vendor/param-labels/ParamLabels.csv" 2>/dev/null \
+        | grep -c 'special_s_through_target_speed = 11.2' || true)
+  if [ "$tts" = "0" ]; then
+    echo "  FAIL shipped vl.prc param_special_s is not Incineroar's -- the rope throw will not travel"; rc=1
+  else
+    echo "  ok  vl.prc carries Incineroar's param_special_s ($n entries, article count unchanged)"
+  fi
+else
+  echo "  FAIL no vl.prc shipped -- Alolan Whip's victim has no through_target params to read"; rc=1
 fi
 
 echo; echo "== 3c. ported hitboxes land where the source character's do =="

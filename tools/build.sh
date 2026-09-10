@@ -45,6 +45,9 @@ bash "$ROOT/tools/gen-motion-params.sh"
 echo; echo "== 0c. generate the character select rename =="
 bash "$ROOT/tools/gen-name.sh"
 
+echo; echo "== 0d. give Pikachu Incineroar's param_special_s =="
+bash "$ROOT/tools/gen-vlprc.sh"
+
 echo; echo "== 1. generate move scripts from vanilla ACMD (verbatim, original bone anchors) =="
 bash "$ROOT/tools/gen-moves.sh"
 
@@ -125,7 +128,7 @@ echo; echo "== 5. pre-flight the motion entries against the dropped-in animation
   gaogaen:special_s_start gaogaen:special_s_end gaogaen:special_lw \
   gaogaen:special_s_shoulder gaogaen:special_s_lariat gaogaen:special_s_throw \
   gaogaen:special_s_failure gaogaen:special_lw_start gaogaen:special_lw_turn \
-  donkey:throw_f_f donkey:throw_f_b donkey:throw_f_hi donkey:throw_f_lw \
+  donkey:throw_f donkey:throw_f_f donkey:throw_f_b donkey:throw_f_hi donkey:throw_f_lw \
   gamewatch:special_hi gamewatch:special_air_hi gamewatch:special_hi_open \
   gamewatch:special_hi_close | tail -4
 

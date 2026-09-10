@@ -108,6 +108,7 @@ gaogaen   | d01specialsshoulder.nuanmb| -    | Alolan Whip shoulder toss (new fi
 gaogaen   | d01specialslariat.nuanmb  | -    | Alolan Whip lariat (new file)
 gaogaen   | d01specialsthrow.nuanmb   | -    | Alolan Whip throw (new file)
 gaogaen   | d01specialsfailure.nuanmb | -    | Alolan Whip whiff (new file)
+donkey    | e01throwf.nuanmb          | -    | cargo grab (same name as Pikachu's f-throw)
 gamewatch | d02specialhi.nuanmb       | -    | up-B Fire, grounded (new file)
 gamewatch | d02specialairhi.nuanmb    | -    | up-B Fire, airborne (new file)
 gamewatch | d02specialhiopen.nuanmb   | -    | up-B parachute open (new file)

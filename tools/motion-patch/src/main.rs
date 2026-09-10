@@ -38,6 +38,10 @@ const MAP: &[(&str, &str, &str)] = &[
     ("catch", "catch", "palutena"), ("catch_dash", "catch_dash", "palutena"), ("catch_turn", "catch_turn", "palutena"),
     ("catch_wait", "catch_wait", "palutena"), ("catch_pull", "catch_pull", "palutena"), ("catch_cut", "catch_cut", "palutena"),
     ("catch_attack", "catch_attack", "demon"),
+    // The cargo GRAB. Paired deliberately with the anim-dropin entry for e01throwf.nuanmb: the
+    // flags and the animation have to arrive together, or this entry takes DK's `move` flag over
+    // Pikachu's own f-throw animation and applies his root motion to the wrong pose.
+    ("throw_f", "throw_f", "donkey"),
     ("throw_b", "throw_b", "gaogaen"),
     ("throw_hi", "throw_hi", "mewtwo"),
     // defensive
