@@ -71,3 +71,29 @@ If it isn't in this file, it isn't tracked.
   flagged rather than guessed.
 - **ARCropolis 4.0.9 is pinned to Smash 13.0.5.** A console update breaks the whole toolchain.
 - **No local test path.** Nothing can be verified in-game here; hardware is the only target.
+
+---
+
+## Added after the George teardown
+
+### Tier 1 additions
+
+- [ ] Patch Pikachu's `motion_list.yml` — **FAF lives there as `cancel_frame`, and intangibility
+      as `xlu_start`/`xlu_end`**, not in the plugin. Parity on those axes is impossible without it.
+- [ ] Fetch `ParamLabels.csv` from `ultimate-research/param-labels` so `fighter_param.prcx` can be
+      authored by name rather than by hash.
+- [ ] Adopt the **`sys_*` effects-only rule** — using any fighter-prefixed effect reintroduces a
+      CSK dependency. This is the mechanism, not a style preference.
+- [ ] Do **not** empty `model.nuhlpb`. George does, to stop its rig fighting borrowed animations;
+      we drive Pikachu's own animations and need his helper bones intact.
+
+### New risks
+
+- **Sword show/hide has no precedent.** George's appendage is permanently attached and always
+  visible; its plugin imports **zero `ModelModule` symbols**. Toggling mesh visibility per-move is
+  the first place this project leaves the proven path.
+- **Runtime scaling has no precedent either** — same finding, same cause. The Incineroar b-throw
+  scaling plan is unproven.
+- Appendage technique that *is* proven: extra sub-meshes under an existing mesh-object name,
+  single-bound to the item-hold bones (`HaveR`/`HaveL`), new material in `model.numatb`, vanilla
+  skeleton untouched.

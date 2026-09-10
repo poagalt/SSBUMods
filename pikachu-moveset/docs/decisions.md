@@ -140,3 +140,14 @@ rubendal's dataset exposes raw per-character ACMD script data at
 carrying Damage, Angle, KBG, BKB, Size, Z/Z2 offsets, ShieldDamage, bone anchor, intangibility
 windows and FAF. This is exactly the field set the parity contract requires, and it settles the
 Round 2 Q1 risk.
+
+## Build environment
+
+Rust 1.98.1 stable + nightly on the `x86_64-pc-windows-gnu` host, `cargo-skyline 3.5.0`, and the
+skyline Switch toolchain at `~/.cargo/skyline/toolchain/skyline` — the same path that appears in
+George's own build fingerprints, so the build environment now matches the reference mod's.
+
+One local fix was required: w64devkit ships a slim GCC that folds the unwinder into `libgcc.a`
+and provides no separate `libgcc_eh.a`, which Rust's gnu host linker requests by name. Added an
+alias copy at `w64devkit/lib/gcc/x86_64-w64-mingw32/16.1.0/libgcc_eh.a`. Additive and reversible —
+delete that one file to undo.
