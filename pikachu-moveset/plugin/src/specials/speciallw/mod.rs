@@ -230,7 +230,18 @@ unsafe extern "C" fn pikachu_speciallw_main(fighter: &mut L2CFighterCommon) -> L
 
     // The retaliation re-enters this status with PHASE_COUNTER already set, so the same status
     // covers stance and counter-attack without needing a second status kind.
-    let motion = if PHASE[entry] == PHASE_COUNTER { "special_lw" } else { "special_lw_start" };
+    //
+    // AIR OR GROUND, per Incineroar. He has special_air_lw, _start and _turn as well, and this
+    // port played the grounded stance and grounded counter for an airborne Revenge. The air stance
+    // script is timing-identical to the ground one -- STANCE_START on script frame 8, STANCE_END on
+    // 28 -- so the counter window is the same either way and ../acmd_speciallw serves both.
+    let air = fighter.global_table[0x16] != *SITUATION_KIND_GROUND;
+    let motion = match (PHASE[entry] == PHASE_COUNTER, air) {
+        (true, false) => "special_lw",
+        (true, true) => "special_air_lw",
+        (false, false) => "special_lw_start",
+        (false, true) => "special_air_lw_start",
+    };
     MotionModule::change_motion(boma, Hash40::new(motion), 0.0, 1.0, false, 0.0, false, false);
 
     if fighter.global_table[0x16] != *SITUATION_KIND_GROUND {

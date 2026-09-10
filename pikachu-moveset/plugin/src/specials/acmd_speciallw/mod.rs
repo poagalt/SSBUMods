@@ -51,5 +51,9 @@ unsafe extern "C" fn pikachu_game_speciallwstart(agent: &mut L2CAgentBase) {
 pub fn install() {
     Agent::new("pikachu")
         .game_acmd("game_speciallwstart", pikachu_game_speciallwstart, Default)
+        // The AIR stance runs the identical script -- Incineroar's SpecialAirLwStart has the same
+        // FT_MOTION_RATE curve and raises STANCE_START on 8 and STANCE_END on 28 exactly as the
+        // ground one does -- so it is registered against the same function rather than copied.
+        .game_acmd("game_specialairlwstart", pikachu_game_speciallwstart, Default)
         .install();
 }

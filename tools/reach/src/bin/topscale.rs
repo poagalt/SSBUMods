@@ -62,6 +62,7 @@ const MAP: &[(&str, &str)] = &[
     ("pikachu_game_specialairhi", "gamewatch"),
     ("pikachu_game_speciallw", "gaogaen"),
     ("pikachu_game_speciallwstart", "gaogaen"),
+    ("pikachu_game_specialairlw", "gaogaen"),
     ("pikachu_game_specialsstart", "gaogaen"),
     ("pikachu_game_specialsshoulder", "gaogaen"),
     ("pikachu_game_specialslariat", "gaogaen"),

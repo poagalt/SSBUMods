@@ -32,6 +32,12 @@ const SYNTH: &[(&str, &str, &str, &str, bool)] = &[
     // Incineroar Revenge
     ("special_lw_start", "special_lw",           "gaogaen",   "special_lw_start", true),
     ("special_lw_turn",  "special_lw",           "gaogaen",   "special_lw_turn",  true),
+    // AIR Revenge. Incineroar has special_air_lw, _start and _turn, and the air stance script is
+    // timing-identical to the ground one -- same STANCE_START on 8 and STANCE_END on 28 -- so the
+    // hand-written stance in src/specials/acmd_speciallw serves both. special_air_lw itself already
+    // exists on Pikachu (air Thunder), so only these two are synthesised.
+    ("special_air_lw_start", "special_air_lw", "gaogaen", "special_air_lw_start", true),
+    ("special_air_lw_turn",  "special_air_lw", "gaogaen", "special_air_lw_turn",  true),
     // Incineroar Alolan Whip -- Pikachu has special_s_start and special_s_end already (Skull
     // Bash) but none of the three follow-ups or the whiff.
     ("special_s_shoulder", "special_s_start",     "gaogaen",   "special_s_shoulder", true),

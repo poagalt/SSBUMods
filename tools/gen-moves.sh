@@ -110,6 +110,7 @@ SPECIALS="
 # window lives on its script frames and the generated port loses it (deforeign strips the two
 # GAOGAEN status flags, correctly, and their frame numbers are the only record of the timing).
 Revenge counter (Incineroar)|gaogaen|SpecialLw|speciallw
+Revenge counter AIR (Incineroar)|gaogaen|SpecialAirLw|specialairlw
 # Game & Watch up-B, GENERATED now rather than hand-placed in src/specials/acmd.
 #
 # It was hand-written because deforeign strips FIGHTER_GAMEWATCH_* statements and the three
@@ -180,7 +181,6 @@ Quick Attack air leg 1, nulled|N|-|specialairhi1
 Quick Attack air leg 2, nulled|N|-|specialairhi2
 Quick Attack air recovery, nulled|N|-|specialairhiend
 Thunder hit, nulled|N|-|speciallwhit
-Thunder air, nulled|N|-|specialairlw
 Thunder air hit, nulled|N|-|specialairlwhit
 "
 

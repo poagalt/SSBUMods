@@ -107,3 +107,8 @@ gaogaen:special_air_s_throw
 gaogaen:special_air_s_shoulder
 gaogaen:special_air_s_lariat
 gaogaen:special_air_s_failure
+
+# AIR Revenge (special_air_lw pre-exists on Pikachu; start and turn are synth)
+gaogaen:special_air_lw
+gaogaen:special_air_lw_start
+gaogaen:special_air_lw_turn

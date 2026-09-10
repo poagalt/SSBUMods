@@ -44,6 +44,36 @@ unsafe extern "C" fn pikachu_effect_speciallw(agent: &mut L2CAgentBase) {
     }
 }
 
+// ---- Revenge counter AIR (Incineroar) : game_specialairlw ----
+unsafe extern "C" fn pikachu_game_specialairlw(agent: &mut L2CAgentBase) {
+    frame(agent.lua_state_agent, 1.0);
+    if macros::is_excute(agent) {
+        macros::WHOLE_HIT(agent, *HIT_STATUS_XLU);
+    }
+    frame(agent.lua_state_agent, 8.0);
+    if macros::is_excute(agent) {
+        macros::ATTACK(agent, 0, 0, Hash40::new("top"), 2.4, 51, 100, 40, 40, 10.0, 0.0, 11.458334, -1.0416667, None, None, None, 1.0, 0.0, *ATTACK_SETOFF_KIND_OFF, *ATTACK_LR_CHECK_POS, true, 0, 0.0, 0, false, false, false, false, true, *COLLISION_SITUATION_MASK_GA, *COLLISION_CATEGORY_MASK_ALL, *COLLISION_PART_MASK_ALL, false, Hash40::new("collision_attr_fire"), *ATTACK_SOUND_LEVEL_S, *COLLISION_SOUND_ATTR_FIRE, *ATTACK_REGION_NONE);
+        macros::ATTACK(agent, 1, 0, Hash40::new("top"), 2.4, 54, 100, 38, 38, 20.0, 0.0, 11.458334, -1.0416667, None, None, None, 1.0, 0.0, *ATTACK_SETOFF_KIND_OFF, *ATTACK_LR_CHECK_POS, true, 0, 0.0, 0, false, false, false, false, true, *COLLISION_SITUATION_MASK_GA, *COLLISION_CATEGORY_MASK_ALL, *COLLISION_PART_MASK_ALL, false, Hash40::new("collision_attr_fire"), *ATTACK_SOUND_LEVEL_S, *COLLISION_SOUND_ATTR_FIRE, *ATTACK_REGION_NONE);
+    }
+    wait(agent.lua_state_agent, 2.0);
+    if macros::is_excute(agent) {
+        AttackModule::clear_all(agent.module_accessor);
+    }
+    wait(agent.lua_state_agent, 5.0);
+    if macros::is_excute(agent) {
+        macros::WHOLE_HIT(agent, *HIT_STATUS_NORMAL);
+    }
+}
+
+
+// ---- Revenge counter AIR (Incineroar) : effect_specialairlw, sys_ effects only (ADR 0002) ----
+unsafe extern "C" fn pikachu_effect_specialairlw(agent: &mut L2CAgentBase) {
+    frame(agent.lua_state_agent, 3.0);
+    if macros::is_excute(agent) {
+        macros::LANDING_EFFECT(agent, Hash40::new("sys_landing_smoke"), Hash40::new("top"), 0, 0, 0, 0, 0, 0, 1, 0, 0, 0, 0, 0, 0, false);
+    }
+}
+
 // ---- up-B ground (Game & Watch) : game_specialhi ----
 unsafe extern "C" fn pikachu_game_specialhi(agent: &mut L2CAgentBase) {
     frame(agent.lua_state_agent, 3.0);
@@ -679,10 +709,6 @@ unsafe extern "C" fn pikachu_effect_specialairhiend(_agent: &mut L2CAgentBase) {
 unsafe extern "C" fn pikachu_game_speciallwhit(_agent: &mut L2CAgentBase) {}
 unsafe extern "C" fn pikachu_effect_speciallwhit(_agent: &mut L2CAgentBase) {}
 
-// ---- Thunder air, nulled : empty override of game_specialairlw AND effect_specialairlw ----
-unsafe extern "C" fn pikachu_game_specialairlw(_agent: &mut L2CAgentBase) {}
-unsafe extern "C" fn pikachu_effect_specialairlw(_agent: &mut L2CAgentBase) {}
-
 // ---- Thunder air hit, nulled : empty override of game_specialairlwhit AND effect_specialairlwhit ----
 unsafe extern "C" fn pikachu_game_specialairlwhit(_agent: &mut L2CAgentBase) {}
 unsafe extern "C" fn pikachu_effect_specialairlwhit(_agent: &mut L2CAgentBase) {}
@@ -691,6 +717,8 @@ pub fn install() {
     Agent::new("pikachu")
         .game_acmd("game_speciallw", pikachu_game_speciallw, Default)
         .effect_acmd("effect_speciallw", pikachu_effect_speciallw, Default)
+        .game_acmd("game_specialairlw", pikachu_game_specialairlw, Default)
+        .effect_acmd("effect_specialairlw", pikachu_effect_specialairlw, Default)
         .game_acmd("game_specialhi", pikachu_game_specialhi, Default)
         .effect_acmd("effect_specialhi", pikachu_effect_specialhi, Default)
         .game_acmd("game_specialairhi", pikachu_game_specialairhi, Default)
@@ -743,8 +771,6 @@ pub fn install() {
         .effect_acmd("effect_specialairhiend", pikachu_effect_specialairhiend, Default)
         .game_acmd("game_speciallwhit", pikachu_game_speciallwhit, Default)
         .effect_acmd("effect_speciallwhit", pikachu_effect_speciallwhit, Default)
-        .game_acmd("game_specialairlw", pikachu_game_specialairlw, Default)
-        .effect_acmd("effect_specialairlw", pikachu_effect_specialairlw, Default)
         .game_acmd("game_specialairlwhit", pikachu_game_specialairlwhit, Default)
         .effect_acmd("effect_specialairlwhit", pikachu_effect_specialairlwhit, Default)
         .install();

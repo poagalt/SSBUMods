@@ -38,6 +38,7 @@ const MAP: &[(&str, &str, &str)] = &[
     ("special_air_s_start", "special_air_s_start", "gaogaen"),
     ("special_air_s_end", "special_air_s_end", "gaogaen"),
     ("special_lw", "special_lw", "gaogaen"),
+    ("special_air_lw", "special_air_lw", "gaogaen"),
     // grab / throws
     ("catch", "catch", "palutena"), ("catch_dash", "catch_dash", "palutena"), ("catch_turn", "catch_turn", "palutena"),
     ("catch_wait", "catch_wait", "palutena"), ("catch_pull", "catch_pull", "palutena"), ("catch_cut", "catch_cut", "palutena"),
