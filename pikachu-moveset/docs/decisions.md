@@ -86,3 +86,57 @@ Reasoning:
    Palutena n-air (AC 40) will not autocancel from a short hop — same as on Palutena herself.
 
 The choice is not delicate: 0.125 and 0.127 are within noise of 0.13.
+
+## Round 3
+
+**Non-hitbox properties** — In scope. Armor, intangibility and autocancel windows port alongside
+hitbox parameters, sourced from ultimateframedata.com Notes plus public ACMD dumps. **Exception:
+K. Rool's down air ships without belly armor** — see ADR 0001, which generalises this into a rule.
+
+**Deployment** — No FTP on the console; files reach the SD card via the hekate GUI and homebrew
+USB transfer. Priority is "better mod first, convenience second", so the **packaged ARCropolis
+mod folder is the deliverable**. The smashline `development.nro` hot-reload file is emitted too,
+since it is free and lets a script-only change be swapped as one small file instead of the whole
+folder. cargo-skyline's FTP install/log features are unusable here.
+
+**Parity harness** — Codegen. Move scripts are **generated from the parity table**, making them
+correct by construction; the harness then re-verifies the table against the scraped source data.
+Generated scripts carry a do-not-edit header; hand-tuning happens in the table.
+
+**Tier 1 review** — One batch at the end, not category-by-category.
+
+### Get-up attack — the brief's premise was wrong
+
+The brief said to find the best get-up attack on ultimateframedata.com. **UFD does not publish
+get-up attack frame data** — the `Getup Attacks` block on each character page is hitbox GIFs only,
+with no numeric fields. Data was instead taken from the game's own 13.0.1 scripts via rubendal's
+dataset and cross-validated against UFD (agreeing on 87/89 characters for the adjacent Ledge
+Attack, differing by one frame on Sheik and Sora).
+
+**Get-up attacks are almost entirely standardized**, which makes most of the question moot:
+
+- **Total frames: 45 for all 89 fighters.** Zero variance. FAF 46.
+- **Damage: 7.0%** for 86/89 face-up and 87/89 face-down.
+- **All 178 get-up attacks hit both sides.** Universal.
+- Intangibility ends exactly on the last active frame — 178/178, no exceptions.
+
+The only two real levers are **intangibility end** (vulnerable tail = 45 − intangibility) and
+**hitbox reach**, which is not standardized: 10 to 54.5 game units, median 38.
+
+**Chosen: Bowser.** Reach 54.5 units — a genuine outlier against 51 for second place and a median
+of 38 — with intangibility 1-23 covering every active frame (19-20 and 22-23), so the attack
+cannot be beaten cleanly, only waited out. Coherent with the build already taking Bowser's weight.
+Runner-up is Mythra/Pyra: frame 14 startup (tied fastest), 46.5 reach, intangible 1-25.
+
+Adjacent finding, for the ledge attack slot: **55 total frames for all 89**, and every ledge
+attack is active for exactly 3 frames ending with intangibility. Best is **Ganondorf** — `S+`
+range, 10%, intangible 1-26, -21 on shield, the only fighter near the top of all four axes at
+once. Bowser has the single longest range (`SS`) at the cost of 1-24 and -23.
+
+### Confirmed source of truth
+
+rubendal's dataset exposes raw per-character ACMD script data at
+`https://raw.githubusercontent.com/rubendal/ssbu/gh-pages/data/patch/13.0.1/character/<Name>/data.json`,
+carrying Damage, Angle, KBG, BKB, Size, Z/Z2 offsets, ShieldDamage, bone anchor, intangibility
+windows and FAF. This is exactly the field set the parity contract requires, and it settles the
+Round 2 Q1 risk.
