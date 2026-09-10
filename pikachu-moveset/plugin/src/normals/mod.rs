@@ -30,6 +30,10 @@ unsafe extern "C" fn pikachu_game_attack11(agent: &mut L2CAgentBase) {
 }
 
 
+// ---- jab (Chrom) : effect_attack11, sys_ effects only (ADR 0002) ----
+unsafe extern "C" fn pikachu_effect_attack11(agent: &mut L2CAgentBase) {
+}
+
 // ---- dash attack (Mythra) : game_attackdash ----
 unsafe extern "C" fn pikachu_game_attackdash(agent: &mut L2CAgentBase) {
     frame(agent.lua_state_agent, 1.0);
@@ -53,6 +57,22 @@ unsafe extern "C" fn pikachu_game_attackdash(agent: &mut L2CAgentBase) {
     macros::FT_MOTION_RATE(agent, 0.75);
 }
 
+
+// ---- dash attack (Mythra) : effect_attackdash, sys_ effects only (ADR 0002) ----
+unsafe extern "C" fn pikachu_effect_attackdash(agent: &mut L2CAgentBase) {
+    frame(agent.lua_state_agent, 14.0);
+    if macros::is_excute(agent) {
+        macros::LANDING_EFFECT(agent, Hash40::new("sys_atk_smoke"), Hash40::new("top"), 0, 0, 0, 0, 0, 0, 0.9, 0, 0, 0, 0, 0, 0, false);
+    }
+    frame(agent.lua_state_agent, 17.0);
+    if macros::is_excute(agent) {
+        macros::FOOT_EFFECT(agent, Hash40::new("sys_turn_smoke"), Hash40::new("top"), 4, 0, 0, 0, 0, 0, 0.9, 0, 0, 0, 0, 0, 0, false);
+    }
+    frame(agent.lua_state_agent, 21.0);
+    if macros::is_excute(agent) {
+        macros::FOOT_EFFECT(agent, Hash40::new("sys_turn_smoke"), Hash40::new("top"), 4, 0, 0, 0, 0, 0, 0.9, 0, 0, 0, 0, 0, 0, false);
+    }
+}
 
 // ---- f-tilt (Mythra) : game_attacks3 ----
 unsafe extern "C" fn pikachu_game_attacks3(agent: &mut L2CAgentBase) {
@@ -85,8 +105,16 @@ unsafe extern "C" fn pikachu_game_attacks3(agent: &mut L2CAgentBase) {
 }
 
 
-// ---- f-tilt up, shares the s3 game script (Mythra) : game_attacks3hi -> pikachu_game_attacks3 ----
-// ---- f-tilt down, shares the s3 game script (Mythra) : game_attacks3lw -> pikachu_game_attacks3 ----
+// ---- f-tilt (Mythra) : effect_attacks3, sys_ effects only (ADR 0002) ----
+unsafe extern "C" fn pikachu_effect_attacks3(agent: &mut L2CAgentBase) {
+    frame(agent.lua_state_agent, 9.0);
+    if macros::is_excute(agent) {
+        macros::FOOT_EFFECT(agent, Hash40::new("sys_turn_smoke"), Hash40::new("top"), 0, 0, 0, 0, 0, 0, 1, 0, 0, 0, 0, 0, 0, false);
+    }
+}
+
+// ---- f-tilt up, shares the s3 game script (Mythra) : game_attacks3hi and effect_attacks3hi -> pikachu_*_attacks3 ----
+// ---- f-tilt down, shares the s3 game script (Mythra) : game_attacks3lw and effect_attacks3lw -> pikachu_*_attacks3 ----
 // ---- u-tilt (Falco) : game_attackhi3 ----
 unsafe extern "C" fn pikachu_game_attackhi3(agent: &mut L2CAgentBase) {
     frame(agent.lua_state_agent, 5.0);
@@ -117,6 +145,10 @@ unsafe extern "C" fn pikachu_game_attackhi3(agent: &mut L2CAgentBase) {
 }
 
 
+// ---- u-tilt (Falco) : effect_attackhi3, sys_ effects only (ADR 0002) ----
+unsafe extern "C" fn pikachu_effect_attackhi3(agent: &mut L2CAgentBase) {
+}
+
 // ---- d-tilt (R.O.B.) : game_attacklw3 ----
 unsafe extern "C" fn pikachu_game_attacklw3(agent: &mut L2CAgentBase) {
     frame(agent.lua_state_agent, 3.0);
@@ -131,14 +163,35 @@ unsafe extern "C" fn pikachu_game_attacklw3(agent: &mut L2CAgentBase) {
 }
 
 
+// ---- d-tilt (R.O.B.) : effect_attacklw3, sys_ effects only (ADR 0002) ----
+unsafe extern "C" fn pikachu_effect_attacklw3(agent: &mut L2CAgentBase) {
+    frame(agent.lua_state_agent, 3.0);
+    if macros::is_excute(agent) {
+        macros::EFFECT_FLIP(agent, Hash40::new("sys_attack_speedline"), Hash40::new("sys_attack_speedline"), Hash40::new("top"), 5, 8, 7, 20, -24, 0, 0.9, 0, 0, 0, 0, 0, 0, true, *EF_FLIP_YZ);
+        macros::EFFECT_FLIP(agent, Hash40::new("sys_attack_speedline"), Hash40::new("sys_attack_speedline"), Hash40::new("top"), -5, 8, 4, 20, -24, 0, 0.9, 0, 0, 0, 0, 0, 0, true, *EF_FLIP_YZ);
+        macros::EFFECT_FLIP_ALPHA(agent, Hash40::new("sys_attack_impact"), Hash40::new("sys_attack_impact"), Hash40::new("top"), -6, 2.5, 20.5, 0, 0, 0, 1.3, 0, 0, 0, 0, 0, 0, true, *EF_FLIP_YZ, 0.7);
+    }
+    frame(agent.lua_state_agent, 4.0);
+    if macros::is_excute(agent) {
+        macros::FOOT_EFFECT(agent, Hash40::new("sys_turn_smoke"), Hash40::new("top"), 0, 0, 0, 0, 0, 0, 1.2, 0, 0, 0, 0, 0, 0, false);
+    }
+}
+
 pub fn install() {
     Agent::new("pikachu")
         .game_acmd("game_attack11", pikachu_game_attack11, Default)
+        .effect_acmd("effect_attack11", pikachu_effect_attack11, Default)
         .game_acmd("game_attackdash", pikachu_game_attackdash, Default)
+        .effect_acmd("effect_attackdash", pikachu_effect_attackdash, Default)
         .game_acmd("game_attacks3", pikachu_game_attacks3, Default)
+        .effect_acmd("effect_attacks3", pikachu_effect_attacks3, Default)
         .game_acmd("game_attacks3hi", pikachu_game_attacks3, Default)
+        .effect_acmd("effect_attacks3hi", pikachu_effect_attacks3, Default)
         .game_acmd("game_attacks3lw", pikachu_game_attacks3, Default)
+        .effect_acmd("effect_attacks3lw", pikachu_effect_attacks3, Default)
         .game_acmd("game_attackhi3", pikachu_game_attackhi3, Default)
+        .effect_acmd("effect_attackhi3", pikachu_effect_attackhi3, Default)
         .game_acmd("game_attacklw3", pikachu_game_attacklw3, Default)
+        .effect_acmd("effect_attacklw3", pikachu_effect_attacklw3, Default)
         .install();
 }

@@ -27,6 +27,11 @@
 			<float hash="jump_aerial_y">50.51</float>
 			<float hash="jump_initial_y">27.7805</float>
 			<float hash="jump_speed_x_mul">0.9</float>
+			<float hash="landing_attack_air_frame_n">12</float>
+			<float hash="landing_attack_air_frame_f">10</float>
+			<float hash="landing_attack_air_frame_b">8</float>
+			<float hash="landing_attack_air_frame_hi">9</float>
+			<float hash="landing_attack_air_frame_lw">14</float>
 		</struct>
 		<hash40 index="8">dummy</hash40>
 		<hash40 index="9">dummy</hash40>

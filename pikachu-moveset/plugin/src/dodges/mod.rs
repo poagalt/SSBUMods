@@ -23,6 +23,10 @@ unsafe extern "C" fn pikachu_game_escapeair(agent: &mut L2CAgentBase) {
 }
 
 
+// ---- air dodge (Fox) : effect_escapeair, sys_ effects only (ADR 0002) ----
+unsafe extern "C" fn pikachu_effect_escapeair(agent: &mut L2CAgentBase) {
+}
+
 // ---- air dodge directional (Fox) : game_escapeairslide ----
 unsafe extern "C" fn pikachu_game_escapeairslide(agent: &mut L2CAgentBase) {
     frame(agent.lua_state_agent, 14.0);
@@ -37,6 +41,10 @@ unsafe extern "C" fn pikachu_game_escapeairslide(agent: &mut L2CAgentBase) {
 }
 
 
+// ---- air dodge directional (Fox) : effect_escapeairslide, sys_ effects only (ADR 0002) ----
+unsafe extern "C" fn pikachu_effect_escapeairslide(agent: &mut L2CAgentBase) {
+}
+
 // ---- forward roll (Fox) : game_escapef ----
 unsafe extern "C" fn pikachu_game_escapef(agent: &mut L2CAgentBase) {
     frame(agent.lua_state_agent, 20.0);
@@ -46,10 +54,25 @@ unsafe extern "C" fn pikachu_game_escapef(agent: &mut L2CAgentBase) {
 }
 
 
+// ---- forward roll (Fox) : effect_escapef, sys_ effects only (ADR 0002) ----
+unsafe extern "C" fn pikachu_effect_escapef(agent: &mut L2CAgentBase) {
+    frame(agent.lua_state_agent, 1.0);
+    if macros::is_excute(agent) {
+        macros::EFFECT(agent, Hash40::new("sys_smash_flash"), Hash40::new("top"), 0, 3, 0, 0, 0, 0, 1, 0, 0, 0, 0, 0, 0, true);
+    }
+    frame(agent.lua_state_agent, 4.0);
+    if macros::is_excute(agent) {
+        macros::FOOT_EFFECT(agent, Hash40::new("sys_dash_smoke"), Hash40::new("top"), 0, 0, 0, 0, 0, 0, 1, 0, 0, 0, 0, 0, 0, false);
+    }
+}
+
 pub fn install() {
     Agent::new("pikachu")
         .game_acmd("game_escapeair", pikachu_game_escapeair, Default)
+        .effect_acmd("effect_escapeair", pikachu_effect_escapeair, Default)
         .game_acmd("game_escapeairslide", pikachu_game_escapeairslide, Default)
+        .effect_acmd("effect_escapeairslide", pikachu_effect_escapeairslide, Default)
         .game_acmd("game_escapef", pikachu_game_escapef, Default)
+        .effect_acmd("effect_escapef", pikachu_effect_escapef, Default)
         .install();
 }

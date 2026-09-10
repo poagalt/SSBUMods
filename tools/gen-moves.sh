@@ -5,8 +5,13 @@
 # These are the game's own scripts, already converted to smashline Rust. Copying them
 # verbatim gives frame-data parity by construction -- there is no transcription step.
 #
-# Only `game_*` scripts are ported. Pikachu's own `effect_*` scripts are left in place:
-# vanilla effect scripts reference fighter-prefixed effect archives, which ADR 0002 forbids.
+# `game_*` scripts are copied verbatim. `effect_*` scripts are GENERATED from the source's
+# `sys_*` spawns only -- see tools/extract-effects.awk for why generating beats filtering, and
+# ADR 0002 for why fighter-owned effect archives cannot be used. Leaving Pikachu's own effect
+# scripts in place put his electric sparks on a sword swing and a punch.
+#
+# `sound_*` and `expression_*` are still Pikachu's. His landing effect scripts are too, and that
+# is fine: they only use the generic sys_down_smoke and sys_crown.
 #
 # Regenerate with:  bash tools/gen-moves.sh
 set -euo pipefail
@@ -115,8 +120,12 @@ emit_module() {
             continue
         fi
         if [ "$fighter" = "=" ]; then
-            echo "// ---- $slot : game_$acmd -> pikachu_game_$fname ----" >> "$file"
+            # Alias the EFFECT script too, not just the game script. Registering only the game
+            # script left Pikachu's effect_attacks3hi and effect_attacks3lw running -- his cheek
+            # sparks on Mythra's angled f-tilts.
+            echo "// ---- $slot : game_$acmd and effect_$acmd -> pikachu_*_$fname ----" >> "$file"
             installs="$installs        .game_acmd(\"game_$acmd\", pikachu_game_$fname, Default)
+        .effect_acmd(\"effect_$acmd\", pikachu_effect_$fname, Default)
 "
             continue
         fi
@@ -126,7 +135,7 @@ emit_module() {
             continue
         fi
         echo "// ---- $slot : game_$fname ----" >> "$file"
-        # Take only the game_ function, rename it, drop effect_/sound_/expression_.
+        # Take only the game_ function, rename it, drop sound_/expression_.
         awk -v want="game_$fname" '
             /^unsafe extern "C" fn / {
                 infn = ($5 ~ "^" want "\\(")
@@ -137,6 +146,23 @@ emit_module() {
             | sed -f "$ROOT/tools/bone-remap.sed" >> "$file"
         echo "" >> "$file"
         installs="$installs        .game_acmd(\"game_$fname\", pikachu_game_$fname, Default)\n"
+
+        # An effect script too, ALWAYS -- even if it ends up empty. Without an override, Pikachu's
+        # own effect script keeps running on a replaced move, which put pikachu_cheek_elec and
+        # pikachu_elec_shock on Little Mac's f-smash, pikachu_tail_arc on Fox's u-smash and
+        # Corrin's u-air, and pikachu_elec on Kazuya's f-air: electric sparks on a punch and on a
+        # sword. An empty override is strictly better than the wrong effects.
+        #
+        # The body is GENERATED from the source's `sys_*` spawns rather than copied. See the
+        # header of tools/extract-effects.awk: the dumps are not reliably compilable, and
+        # salvaging decompiler output does not generalise.
+        echo "// ---- $slot : effect_$fname, sys_ effects only (ADR 0002) ----" >> "$file"
+        echo "unsafe extern \"C\" fn pikachu_effect_$fname(agent: &mut L2CAgentBase) {" >> "$file"
+        awk -v want="effect_$fname" -f "$ROOT/tools/extract-effects.awk" "$src" \
+            | sed -f "$ROOT/tools/bone-remap.sed" >> "$file"
+        echo "}" >> "$file"
+        echo "" >> "$file"
+        installs="$installs        .effect_acmd(\"effect_$fname\", pikachu_effect_$fname, Default)\n"
     done <<< "$spec"
 
     {

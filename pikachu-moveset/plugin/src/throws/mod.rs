@@ -35,6 +35,15 @@ unsafe extern "C" fn pikachu_game_catch(agent: &mut L2CAgentBase) {
 }
 
 
+// ---- grab (Palutena) : effect_catch, sys_ effects only (ADR 0002) ----
+unsafe extern "C" fn pikachu_effect_catch(agent: &mut L2CAgentBase) {
+    frame(agent.lua_state_agent, 1.0);
+    if macros::is_excute(agent) {
+        macros::FOOT_EFFECT(agent, Hash40::new("sys_down_smoke"), Hash40::new("top"), 0, 0, 0, 0, 0, 0, 0.6, 0, 0, 0, 0, 0, 0, false);
+        macros::FOOT_EFFECT(agent, Hash40::new("sys_matchless_smoke1"), Hash40::new("top"), 0, 0, 0, 0, 0, 0, 1, 0, 0, 0, 0, 0, 0, false);
+    }
+}
+
 // ---- dash grab (Palutena) : game_catchdash ----
 unsafe extern "C" fn pikachu_game_catchdash(agent: &mut L2CAgentBase) {
     frame(agent.lua_state_agent, 9.0);
@@ -55,6 +64,14 @@ unsafe extern "C" fn pikachu_game_catchdash(agent: &mut L2CAgentBase) {
     }
 }
 
+
+// ---- dash grab (Palutena) : effect_catchdash, sys_ effects only (ADR 0002) ----
+unsafe extern "C" fn pikachu_effect_catchdash(agent: &mut L2CAgentBase) {
+    frame(agent.lua_state_agent, 9.0);
+    if macros::is_excute(agent) {
+        macros::FOOT_EFFECT(agent, Hash40::new("sys_matchless_smoke1"), Hash40::new("top"), 0, 0, 0, 0, 0, 0, 1, 0, 0, 0, 0, 0, 0, false);
+    }
+}
 
 // ---- pivot grab (Palutena) : game_catchturn ----
 unsafe extern "C" fn pikachu_game_catchturn(agent: &mut L2CAgentBase) {
@@ -77,6 +94,18 @@ unsafe extern "C" fn pikachu_game_catchturn(agent: &mut L2CAgentBase) {
 }
 
 
+// ---- pivot grab (Palutena) : effect_catchturn, sys_ effects only (ADR 0002) ----
+unsafe extern "C" fn pikachu_effect_catchturn(agent: &mut L2CAgentBase) {
+    frame(agent.lua_state_agent, 6.0);
+    if macros::is_excute(agent) {
+        macros::FOOT_EFFECT(agent, Hash40::new("sys_dash_smoke"), Hash40::new("top"), -5, 0, 0, 0, 0, 0, 0.8, 0, 0, 0, 0, 0, 0, false);
+    }
+    frame(agent.lua_state_agent, 16.0);
+    if macros::is_excute(agent) {
+        macros::FOOT_EFFECT(agent, Hash40::new("sys_matchless_smoke1"), Hash40::new("top"), 0, 0, 0, 0, 0, 0, 1, 0, 0, 0, 0, 0, 0, false);
+    }
+}
+
 // ---- pummel (Kazuya) : game_catchattack ----
 unsafe extern "C" fn pikachu_game_catchattack(agent: &mut L2CAgentBase) {
     frame(agent.lua_state_agent, 5.0);
@@ -90,6 +119,14 @@ unsafe extern "C" fn pikachu_game_catchattack(agent: &mut L2CAgentBase) {
     }
 }
 
+
+// ---- pummel (Kazuya) : effect_catchattack, sys_ effects only (ADR 0002) ----
+unsafe extern "C" fn pikachu_effect_catchattack(agent: &mut L2CAgentBase) {
+    frame(agent.lua_state_agent, 5.0);
+    if macros::is_excute(agent) {
+        macros::EFFECT_ALPHA(agent, Hash40::new("sys_attack_impact"), Hash40::new("handl"), 1.3, 0, 0, 0, 0, 0, 0.6, 0, 0, 0, 0, 0, 360, true, 0.3);
+    }
+}
 
 // ---- b-throw (Incineroar) : game_throwb ----
 unsafe extern "C" fn pikachu_game_throwb(agent: &mut L2CAgentBase) {
@@ -121,6 +158,18 @@ unsafe extern "C" fn pikachu_game_throwb(agent: &mut L2CAgentBase) {
 }
 
 
+// ---- b-throw (Incineroar) : effect_throwb, sys_ effects only (ADR 0002) ----
+unsafe extern "C" fn pikachu_effect_throwb(agent: &mut L2CAgentBase) {
+    frame(agent.lua_state_agent, 22.0);
+    if macros::is_excute(agent) {
+        macros::LANDING_EFFECT(agent, Hash40::new("sys_atk_smoke"), Hash40::new("top"), 0, 0, 0, 0, 180, 0, 1, 0, 0, 0, 0, 0, 0, false);
+    }
+    frame(agent.lua_state_agent, 28.0);
+    if macros::is_excute(agent) {
+        macros::EFFECT(agent, Hash40::new("sys_crown"), Hash40::new("top"), 0, 0, 0, 0, 0, 0, 0.9, 0, 0, 0, 0, 0, 0, false);
+    }
+}
+
 // ---- u-throw (Mewtwo) : game_throwhi ----
 unsafe extern "C" fn pikachu_game_throwhi(agent: &mut L2CAgentBase) {
     if macros::is_excute(agent) {
@@ -142,13 +191,32 @@ unsafe extern "C" fn pikachu_game_throwhi(agent: &mut L2CAgentBase) {
 }
 
 
+// ---- u-throw (Mewtwo) : effect_throwhi, sys_ effects only (ADR 0002) ----
+unsafe extern "C" fn pikachu_effect_throwhi(agent: &mut L2CAgentBase) {
+    frame(agent.lua_state_agent, 5.0);
+    if macros::is_excute(agent) {
+        macros::EFFECT_FLIP(agent, Hash40::new("sys_flash"), Hash40::new("sys_flash"), Hash40::new("throw"), 2, 0, 1, 0, 0, 0, 0.5, 0, 0, 0, 0, 0, 0, true, *EF_FLIP_YZ);
+    }
+    frame(agent.lua_state_agent, 42.0);
+    if macros::is_excute(agent) {
+        macros::EFFECT_FLIP(agent, Hash40::new("sys_flash"), Hash40::new("sys_flash"), Hash40::new("throw"), 2, 0, 1, 0, 0, 0, 0.9, 0, 0, 0, 0, 0, 0, true, *EF_FLIP_YZ);
+        macros::LANDING_EFFECT(agent, Hash40::new("sys_landing_smoke"), Hash40::new("top"), 0, 0, 0, 0, 0, 0, 1, 0, 0, 0, 0, 0, 0, false);
+    }
+}
+
 pub fn install() {
     Agent::new("pikachu")
         .game_acmd("game_catch", pikachu_game_catch, Default)
+        .effect_acmd("effect_catch", pikachu_effect_catch, Default)
         .game_acmd("game_catchdash", pikachu_game_catchdash, Default)
+        .effect_acmd("effect_catchdash", pikachu_effect_catchdash, Default)
         .game_acmd("game_catchturn", pikachu_game_catchturn, Default)
+        .effect_acmd("effect_catchturn", pikachu_effect_catchturn, Default)
         .game_acmd("game_catchattack", pikachu_game_catchattack, Default)
+        .effect_acmd("effect_catchattack", pikachu_effect_catchattack, Default)
         .game_acmd("game_throwb", pikachu_game_throwb, Default)
+        .effect_acmd("effect_throwb", pikachu_effect_throwb, Default)
         .game_acmd("game_throwhi", pikachu_game_throwhi, Default)
+        .effect_acmd("effect_throwhi", pikachu_effect_throwhi, Default)
         .install();
 }

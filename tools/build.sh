@@ -24,11 +24,17 @@ export PATH="/c/Users/poaga/.cargo/bin:/c/Users/poaga/w64devkit/bin:$PATH"
 echo "== 0. read every fighter's scale param out of the game =="
 bash "$ROOT/tools/gen-scales.sh"
 
+echo; echo "== 0b. generate the character select rename =="
+bash "$ROOT/tools/gen-name.sh"
+
 echo; echo "== 1. generate move scripts from vanilla ACMD (verbatim, original bone anchors) =="
 bash "$ROOT/tools/gen-moves.sh"
 
 echo; echo "== 1b. strip the source fighters' own namespace constants =="
 "$ROOT/tools/reach/target/release/deforeign.exe" "$ROOT/pikachu-moveset/plugin/src" | tail -1
+
+echo; echo "== 1c. verify no effect Pikachu cannot load survived (ADR 0002) =="
+"$ROOT/tools/reach/target/release/sysfx.exe" "$ROOT/pikachu-moveset/plugin/src" | tail -2
 
 echo; echo "== 2. graft on weapon bones the ported hitboxes need =="
 bash "$ROOT/tools/add-bones.sh" | tail -1

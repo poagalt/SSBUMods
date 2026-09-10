@@ -60,6 +60,10 @@ unsafe extern "C" fn pikachu_game_attackairn(agent: &mut L2CAgentBase) {
 }
 
 
+// ---- n-air (Palutena) : effect_attackairn, sys_ effects only (ADR 0002) ----
+unsafe extern "C" fn pikachu_effect_attackairn(agent: &mut L2CAgentBase) {
+}
+
 // ---- f-air (Kazuya) : game_attackairf ----
 unsafe extern "C" fn pikachu_game_attackairf(agent: &mut L2CAgentBase) {
     frame(agent.lua_state_agent, 3.0);
@@ -91,6 +95,10 @@ unsafe extern "C" fn pikachu_game_attackairf(agent: &mut L2CAgentBase) {
 }
 
 
+// ---- f-air (Kazuya) : effect_attackairf, sys_ effects only (ADR 0002) ----
+unsafe extern "C" fn pikachu_effect_attackairf(agent: &mut L2CAgentBase) {
+}
+
 // ---- b-air (Cloud) : game_attackairb ----
 unsafe extern "C" fn pikachu_game_attackairb(agent: &mut L2CAgentBase) {
     frame(agent.lua_state_agent, 5.0);
@@ -116,6 +124,10 @@ unsafe extern "C" fn pikachu_game_attackairb(agent: &mut L2CAgentBase) {
 }
 
 
+// ---- b-air (Cloud) : effect_attackairb, sys_ effects only (ADR 0002) ----
+unsafe extern "C" fn pikachu_effect_attackairb(agent: &mut L2CAgentBase) {
+}
+
 // ---- u-air (Corrin) : game_attackairhi ----
 unsafe extern "C" fn pikachu_game_attackairhi(agent: &mut L2CAgentBase) {
     frame(agent.lua_state_agent, 4.0);
@@ -138,6 +150,10 @@ unsafe extern "C" fn pikachu_game_attackairhi(agent: &mut L2CAgentBase) {
     }
 }
 
+
+// ---- u-air (Corrin) : effect_attackairhi, sys_ effects only (ADR 0002) ----
+unsafe extern "C" fn pikachu_effect_attackairhi(agent: &mut L2CAgentBase) {
+}
 
 // ---- d-air (K. Rool) : game_attackairlw ----
 unsafe extern "C" fn pikachu_game_attackairlw(agent: &mut L2CAgentBase) {
@@ -171,12 +187,34 @@ unsafe extern "C" fn pikachu_game_attackairlw(agent: &mut L2CAgentBase) {
 }
 
 
+// ---- d-air (K. Rool) : effect_attackairlw, sys_ effects only (ADR 0002) ----
+unsafe extern "C" fn pikachu_effect_attackairlw(agent: &mut L2CAgentBase) {
+    frame(agent.lua_state_agent, 2.0);
+    if macros::is_excute(agent) {
+        macros::EFFECT_FOLLOW(agent, Hash40::new("sys_smash_flash"), Hash40::new("top"), 0, -5, -2, 0, 0, 0, 0.7, true);
+    }
+    frame(agent.lua_state_agent, 13.0);
+    if macros::is_excute(agent) {
+        macros::EFFECT_FLIP_ALPHA(agent, Hash40::new("sys_attack_speedline"), Hash40::new("sys_attack_speedline"), Hash40::new("top"), -7, 15, 0, 90, 0, 0, 1.5, 0, 0, 0, 0, 0, 0, true, *EF_FLIP_YZ, 0.3);
+        macros::EFFECT_FOLLOW_FLIP_ALPHA(agent, Hash40::new("sys_attack_line"), Hash40::new("sys_attack_line"), Hash40::new("top"), -2, 18.5, 0, 90, 0, 0, 1.8, true, *EF_FLIP_YZ, 1);
+    }
+    frame(agent.lua_state_agent, 14.0);
+    if macros::is_excute(agent) {
+        macros::EFFECT_FOLLOW_ALPHA(agent, Hash40::new("sys_attack_impact"), Hash40::new("top"), 0, -10, 0, 0, 0, 0, 2.3, false, 1);
+    }
+}
+
 pub fn install() {
     Agent::new("pikachu")
         .game_acmd("game_attackairn", pikachu_game_attackairn, Default)
+        .effect_acmd("effect_attackairn", pikachu_effect_attackairn, Default)
         .game_acmd("game_attackairf", pikachu_game_attackairf, Default)
+        .effect_acmd("effect_attackairf", pikachu_effect_attackairf, Default)
         .game_acmd("game_attackairb", pikachu_game_attackairb, Default)
+        .effect_acmd("effect_attackairb", pikachu_effect_attackairb, Default)
         .game_acmd("game_attackairhi", pikachu_game_attackairhi, Default)
+        .effect_acmd("effect_attackairhi", pikachu_effect_attackairhi, Default)
         .game_acmd("game_attackairlw", pikachu_game_attackairlw, Default)
+        .effect_acmd("effect_attackairlw", pikachu_effect_attackairlw, Default)
         .install();
 }

@@ -31,6 +31,14 @@ unsafe extern "C" fn pikachu_game_landingairlw(agent: &mut L2CAgentBase) {
 }
 
 
+// ---- landing lw (K. Rool) : effect_landingairlw, sys_ effects only (ADR 0002) ----
+unsafe extern "C" fn pikachu_effect_landingairlw(agent: &mut L2CAgentBase) {
+    frame(agent.lua_state_agent, 1.0);
+    if macros::is_excute(agent) {
+        macros::LANDING_EFFECT(agent, Hash40::new("sys_down_smoke"), Hash40::new("top"), 0, 0, 0, 0, 0, 0, 1, 0, 0, 0, 0, 0, 0, false);
+    }
+}
+
 pub fn install() {
     Agent::new("pikachu")
         .game_acmd("game_landingairn", pikachu_game_landingairn, Default)
@@ -38,5 +46,6 @@ pub fn install() {
         .game_acmd("game_landingairb", pikachu_game_landingairb, Default)
         .game_acmd("game_landingairhi", pikachu_game_landingairhi, Default)
         .game_acmd("game_landingairlw", pikachu_game_landingairlw, Default)
+        .effect_acmd("effect_landingairlw", pikachu_effect_landingairlw, Default)
         .install();
 }

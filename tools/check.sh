@@ -62,7 +62,10 @@ echo; echo "== 4. fighter_param.prcxml parses and carries Pikachu's attributes =
   "$ROOT/pikachu-moveset/mod/fighter/common/param/fighter_param.prcxml" 7 \
   weight=135 walk_speed_max=1.575 dash_speed=2.42 run_speed_max=2.464 \
   jump_y=50.51 mini_jump_y=17.34 jump_aerial_y=50.51 jump_initial_y=27.7805 \
-  air_speed_x_stable=1.332 air_speed_y_stable=1.63 dive_speed_y=3.097 air_accel_y=0.13 || rc=1
+  air_speed_x_stable=1.332 air_speed_y_stable=1.63 dive_speed_y=3.097 air_accel_y=0.13 \n  landing_attack_air_frame_n=12 landing_attack_air_frame_f=10 landing_attack_air_frame_b=8 \n  landing_attack_air_frame_hi=9 landing_attack_air_frame_lw=14 || rc=1
+
+echo; echo "== 5. character select rename is present and correctly encoded =="
+bash "$ROOT/tools/check-name.sh" || rc=1
 
 echo; [ $rc -eq 0 ] && echo "ALL CHECKS PASSED" || echo "CHECKS FAILED"
 exit $rc
