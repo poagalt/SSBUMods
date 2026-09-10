@@ -76,3 +76,17 @@ cd pikachu-moveset/plugin && cargo skyline build --release
 
 Rebuilding requires `extracted/`, which comes from the console via `tools/arc-pull` while
 `arc-network` is loaded and the game is running.
+
+## Disabled mod
+
+`ultimate/mods/Ken Sugimori style Pikachu` was renamed to `.Ken Sugimori style Pikachu`.
+ARCropolis skips dot-prefixed folders. **All its files are intact** — remove the leading dot to
+re-enable it.
+
+It conflicted with this mod on six files:
+`fighter/pikachu/model/body/c00/model.{adjb,numatb,numdlb,numshb,numshexb,nusktb}`. Only one mod
+can own those, and ours carries the Falchion mesh. Re-enabling it means the restyle wins and the
+sword silently stops rendering — `set_mesh_visibility` on a mesh that is not in the loaded model
+is a no-op, so nothing breaks, the blade just will not appear.
+
+The stale `ultimate/arcropolis/conflicts.json` was deleted so ARCropolis regenerates it cleanly.
