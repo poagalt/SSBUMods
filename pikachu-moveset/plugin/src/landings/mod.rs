@@ -28,9 +28,6 @@ unsafe extern "C" fn pikachu_game_landingairhi(_agent: &mut L2CAgentBase) {}
 
 // ---- landing lw (K. Rool) : game_landingairlw ----
 unsafe extern "C" fn pikachu_game_landingairlw(agent: &mut L2CAgentBase) {
-    if macros::is_excute(agent) {
-        WorkModule::on_flag(agent.module_accessor, *FIGHTER_KROOL_INSTANCE_WORK_ID_FLAG_REQUEST_WAIST_SHIELD_OFF);
-    }
 }
 
 
