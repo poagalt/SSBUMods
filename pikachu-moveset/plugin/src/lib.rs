@@ -15,6 +15,8 @@ mod smashes;
 mod aerials;
 mod throws;
 mod defensive;
+mod landings;
+mod telemetry;
 mod specials;
 mod sword;
 mod articles;
@@ -26,6 +28,8 @@ pub fn main() {
     aerials::install();
     throws::install();
     defensive::install();
+    landings::install();
+    telemetry::install();
     specials::install();
     sword::install();
     articles::install();

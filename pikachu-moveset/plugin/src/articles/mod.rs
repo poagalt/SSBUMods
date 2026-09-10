@@ -23,6 +23,8 @@ use smashline::*;
 pub const FIGHTER_PIKACHU_GENERATE_ARTICLE_SPIKEBALL: i32 = 0x7;
 
 pub fn install() {
+    // BISECT STEP A: clone disabled to test whether it or the merged model is the crash.
+    /*
     smashline::clone_weapon(
         "packun",
         *smash::lib::lua_const::WEAPON_KIND_PACKUN_SPIKEBALL,
@@ -30,4 +32,5 @@ pub fn install() {
         "spikeball",
         true,
     );
+    */
 }

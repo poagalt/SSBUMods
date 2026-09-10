@@ -68,6 +68,17 @@ b-throw (Incineroar)|gaogaen|ThrowB|throwb
 u-throw (Mewtwo)|mewtwo|ThrowHi|throwhi
 "
 
+LANDINGS="
+# Pikachu has a damaging landing hit on b-air and d-air. Of the five source fighters only
+# K. Rool defines game_landingairlw at all, so the other four get an empty script whose only
+# job is to override Pikachu's and suppress the leftover hit.
+landing n (Palutena has none)|0|-|landingairn
+landing f (Kazuya has none)|0|-|landingairf
+landing b (Cloud has none)|0|-|landingairb
+landing hi (Corrin has none)|0|-|landingairhi
+landing lw (K. Rool)|krool|LandingAirLw|landingairlw
+"
+
 DEFENSIVE="
 get-up attack, face up (Bowser)|koopa|DownAttackU|downattacku
 get-up attack, face down (Bowser)|koopa|DownAttackD|downattackd
@@ -85,6 +96,14 @@ emit_module() {
     while IFS='|' read -r slot fighter acmd fname; do
         [ -z "${slot// }" ] && continue
         case "$slot" in \#*) continue ;; esac
+        if [ "$fighter" = "0" ]; then
+            echo "// ---- $slot : empty override of game_$fname ----" >> "$file"
+            echo "unsafe extern \"C\" fn pikachu_game_$fname(_agent: &mut L2CAgentBase) {}" >> "$file"
+            echo "" >> "$file"
+            installs="$installs        .game_acmd(\"game_$fname\", pikachu_game_$fname, Default)
+"
+            continue
+        fi
         if [ "$fighter" = "=" ]; then
             echo "// ---- $slot : game_$acmd -> pikachu_game_$fname ----" >> "$file"
             installs="$installs        .game_acmd(\"game_$acmd\", pikachu_game_$fname, Default)
@@ -125,3 +144,4 @@ emit_module smashes   "$SMASHES"
 emit_module aerials   "$AERIALS"
 emit_module throws    "$THROWS"
 emit_module defensive "$DEFENSIVE"
+emit_module landings  "$LANDINGS"
