@@ -29,12 +29,25 @@ fn main() {
         let (fighter, motion) = spec.split_once(':').unwrap();
         let h = hash40(motion);
         let sm = motion_lib::open(format!("{ex}/fighter/{fighter}/motion/body/c00/motion_list.bin")).unwrap();
-        let (Some(s), Some(p), Some(o)) = (sm.list.get(&h), pk.list.get(&h), ours.list.get(&h)) else {
-            println!("{motion:<20} {fighter:<10}  -- not on all three (synthesised, or the source lacks it)");
+        // PIKACHU'S OWN VALUE IS INFORMATIONAL, NOT A PRECONDITION.
+        //
+        // This required the motion to be on ALL THREE lists, and 31 of 75 -- every synthesised
+        // entry -- fell out as "not comparable" because Pikachu has no vanilla entry for them.
+        // But the comparison that matters is SOURCE against OURS. Pikachu's number is only there
+        // to show what we changed away from, and demanding it excluded exactly the entries this
+        // moveset creates from scratch, which are the ones most likely to be wrong.
+        //
+        // That is the same shape as this file's own header warning, one layer in: not a pass on
+        // zero work, but a pass on two fifths of the work with the reason printed as though it
+        // were a property of the data rather than of the check.
+        let (Some(s), Some(o)) = (sm.list.get(&h), ours.list.get(&h)) else {
+            let which = if sm.list.get(&h).is_none() { "the source lacks it" } else { "we do not ship it" };
+            println!("{motion:<20} {fighter:<10}  -- not comparable ({which})");
             missing += 1; continue };
-        let mark = if s.blend_frames != o.blend_frames { diff += 1; "  <-- ours is Pikachu's" } else { "" };
+        let mark = if s.blend_frames != o.blend_frames { diff += 1; "  <-- ours is not the source's" } else { "" };
+        let mine = pk.list.get(&h).map_or("-".to_string(), |p| p.blend_frames.to_string());
         println!("{motion:<20} {fighter:<10} {:>8} {:>8} {:>8}{mark}",
-                 p.blend_frames, s.blend_frames, o.blend_frames, mark = mark);
+                 mine, s.blend_frames, o.blend_frames, mark = mark);
     }
     println!("\n{diff} motion(s) blending on the wrong timing, {missing} not comparable");
     // Non-zero so check.sh can gate on it rather than on grepping the text.

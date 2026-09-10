@@ -8,6 +8,15 @@
 # Pikachu's is Hip > LegC > LegR, and that extra LegC accounted for the 0.46-0.69 world units of
 # error left after scale compensation.
 #
+# DIAGNOSTIC, NOT A GATE, and deliberately so. tools/check-hitboxes.sh measures the actual error
+# and would fail a move whose chain bone was inserting one; this says WHY. The one finding it still
+# reports -- Fox's u-smash and `legc` -- is the case tools/anim-dropin.sh neutralises with an
+# identity track, and hbtrace measures that move at 0.00 world units. So an EXTRA line here means
+# "handled, here is the mechanism", and a nonzero deviation over there means "not handled".
+#
+# Its column read was also wrong: it destructured moves.tsv into seven fields when the table has
+# six, so `label` was always empty and every line printed with a blank name.
+#
 # Note on jq: it emits CRLF on Windows, so every comparison here strips \r. Not doing that on both
 # sides of a comparison reported all chain bones as missing -- a convincing-looking false result.
 set -uo pipefail
@@ -25,7 +34,7 @@ chainlist() { # chainlist <skel.json> <bone> -> chain bone names, lowercased, ro
 }
 
 total=0
-while read -r f acmd fn stem scale mod label; do
+while read -r f acmd fn stem mod label; do
     [ -z "${f// }" ] && continue
     case "$f" in \#*) continue ;; esac
     [ -f "work/fk/${f}_skel.json" ] || { printf "  %-22s -- no FK skeleton\n" "$label"; continue; }

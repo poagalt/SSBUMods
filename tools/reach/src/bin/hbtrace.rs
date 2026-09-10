@@ -182,7 +182,20 @@ fn main() {
         Err(_) => anim.clone(),
     };
 
-    let timeline = walk(&std::fs::read_to_string(path).unwrap(), want);
+    // A FUNCTION NAME THAT IS NOT IN THE FILE IS A TYPO, NOT A MOVE WITH NO HITBOXES.
+    //
+    // `walk` returns an empty timeline either way, and an empty reference timeline prints
+    // "nothing to measure" -- which check-hitboxes.sh treats as a legitimate pass, because two
+    // moves really do have no geometry (Mewtwo's u-throw and K. Rool's d-air landing both work
+    // through ATTACK_ABS). So a misspelled acmd or fn column in tools/moves.tsv would have added a
+    // row that silently measured nothing and reported OK. Same false-clean shape as the rest of
+    // this project's history; cheap to close by asking whether the name exists at all.
+    let src_text = std::fs::read_to_string(path).unwrap();
+    if !src_text.contains(&format!("fn {want}(")) {
+        eprintln!("  ! no fn {want} in {path} -- check the acmd/fn columns in tools/moves.tsv");
+        std::process::exit(5);
+    }
+    let timeline = walk(&src_text, want);
 
     // Our own generated script, when given. Joined on (game frame, hitbox id).
     let ours_tl = match (a.iter().position(|x| x == "--ours-acmd"), a.iter().position(|x| x == "--ours-fn")) {

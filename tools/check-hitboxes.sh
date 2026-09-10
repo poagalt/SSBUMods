@@ -50,6 +50,18 @@ while IFS= read -r line; do
         fi
     fi
 done <<< "$out"
+# EVERY ROW IN moves.tsv MUST HAVE PRODUCED A LINE.
+#
+# The counts here are derived from the output, so a row that produced nothing at all -- a crash, an
+# exit code nobody looked at, a name hbtrace rejected -- would simply not appear and the totals
+# would shrink without a word. Comparing against the table is one line and makes the trace's
+# coverage a checked fact rather than a number to eyeball.
+rows=$(grep -cvE '^\s*#|^\s*$' "$ROOT/tools/moves.tsv")
+lines=$(echo "$out" | grep -c .)
+if [ "$rows" != "$lines" ]; then
+    echo "FAIL: moves.tsv has $rows move(s) but the trace produced $lines line(s) -- one traced nothing"
+    fail=1
+fi
 n=$(echo "$out" | grep -c "world units")
 frames=$(echo "$out" | sed -n 's/.*(n=\([0-9]*\)).*/\1/p' | awk '{s+=$1} END{print s+0}')
 if [ "$fail" -eq 0 ]; then

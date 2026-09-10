@@ -251,6 +251,17 @@ done
 #
 # Bounded and per-file: this retries the named mismatches only, never a blanket re-run, so a
 # genuinely broken file cannot hide behind an endless loop.
+#
+# ZERO-BYTE UPLOADS ARE ROUTINE, NOT A FLUKE, and that is worth stating plainly because it was
+# mistaken for one. The first two deploys after size-based verification went in each found exactly
+# one: d03speciallwstart.nuanmb, then d01specialslariat.nuanmb, both at 0 bytes on the card with a
+# clean FTP return code. Call it one file in eighty per run. Every one of them is a .nuanmb, which
+# is simply because those are the big files.
+#
+# So the repair pass is load-bearing infrastructure, not a safety net for odd days. It also means
+# the OLD listing-based verifier was letting roughly one broken animation per deploy through, which
+# is the likeliest explanation for two load crashes that were blamed on an article clone -- see
+# pikachu-moveset/plugin/src/articles/mod.rs.
 if [ "$bad" -gt 0 ] && [ "$VERIFY_ONLY" = "0" ]; then
     echo
     echo "== repairing ${#BROKEN[@]} file(s) =="
