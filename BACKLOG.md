@@ -175,3 +175,34 @@ longer speculative — only unproven.
       console's Skyline plugins folder.
 - [ ] Verify the Ken-Sugimori-sourced `pikachu_c00_model.nusktb` against a vanilla dump. A
       restyle should not touch the skeleton, but this is currently an assumption.
+
+---
+
+## Status after the build session
+
+**Shipped and installed (tag `v0.2-attrs-motion-upb`):**
+
+- [x] 22 conventional moves, frame data copied verbatim from vanilla ACMD
+- [x] 18 attributes via `fighter_param.prcxml` on Pikachu's row (index 7)
+- [x] `motion_list.bin` patch: FAF and intangibility for 41 entries, **including Fox's dodges**
+- [x] 10 synthesized motion entries, which is what unblocks specials generally
+- [x] Game & Watch up-B (Fire + parachute)
+- [x] Bone-parity harness (`tools/check-bones.sh`)
+
+**Not shipped, with reasons:**
+
+- [ ] **Down B — Revenge.** Counter detection, 3-stack storage, 60 s timer and the
+      damage/knockback multiplier are fighter-specific status logic, absent from the ACMD dumps.
+      A hitbox-only port would pose without countering. Needs status-script authoring.
+- [ ] **Side B — Alolan Whip.** Command grab with three branching follow-ups that holds the
+      opponent. Needs new motion entries (synth handles that now) plus grab-state logic.
+- [ ] **Neutral B — Ptooie.** Needs a new article; `smashline::clone_weapon` plus the episode 46
+      recipe is the path.
+- [ ] **F-throw — DK cargo.** Motion entries are synthesized (`throw_f_{f,b,hi,lw}`), but the
+      carry state machine and its walk/jump/turn are still to write.
+- [ ] **The sword.** Pipeline is understood and Chrom's Falchion is extracted; the mesh merge
+      into Pikachu's body via `ssbh_data_json` has not been done.
+- [ ] **Runtime scaling** for Incineroar's b-throw. Tier 2.
+- [ ] Recalibrate the four remapped hitbox offsets for Pikachu's proportions.
+- [ ] Little Mac's angled f-smash variants — no motion entries on Pikachu; could be synthesized
+      the same way as the specials now that the technique works.
