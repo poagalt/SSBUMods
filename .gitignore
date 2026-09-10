@@ -2,3 +2,4 @@ vendor/
 extracted/
 *.nro
 target/
+pikachu-moveset/plugin/target/
