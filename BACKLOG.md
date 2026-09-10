@@ -976,3 +976,51 @@ The carry requests the statuses directly. Still stationary; still needs DK's `e0
    in the game's own tables is being resized by hand, but this is the first build to rely on it.
    If Pikachu crashes on selection, this is the cause, and the fallback is to own SPECIAL_HI_WARP
    and SPECIAL_HI_END completely by registering every status line rather than three.
+
+## The full data.arc pull is abandoned, and why
+
+**Do not retry this.** `tools/arc-pull/src/bin/arc-raw.rs` works and is correct; the transport
+cannot carry it.
+
+Two numbers killed it:
+
+- **~2 MiB/s, and it is bandwidth, not protocol.** At 512 KiB blocks that is 263 ms per request
+  with 5 ms of round-trip latency in it — 2%. A perfect zero-latency protocol would take it from
+  1.90 to 1.94 MiB/s. This is the exact opposite of the per-file pull, where 98% of the time *was*
+  round trips and a block cache bought 39x. 16.39 GiB at that rate is ~170 minutes.
+- **The game crashes during sustained transfers.** Twice now. Once during three back-to-back
+  full-table reads (faulted in `training_modpack + 0x6b180`), once 0.59 GiB into a sequential read
+  ("the software was closed because an error occurred"; the client saw the socket die mid-read and
+  exited cleanly with a resumable partial).
+
+A 170-minute transfer that needs zero crashes, on a link that has produced two in an afternoon, is
+not a plan.
+
+Worth noting what did NOT crash: the filtered c00 pull, 40,264 files and 1.27 GiB in about seven
+minutes. So sustained use is not automatically fatal — the difference is duration and that
+`arc_network` opens its OWN `File::open("rom:/data.arc")` handle alongside the game's, and a long
+sequential sweep appears to starve the game's own asset streaming. The earlier report's null deref
+on MainThread in `cross2_Release.nss` with `arc_network`'s socket threads live fits that.
+
+### What replaces it
+Nothing, because nothing needs replacing. `extracted/` now holds every fighter's c00 animations,
+skeletons, motion lists and params — 40,264 files, 1.27 GiB, pulled with zero failures — and a
+targeted pull of any other subset takes minutes at 97 files/sec. The full archive was only ever
+about never needing Smash open again, which is a convenience.
+
+`arc-raw` stays in the tree. If the console is ever on 5 GHz or a USB-ethernet adapter, the
+bandwidth objection disappears and it resumes from wherever it stopped.
+
+### The nxdumptool route, for the record
+Also dead, for a different reason: it needs `sdmc:/switch/prod.keys`, because the RomFS lives
+inside encrypted NCA containers. That means Lockpick_RCM and a payload boot. The card's
+`nxdumptool.nro` was already the right build (`nxdt_rw_poc v2.0.0 (rewrite-ade1a48)`, byte-identical
+to the vendored copy), and the PC side is fully set up and smoke-tested in `tools/nxdt-host/` —
+venv, pyusb, tqdm, libusb-1.0.dll — so if keys ever appear it is a five-minute job. Recommending it
+without checking for the keys first was a mistake.
+
+### arc_network is a boot hazard
+Its `src/lib.rs:12` binds inside a `loop` and unwraps, so a held port panics the plugin at startup
+rather than retrying — OS error 98 is EADDRINUSE. Killing a client mid-transfer is enough to
+trigger it, and it then blocks launching the game at all until a full reboot. Once extraction is
+genuinely finished for good, move `libarc_network.nro` out of the plugins directory.
