@@ -45,8 +45,8 @@ d-tilt (R.O.B.)|robot|AttackLw3|attacklw3
 
 SMASHES="
 f-smash (Little Mac)|littlemac|AttackS4|attacks4
-# Pikachu has no attack_s4_hi/attack_s4_lw motion entries, so Mac's angled
-# f-smash variants have no motion to run on and are intentionally omitted.
+f-smash up (Little Mac)|littlemac|AttackS4Hi|attacks4hi
+f-smash down (Little Mac)|littlemac|AttackS4Lw|attacks4lw
 u-smash (Fox)|fox|AttackHi4|attackhi4
 d-smash (Game & Watch)|gamewatch|AttackLw4|attacklw4
 "

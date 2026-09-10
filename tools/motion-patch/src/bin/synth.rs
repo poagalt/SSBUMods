@@ -17,6 +17,9 @@ const SYNTH: &[(&str, &str, &str, &str)] = &[
     // Incineroar Revenge
     ("special_lw_start",  "special_lw",           "gaogaen",   "special_lw_start"),
     ("special_lw_turn",   "special_lw",           "gaogaen",   "special_lw_turn"),
+    // Little Mac angled f-smash -- Pikachu has only attack_s4_s
+    ("attack_s4_hi",     "attack_s4_s",          "littlemac", "attack_s4_hi"),
+    ("attack_s4_lw",     "attack_s4_s",          "littlemac", "attack_s4_lw"),
     // DK cargo throws
     ("throw_f_f",         "throw_f",              "donkey",    "throw_f_f"),
     ("throw_f_b",         "throw_b",              "donkey",    "throw_f_b"),

@@ -206,3 +206,25 @@ longer speculative — only unproven.
 - [ ] Recalibrate the four remapped hitbox offsets for Pikachu's proportions.
 - [ ] Little Mac's angled f-smash variants — no motion entries on Pikachu; could be synthesized
       the same way as the specials now that the technique works.
+
+## Added after the sword merge
+
+- [x] Chrom's Falchion merged into Pikachu's body — `tools/merge-sword.sh`. Mesh `chrom_sword`
+      (444 verts, 1764 indices, transferred exactly), a `Sword` bone appended under `HaveR`
+      (bone 22 of 77 → 78), material `pasted__met_chrom_001`, and a `numshexb` group so the
+      blade is in the draw/shadow table. All five model files round-trip cleanly.
+- [x] Textures are **not** redistributed: `config.json` declares the three paths with
+      `new-dir-files` and points them at Chrom's vanilla textures with `share-to-added`.
+- [x] Little Mac's angled f-smashes, now that motion synthesis works.
+
+**Open on the sword:**
+
+- [ ] **Calibrate the blade's orientation.** Its world rotation is Pikachu's `HaveR` composed
+      with the inverse of Chrom's hand rotation, which is not guaranteed to look right.
+      `SWORD_TRANSFORM` in `tools/merge-sword.sh` is the single knob. Needs eyes on it.
+- [ ] **Costume 0 only.** Each costume has its own model files; c01–c07 keep vanilla geometry
+      and simply will not show the blade. The moveset itself is agent-wide and unaffected.
+- [ ] Tighten visibility to hitbox-active frames. Currently the blade shows for the whole
+      motion, which reads better than popping in and out but deviates from the brief.
+- [ ] Verify `share-to-added` resolves a *vanilla* source path. If the blade renders untextured,
+      ship the three `.nutexb` files instead — a one-line change in `merge-sword.sh`.

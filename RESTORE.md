@@ -45,3 +45,16 @@ Game & Watch's up-B.
 
 The up-B is the highest-risk component — it replaces the recovery and could not be tested here.
 If the character cannot recover, or the game hangs on selecting Pikachu, do the two steps above.
+
+## v0.3 — sword and remaining motion work
+
+`releases/v0.3/` adds Chrom's Falchion, Little Mac's angled f-smashes, and the sword toggle.
+
+**This is the first version that modifies Pikachu's model files** (`numshb`, `nusktb`, `numdlb`,
+`numatb`, `numshexb`). A malformed model file makes the character fail to load. All five were
+validated by round-tripping through `ssbh_data_json`, but they are untested in game.
+
+**If Pikachu crashes the game or fails to appear:** delete
+`ultimate/mods/Rat of Doom/fighter/pikachu/model/` on the console. That drops back to vanilla
+geometry while keeping the moveset, attributes and motion patch. The blade simply will not
+render; `set_mesh_visibility` on a mesh that does not exist is a no-op.
