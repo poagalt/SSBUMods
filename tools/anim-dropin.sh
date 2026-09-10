@@ -102,6 +102,12 @@ fox       | b02escapef.nuanmb         | -    | forward roll
 gaogaen   | d03speciallw.nuanmb       | -    | Revenge counter attack (same name as Pikachu's Thunder)
 gaogaen   | d03speciallwstart.nuanmb  | -    | Revenge stance (new file: config.json new-dir-files)
 gaogaen   | d03speciallwturn.nuanmb   | -    | Revenge stance, turning (new file)
+gaogaen   | d01specialsstart.nuanmb   | -    | Alolan Whip lunge (same name as Skull Bash start)
+gaogaen   | d01specialsend.nuanmb     | -    | Alolan Whip end (same name)
+gaogaen   | d01specialsshoulder.nuanmb| -    | Alolan Whip shoulder toss (new file)
+gaogaen   | d01specialslariat.nuanmb  | -    | Alolan Whip lariat (new file)
+gaogaen   | d01specialsthrow.nuanmb   | -    | Alolan Whip throw (new file)
+gaogaen   | d01specialsfailure.nuanmb | -    | Alolan Whip whiff (new file)
 "
 
 n=0; miss=0; scaled=0; neutralised=0

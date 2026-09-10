@@ -68,11 +68,242 @@ unsafe extern "C" fn pikachu_effect_speciallw(agent: &mut L2CAgentBase) {
     }
 }
 
+// ---- Alolan Whip lunge (Incineroar) : game_specialsstart ----
+unsafe extern "C" fn pikachu_game_specialsstart(agent: &mut L2CAgentBase) {
+    frame(agent.lua_state_agent, 1.0);
+    macros::FT_MOTION_RATE(agent, 0.8);
+    frame(agent.lua_state_agent, 11.0);
+    macros::FT_MOTION_RATE(agent, 1.0);
+    frame(agent.lua_state_agent, 15.0);
+    if macros::is_excute(agent) {
+        macros::ATTACK(agent, 0, 0, Hash40::new("top"), 0.0, 350, 100, 30, 0, 5.0, 0.0, 7.0, 2.0, Some(0.0), Some(7.0), Some(5.0), 0.0, 0.0, *ATTACK_SETOFF_KIND_OFF, *ATTACK_LR_CHECK_F, false, 0, 0.0, 0, false, false, true, true, false, *COLLISION_SITUATION_MASK_GA_d, *COLLISION_CATEGORY_MASK_FIGHTER, *COLLISION_PART_MASK_ALL, false, Hash40::new("collision_attr_normal"), *ATTACK_SOUND_LEVEL_S, *COLLISION_SOUND_ATTR_NONE, *ATTACK_REGION_NONE);
+    }
+    frame(agent.lua_state_agent, 16.0);
+    if macros::is_excute(agent) {
+        macros::ATTACK(agent, 1, 0, Hash40::new("top"), 0.0, 350, 100, 30, 0, 5.0, 0.0, 7.0, 2.0, Some(0.0), Some(7.0), Some(5.0), 0.0, 0.0, *ATTACK_SETOFF_KIND_OFF, *ATTACK_LR_CHECK_F, false, 0, 0.0, 0, false, false, true, true, false, *COLLISION_SITUATION_MASK_GA_d, *COLLISION_CATEGORY_MASK_FEB, *COLLISION_PART_MASK_ALL, false, Hash40::new("collision_attr_normal"), *ATTACK_SOUND_LEVEL_S, *COLLISION_SOUND_ATTR_NONE, *ATTACK_REGION_NONE);
+    }
+    frame(agent.lua_state_agent, 17.0);
+    if macros::is_excute(agent) {
+        GrabModule::set_rebound(agent.module_accessor, true);
+    }
+    frame(agent.lua_state_agent, 18.0);
+    if macros::is_excute(agent) {
+        AttackModule::clear_all(agent.module_accessor);
+        macros::CATCH(agent, 0, Hash40::new("top"), 4.0, 0.0, 8.0, 2.0, Some(0.0), Some(8.0), Some(8.0), *FIGHTER_STATUS_KIND_SWING_GAOGAEN_CATCHED, *COLLISION_SITUATION_MASK_G);
+        macros::CATCH(agent, 1, Hash40::new("top"), 1.5, 0.0, 8.0, 2.0, Some(0.0), Some(8.0), Some(10.5), *FIGHTER_STATUS_KIND_SWING_GAOGAEN_CATCHED, *COLLISION_SITUATION_MASK_GA);
+    }
+    frame(agent.lua_state_agent, 35.0);
+    if macros::is_excute(agent) {
+        grab!(agent, *MA_MSC_CMD_GRAB_CLEAR_ALL);
+        GrabModule::set_rebound(agent.module_accessor, false);
+    }
+    frame(agent.lua_state_agent, 39.0);
+    frame(agent.lua_state_agent, 44.0);
+    macros::FT_MOTION_RATE(agent, 0.8);
+    frame(agent.lua_state_agent, 67.0);
+    frame(agent.lua_state_agent, 74.0);
+    macros::FT_MOTION_RATE(agent, 1.0);
+}
+
+
+// ---- Alolan Whip lunge (Incineroar) : effect_specialsstart, sys_ effects only (ADR 0002) ----
+unsafe extern "C" fn pikachu_effect_specialsstart(agent: &mut L2CAgentBase) {
+    frame(agent.lua_state_agent, 4.0);
+    if macros::is_excute(agent) {
+        macros::EFFECT(agent, Hash40::new("sys_smash_flash"), Hash40::new("top"), 0, 9, 10, 0, 0, 0, 0.9, 0, 0, 0, 0, 0, 0, true);
+    }
+    frame(agent.lua_state_agent, 16.0);
+    if macros::is_excute(agent) {
+        macros::LANDING_EFFECT(agent, Hash40::new("sys_dash_smoke"), Hash40::new("top"), 6, 0, 0, 0, 0, 0, 0.8, 0, 0, 0, 0, 0, 0, false);
+    }
+    frame(agent.lua_state_agent, 18.0);
+    if macros::is_excute(agent) {
+        macros::FOOT_EFFECT(agent, Hash40::new("sys_run_smoke"), Hash40::new("top"), 4, 0, 0, 0, 0, 0, 1, 0, 0, 0, 0, 0, 0, false);
+    }
+}
+
+// ---- Alolan Whip shoulder (Incineroar) : game_specialsshoulder ----
+unsafe extern "C" fn pikachu_game_specialsshoulder(agent: &mut L2CAgentBase) {
+    if macros::is_excute(agent) {
+        damage!(agent, *MA_MSC_DAMAGE_DAMAGE_NO_REACTION, *DAMAGE_NO_REACTION_MODE_DAMAGE_POWER, 11.99);
+        macros::ATTACK_ABS(agent, *FIGHTER_ATTACK_ABSOLUTE_KIND_THROW, 0, 0.0, 105, 280, 0, 70, 0.0, 1.0, *ATTACK_LR_CHECK_B, 0.0, true, Hash40::new("collision_attr_normal"), *ATTACK_SOUND_LEVEL_S, *COLLISION_SOUND_ATTR_NONE, *ATTACK_REGION_THROW);
+        AttackModule::set_force_reaction(agent.module_accessor, 0, true, true);
+    }
+    frame(agent.lua_state_agent, 1.0);
+    macros::FT_MOTION_RATE(agent, 0.75);
+    frame(agent.lua_state_agent, 10.0);
+    macros::FT_MOTION_RATE(agent, 1.0);
+    if macros::is_excute(agent) {
+        macros::ATTACK(agent, 0, 0, Hash40::new("top"), 12.0, 105, 34, 0, 128, 6.0, 0.0, 6.0, 0.0, None, None, None, 0.4, 1.0, *ATTACK_SETOFF_KIND_OFF, *ATTACK_LR_CHECK_B, false, 1, 0.0, 0, false, false, false, true, true, *COLLISION_SITUATION_MASK_GA, *COLLISION_CATEGORY_MASK_ALL, *COLLISION_PART_MASK_ALL, false, Hash40::new("collision_attr_normal"), *ATTACK_SOUND_LEVEL_M, *COLLISION_SOUND_ATTR_PUNCH, *ATTACK_REGION_BODY);
+    }
+    frame(agent.lua_state_agent, 17.0);
+    if macros::is_excute(agent) {
+        lua_bind::FighterCutInManager::set_throw_finish_zoom_rate(singletons::FighterCutInManager(), 1.5);
+        lua_bind::FighterCutInManager::set_throw_finish_offset(singletons::FighterCutInManager(), Vector3f{x: 0.0, y: 0.0, z: 0.0});
+    }
+    frame(agent.lua_state_agent, 18.0);
+    frame(agent.lua_state_agent, 20.0);
+    if macros::is_excute(agent) {
+        AttackModule::clear_all(agent.module_accessor);
+        macros::REVERSE_LR(agent);
+    }
+    frame(agent.lua_state_agent, 42.0);
+    frame(agent.lua_state_agent, 45.0);
+    if macros::is_excute(agent) {
+        damage!(agent, *MA_MSC_DAMAGE_DAMAGE_NO_REACTION, *DAMAGE_NO_REACTION_MODE_NORMAL, 0);
+    }
+    frame(agent.lua_state_agent, 52.0);
+}
+
+
+// ---- Alolan Whip shoulder (Incineroar) : effect_specialsshoulder, sys_ effects only (ADR 0002) ----
+unsafe extern "C" fn pikachu_effect_specialsshoulder(agent: &mut L2CAgentBase) {
+    frame(agent.lua_state_agent, 12.0);
+    if macros::is_excute(agent) {
+        macros::LANDING_EFFECT(agent, Hash40::new("sys_down_smoke"), Hash40::new("top"), 0, 0, 0, 0, 180, 0, 0.8, 0, 0, 0, 0, 0, 0, false);
+    }
+    frame(agent.lua_state_agent, 18.0);
+    if macros::is_excute(agent) {
+        macros::EFFECT(agent, Hash40::new("sys_smash_flash_s"), Hash40::new("top"), 0, 23, 2, 0, 0, 0, 1, 0, 0, 0, 0, 0, 0, true);
+    }
+}
+
+// ---- Alolan Whip lariat (Incineroar) : game_specialslariat ----
+unsafe extern "C" fn pikachu_game_specialslariat(agent: &mut L2CAgentBase) {
+    if macros::is_excute(agent) {
+        damage!(agent, *MA_MSC_DAMAGE_DAMAGE_NO_REACTION, *DAMAGE_NO_REACTION_MODE_DAMAGE_POWER, 11.99);
+        macros::ATTACK_ABS(agent, *FIGHTER_ATTACK_ABSOLUTE_KIND_THROW, 0, 0.0, 145, 454, 0, 20, 0.0, 1.0, *ATTACK_LR_CHECK_B, 0.0, true, Hash40::new("collision_attr_normal"), *ATTACK_SOUND_LEVEL_S, *COLLISION_SOUND_ATTR_NONE, *ATTACK_REGION_THROW);
+        AttackModule::set_force_reaction(agent.module_accessor, 0, true, true);
+    }
+    frame(agent.lua_state_agent, 9.0);
+    if macros::is_excute(agent) {
+        macros::ATTACK(agent, 0, 0, Hash40::new("arml"), 20.0, 145, 40, 0, 88, 7.0, 0.0, 0.0, 0.0, None, None, None, 1.4, 1.0, *ATTACK_SETOFF_KIND_OFF, *ATTACK_LR_CHECK_B, false, 2, 0.0, 0, false, false, false, true, true, *COLLISION_SITUATION_MASK_GA, *COLLISION_CATEGORY_MASK_ALL, *COLLISION_PART_MASK_ALL, false, Hash40::new("collision_attr_normal"), *ATTACK_SOUND_LEVEL_L, *COLLISION_SOUND_ATTR_HEAVY, *ATTACK_REGION_PUNCH);
+        macros::CHECK_FINISH_CAMERA(agent, 0, 0);
+        lua_bind::FighterCutInManager::set_throw_finish_zoom_rate(singletons::FighterCutInManager(), 1.5);
+        lua_bind::FighterCutInManager::set_throw_finish_offset(singletons::FighterCutInManager(), Vector3f{x: 0.0, y: 0.0, z: 0.0});
+    }
+    frame(agent.lua_state_agent, 14.0);
+    frame(agent.lua_state_agent, 20.0);
+    if macros::is_excute(agent) {
+        AttackModule::clear_all(agent.module_accessor);
+        macros::REVERSE_LR(agent);
+    }
+    frame(agent.lua_state_agent, 50.0);
+    frame(agent.lua_state_agent, 58.0);
+    if macros::is_excute(agent) {
+        damage!(agent, *MA_MSC_DAMAGE_DAMAGE_NO_REACTION, *DAMAGE_NO_REACTION_MODE_NORMAL, 0);
+    }
+}
+
+
+// ---- Alolan Whip lariat (Incineroar) : effect_specialslariat, sys_ effects only (ADR 0002) ----
+unsafe extern "C" fn pikachu_effect_specialslariat(agent: &mut L2CAgentBase) {
+    frame(agent.lua_state_agent, 7.0);
+    if macros::is_excute(agent) {
+        macros::LANDING_EFFECT(agent, Hash40::new("sys_atk_smoke"), Hash40::new("top"), 0, 0, 0, 0, 180, 0, 0.8, 0, 0, 0, 0, 0, 0, false);
+    }
+}
+
+// ---- Alolan Whip throw (Incineroar) : game_specialsthrow ----
+unsafe extern "C" fn pikachu_game_specialsthrow(agent: &mut L2CAgentBase) {
+    if macros::is_excute(agent) {
+        damage!(agent, *MA_MSC_DAMAGE_DAMAGE_NO_REACTION, *DAMAGE_NO_REACTION_MODE_DAMAGE_POWER, 11.99);
+    }
+    frame(agent.lua_state_agent, 1.0);
+    macros::FT_MOTION_RATE(agent, 0.75);
+    frame(agent.lua_state_agent, 20.0);
+    macros::FT_MOTION_RATE(agent, 0.5);
+    frame(agent.lua_state_agent, 37.0);
+    frame(agent.lua_state_agent, 60.0);
+    macros::FT_MOTION_RATE(agent, 1.0);
+    frame(agent.lua_state_agent, 95.0);
+}
+
+
+// ---- Alolan Whip throw (Incineroar) : effect_specialsthrow, sys_ effects only (ADR 0002) ----
+unsafe extern "C" fn pikachu_effect_specialsthrow(agent: &mut L2CAgentBase) {
+    frame(agent.lua_state_agent, 4.0);
+    if macros::is_excute(agent) {
+        macros::EFFECT_FOLLOW_FLIP(agent, Hash40::new("sys_catch"), Hash40::new("sys_catch"), Hash40::new("haver"), 0, 0, 0, 0, 0, 0, 0.9, true, *EF_FLIP_YZ);
+    }
+    frame(agent.lua_state_agent, 31.0);
+    if macros::is_excute(agent) {
+        macros::LANDING_EFFECT(agent, Hash40::new("sys_atk_smoke"), Hash40::new("top"), -2, 0, 0, 0, 180, 0, 0.8, 0, 0, 0, 0, 0, 0, false);
+    }
+}
+
+// ---- Alolan Whip whiff (Incineroar) : game_specialsfailure ----
+unsafe extern "C" fn pikachu_game_specialsfailure(agent: &mut L2CAgentBase) {
+    if macros::is_excute(agent) {
+        damage!(agent, *MA_MSC_DAMAGE_DAMAGE_NO_REACTION, *DAMAGE_NO_REACTION_MODE_DAMAGE_POWER, 11.99);
+        macros::ATTACK_ABS(agent, *FIGHTER_ATTACK_ABSOLUTE_KIND_THROW, 0, 0.0, 30, 50, 0, 30, 0.0, 1.0, *ATTACK_LR_CHECK_B, 0.0, true, Hash40::new("collision_attr_normal"), *ATTACK_SOUND_LEVEL_S, *COLLISION_SOUND_ATTR_NONE, *ATTACK_REGION_THROW);
+        AttackModule::set_force_reaction(agent.module_accessor, 0, true, true);
+    }
+    frame(agent.lua_state_agent, 1.0);
+    if macros::is_excute(agent) {
+        macros::ATTACK(agent, 0, 0, Hash40::new("top"), 4.0, 30, 100, 70, 0, 7.0, 0.0, 10.0, -5.0, None, None, None, 1.0, 1.0, *ATTACK_SETOFF_KIND_OFF, *ATTACK_LR_CHECK_POS, false, 1, 0.0, 0, false, false, false, false, true, *COLLISION_SITUATION_MASK_GA, *COLLISION_CATEGORY_MASK_ALL, *COLLISION_PART_MASK_ALL, false, Hash40::new("collision_attr_normal"), *ATTACK_SOUND_LEVEL_M, *COLLISION_SOUND_ATTR_PUNCH, *ATTACK_REGION_BODY);
+    }
+    frame(agent.lua_state_agent, 3.0);
+    if macros::is_excute(agent) {
+        AttackModule::clear_all(agent.module_accessor);
+    }
+    frame(agent.lua_state_agent, 4.0);
+    if macros::is_excute(agent) {
+        damage!(agent, *MA_MSC_DAMAGE_DAMAGE_NO_REACTION, *DAMAGE_NO_REACTION_MODE_NORMAL, 0);
+    }
+    frame(agent.lua_state_agent, 6.0);
+    wait(agent.lua_state_agent, 10.0);
+    if macros::is_excute(agent) {
+        macros::REVERSE_LR(agent);
+    }
+    frame(agent.lua_state_agent, 26.0);
+    frame(agent.lua_state_agent, 34.0);
+}
+
+
+// ---- Alolan Whip whiff (Incineroar) : effect_specialsfailure, sys_ effects only (ADR 0002) ----
+unsafe extern "C" fn pikachu_effect_specialsfailure(agent: &mut L2CAgentBase) {
+    frame(agent.lua_state_agent, 1.0);
+    if macros::is_excute(agent) {
+        macros::LANDING_EFFECT(agent, Hash40::new("sys_down_smoke"), Hash40::new("top"), -5, 0, 0, 0, 180, 0, 1, 0, 0, 0, 0, 0, 0, false);
+    }
+    frame(agent.lua_state_agent, 18.0);
+    if macros::is_excute(agent) {
+        macros::LANDING_EFFECT(agent, Hash40::new("sys_down_smoke"), Hash40::new("top"), -5, 0, 0, 0, 0, 0, 0.6, 0, 0, 0, 0, 0, 0, false);
+    }
+}
+
+// ---- Alolan Whip end (Incineroar) : game_specialsend ----
+unsafe extern "C" fn pikachu_game_specialsend(agent: &mut L2CAgentBase) {
+    if macros::is_excute(agent) {
+        macros::REVERSE_LR(agent);
+    }
+    frame(agent.lua_state_agent, 30.0);
+    frame(agent.lua_state_agent, 38.0);
+}
+
+
+// ---- Alolan Whip end (Incineroar) : effect_specialsend, sys_ effects only (ADR 0002) ----
+unsafe extern "C" fn pikachu_effect_specialsend(agent: &mut L2CAgentBase) {
+}
+
 pub fn install() {
     Agent::new("pikachu")
         .game_acmd("game_speciallwstart", pikachu_game_speciallwstart, Default)
         .effect_acmd("effect_speciallwstart", pikachu_effect_speciallwstart, Default)
         .game_acmd("game_speciallw", pikachu_game_speciallw, Default)
         .effect_acmd("effect_speciallw", pikachu_effect_speciallw, Default)
+        .game_acmd("game_specialsstart", pikachu_game_specialsstart, Default)
+        .effect_acmd("effect_specialsstart", pikachu_effect_specialsstart, Default)
+        .game_acmd("game_specialsshoulder", pikachu_game_specialsshoulder, Default)
+        .effect_acmd("effect_specialsshoulder", pikachu_effect_specialsshoulder, Default)
+        .game_acmd("game_specialslariat", pikachu_game_specialslariat, Default)
+        .effect_acmd("effect_specialslariat", pikachu_effect_specialslariat, Default)
+        .game_acmd("game_specialsthrow", pikachu_game_specialsthrow, Default)
+        .effect_acmd("effect_specialsthrow", pikachu_effect_specialsthrow, Default)
+        .game_acmd("game_specialsfailure", pikachu_game_specialsfailure, Default)
+        .effect_acmd("effect_specialsfailure", pikachu_effect_specialsfailure, Default)
+        .game_acmd("game_specialsend", pikachu_game_specialsend, Default)
+        .effect_acmd("effect_specialsend", pikachu_effect_specialsend, Default)
         .install();
 }

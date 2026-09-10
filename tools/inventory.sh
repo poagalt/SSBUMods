@@ -81,15 +81,25 @@ done <<< "$ROWS"
 
 echo
 echo "  $ok of $total slots have script, effect override, animation and frame data all in place"
+
 echo
-echo "  Not implemented (brief calls for them, nothing ported):"
-echo "    Neutral B  Piranha Plant Ptooie      clone_weapon crashes on load; CLONE_ENABLED=false"
-echo "    Side B     Incineroar Alolan Whip    command grab with 3 follow-ups, no status work done"
-echo "    Down B     Incineroar Revenge        animations extracted, script and status not ported"
-echo "    F-throw    DK cargo carry + 4 throws animations extracted, status machine not built"
+echo "  Specials -- status machines, so the columns mean something different:"
+printf "  %-16s %-10s %-6s %-6s %-6s %s\n" "move" "source" "acmd" "status" "anim" "notes"
+spec_row() { # spec_row <label> <source> <acmd fn> <status fn grep> <animation file> <notes>
+    local a="" s="" n=""
+    grep -qh "game_acmd(\"game_$3\"" "$SRC"/*/mod.rs 2>/dev/null && a="yes"
+    grep -rqh "$4" "$SRC"/specials 2>/dev/null && s="yes"
+    [ -f "$ANIM/$5" ] && n="yes"
+    printf "  %-16s %-10s %-6s %-6s %-6s %s\n" "$1" "$2" "$a" "$s" "$n" "$6"
+}
+spec_row "Down B Revenge"  gaogaen   speciallw      "FIGHTER_STATUS_KIND_SPECIAL_LW"  d03speciallw.nuanmb      "counter, rate<=3.0 from vl.prc"
+spec_row "Side B Whip"     gaogaen   specialsstart  "FIGHTER_STATUS_KIND_SPECIAL_S"   d01specialsstart.nuanmb  "command grab, 3 follow-ups"
+spec_row "Up B Fire"       gamewatch specialhi      "FIGHTER_STATUS_KIND_SPECIAL_HI"  -                        "from George; still Pikachu's animation"
+echo
+echo "  Not implemented:"
+echo "    Neutral B  Piranha Plant Ptooie   article clone crashed on fighter load; CLONE_ENABLED=false."
+echo "                                      Article id corrected to 0x6 (his own run 0x0-0x5)."
+echo "    F-throw    DK cargo carry         animations extracted, carry status not built."
 echo
 echo "  Correct as vanilla Pikachu, per the brief:"
 echo "    D-throw    unchanged by design"
-echo
-echo "  Implemented but the brief still says TBD: get-up attacks and trip attack are Bowser's,"
-echo "  ledge attack is Ganondorf's. SPEC.md should be updated to match."

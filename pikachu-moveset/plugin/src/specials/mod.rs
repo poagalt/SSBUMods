@@ -9,6 +9,7 @@
 // special_hi_open / special_hi_close do not exist on vanilla Pikachu; they are
 // synthesized into motion_list.bin by tools/motion-patch/src/bin/synth.rs.
 pub mod speciallw;
+pub mod specials;
 pub mod specialhi;
 pub mod specialhiclose;
 pub mod specialhifall;
@@ -16,6 +17,7 @@ pub mod acmd;
 
 pub fn install() {
     speciallw::install();
+    specials::install();
     specialhi::install();
     specialhiclose::install();
     specialhifall::install();

@@ -7,7 +7,11 @@
             "fighter/pikachu/motion/body/c00/c03attacks4hi.nuanmb",
             "fighter/pikachu/motion/body/c00/c03attacks4lw.nuanmb",
             "fighter/pikachu/motion/body/c00/d03speciallwstart.nuanmb",
-            "fighter/pikachu/motion/body/c00/d03speciallwturn.nuanmb"
+            "fighter/pikachu/motion/body/c00/d03speciallwturn.nuanmb",
+            "fighter/pikachu/motion/body/c00/d01specialsshoulder.nuanmb",
+            "fighter/pikachu/motion/body/c00/d01specialslariat.nuanmb",
+            "fighter/pikachu/motion/body/c00/d01specialsthrow.nuanmb",
+            "fighter/pikachu/motion/body/c00/d01specialsfailure.nuanmb"
         ]
     },
     "share-to-added": {

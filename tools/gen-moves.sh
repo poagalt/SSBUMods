@@ -98,6 +98,15 @@ SPECIALS="
 # window is implemented in src/specials/speciallw/mod.rs instead.
 Revenge stance (Incineroar)|gaogaen|SpecialLwStart|speciallwstart
 Revenge counter (Incineroar)|gaogaen|SpecialLw|speciallw
+# Alolan Whip. The victim side is engine-global (FIGHTER_STATUS_KIND_SWING_GAOGAEN_*), so only
+# Pikachu's own six scripts are ported; the CATCH in specialsstart names the victim status
+# directly and works for any grabber.
+Alolan Whip lunge (Incineroar)|gaogaen|SpecialSStart|specialsstart
+Alolan Whip shoulder (Incineroar)|gaogaen|SpecialSShoulder|specialsshoulder
+Alolan Whip lariat (Incineroar)|gaogaen|SpecialSLariat|specialslariat
+Alolan Whip throw (Incineroar)|gaogaen|SpecialSThrow|specialsthrow
+Alolan Whip whiff (Incineroar)|gaogaen|SpecialSFailure|specialsfailure
+Alolan Whip end (Incineroar)|gaogaen|SpecialSEnd|specialsend
 "
 
 DODGES="

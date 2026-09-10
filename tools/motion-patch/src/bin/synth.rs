@@ -27,6 +27,12 @@ const SYNTH: &[(&str, &str, &str, &str, bool)] = &[
     // Incineroar Revenge
     ("special_lw_start", "special_lw",           "gaogaen",   "special_lw_start", true),
     ("special_lw_turn",  "special_lw",           "gaogaen",   "special_lw_turn",  true),
+    // Incineroar Alolan Whip -- Pikachu has special_s_start and special_s_end already (Skull
+    // Bash) but none of the three follow-ups or the whiff.
+    ("special_s_shoulder", "special_s_start",     "gaogaen",   "special_s_shoulder", true),
+    ("special_s_lariat",   "special_s_start",     "gaogaen",   "special_s_lariat",   true),
+    ("special_s_throw",    "special_s_start",     "gaogaen",   "special_s_throw",    true),
+    ("special_s_failure",  "special_s_start",     "gaogaen",   "special_s_failure",  true),
     // Little Mac angled f-smash -- Pikachu has only attack_s4_s, so these adopt Mac's own
     // angled animations rather than playing his straight swing.
     ("attack_s4_hi",     "attack_s4_s",          "littlemac", "attack_s4_hi",     true),

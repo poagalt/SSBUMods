@@ -48,8 +48,16 @@ bash "$ROOT/tools/gen-name.sh"
 echo; echo "== 1. generate move scripts from vanilla ACMD (verbatim, original bone anchors) =="
 bash "$ROOT/tools/gen-moves.sh"
 
-echo; echo "== 1b. strip the source fighters' own namespace constants =="
-"$ROOT/tools/reach/target/release/deforeign.exe" "$ROOT/pikachu-moveset/plugin/src" | tail -1
+echo; echo "== 1b. strip foreign constants and unsupported macro calls =="
+# The macro allowlist is read from smash-script's own source, so it cannot drift from the crate
+# actually being compiled against.
+SS=$(ls -d /c/Users/poaga/.cargo/git/checkouts/smash-script-*/*/src 2>/dev/null | head -1)
+if [ -n "$SS" ]; then
+  grep -rhoE "pub (unsafe )?fn [A-Z][A-Z_0-9]+" "$SS" | sed 's/.*fn //' | sort -u > "$ROOT/work/smash-script-macros.txt"
+fi
+"$ROOT/tools/reach/target/release/deforeign.exe" \
+  "$ROOT/pikachu-moveset/plugin/src" \
+  "$ROOT/work/smash-script-macros.txt" | tail -1
 
 echo; echo "== 1c. verify no effect Pikachu cannot load survived (ADR 0002) =="
 "$ROOT/tools/reach/target/release/sysfx.exe" "$ROOT/pikachu-moveset/plugin/src" | tail -2

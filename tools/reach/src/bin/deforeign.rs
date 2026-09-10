@@ -36,10 +36,30 @@ fn is_foreign(line: &str) -> bool {
     })
 }
 
+// A ported script can also call a macro our smash-script version does not export. Incineroar's
+// side-B uses CHECK_FINISH_CAMERA_IF_NOT_HP_MODE, which is absent from the 112 smash-script
+// provides even though plain CHECK_FINISH_CAMERA is there -- and that fails the build outright
+// rather than degrading. The allowlist is read from smash-script's own source at build time, so
+// the next port cannot break the build the same way and the list cannot drift from the crate.
+fn called_macro(line: &str) -> Option<&str> {
+    let p = line.find("macros::")? + 8;
+    let rest = &line[p..];
+    let e = rest.find('(')?;
+    Some(&rest[..e])
+}
+
 fn main() {
     let src_dir = std::env::args().nth(1).expect("plugin src dir");
+    // Optional: a file of one macro name per line. Without it, no macro filtering happens, so
+    // the pass stays useful even if the list has not been generated.
+    let known: std::collections::HashSet<String> = std::env::args()
+        .nth(2)
+        .and_then(|p| std::fs::read_to_string(p).ok())
+        .map(|t| t.lines().map(|l| l.trim().to_string()).filter(|l| !l.is_empty()).collect())
+        .unwrap_or_default();
     let mut total_stmts = 0usize;
     let mut total_blocks = 0usize;
+    let mut total_macros = 0usize;
 
     for entry in std::fs::read_dir(&src_dir).unwrap().flatten() {
         let dir = entry.path();
@@ -53,8 +73,23 @@ fn main() {
         // 1. Drop offending statements. Only whole single-line statements are handled; a foreign
         //    constant inside a multi-line construct would be missed, so refuse loudly instead.
         let mut stmts = 0usize;
+        let mut macros_dropped = 0usize;
         let mut keep: Vec<bool> = vec![true; lines.len()];
+
+        // Unsupported macro calls first, on the same statement-drop-then-cascade basis.
+        if !known.is_empty() {
+            for (i, l) in lines.iter().enumerate() {
+                if let Some(m) = called_macro(l) {
+                    if !known.contains(m) && l.trim().ends_with(';') {
+                        keep[i] = false;
+                        macros_dropped += 1;
+                    }
+                }
+            }
+        }
+
         for (i, l) in lines.iter().enumerate() {
+            if !keep[i] { continue }
             if !is_foreign(l) { continue }
             let t = l.trim();
             if t.ends_with(';') && !t.starts_with("if ") && !t.contains('{') {
@@ -104,13 +139,14 @@ fn main() {
             if !removed { break }
         }
 
-        if stmts > 0 || blocks > 0 {
+        if stmts > 0 || blocks > 0 || macros_dropped > 0 {
             std::fs::write(&file, lines.join("\n") + "\n").unwrap();
-            println!("  {:<10} {stmts} foreign statements, {blocks} emptied blocks removed",
+            println!("  {:<10} {stmts} foreign statements, {macros_dropped} unsupported macros, {blocks} emptied blocks removed",
                      dir.file_name().unwrap().to_string_lossy());
             total_stmts += stmts;
             total_blocks += blocks;
+            total_macros += macros_dropped;
         }
     }
-    println!("deforeign: {total_stmts} statements and {total_blocks} blocks removed");
+    println!("deforeign: {total_stmts} foreign statements, {total_macros} unsupported macro calls and {total_blocks} blocks removed");
 }

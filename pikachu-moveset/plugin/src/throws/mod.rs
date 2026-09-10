@@ -25,7 +25,6 @@ unsafe extern "C" fn pikachu_game_catch(agent: &mut L2CAgentBase) {
         macros::CATCH(agent, 0, Hash40::new("top"), 3.6, 0.0, 8.0, 4.0, Some(0.0), Some(8.0), Some(9.4), *FIGHTER_STATUS_KIND_CAPTURE_PULLED, *COLLISION_SITUATION_MASK_G);
         macros::CATCH(agent, 1, Hash40::new("top"), 1.8, 0.0, 8.0, 2.2, Some(0.0), Some(8.0), Some(11.2), *FIGHTER_STATUS_KIND_CAPTURE_PULLED, *COLLISION_SITUATION_MASK_A);
     }
-    macros::game_CaptureCutCommon(agent);
     wait(agent.lua_state_agent, 2.0);
     if macros::is_excute(agent) {
         grab!(agent, *MA_MSC_CMD_GRAB_CLEAR_ALL);
@@ -55,7 +54,6 @@ unsafe extern "C" fn pikachu_game_catchdash(agent: &mut L2CAgentBase) {
         macros::CATCH(agent, 0, Hash40::new("top"), 2.9, 0.0, 8.0, 4.0, Some(0.0), Some(8.0), Some(13.1), *FIGHTER_STATUS_KIND_CAPTURE_PULLED, *COLLISION_SITUATION_MASK_G);
         macros::CATCH(agent, 1, Hash40::new("top"), 1.45, 0.0, 8.0, 2.55, Some(0.0), Some(8.0), Some(14.55), *FIGHTER_STATUS_KIND_CAPTURE_PULLED, *COLLISION_SITUATION_MASK_A);
     }
-    macros::game_CaptureCutCommon(agent);
     wait(agent.lua_state_agent, 2.0);
     if macros::is_excute(agent) {
         grab!(agent, *MA_MSC_CMD_GRAB_CLEAR_ALL);
@@ -84,7 +82,6 @@ unsafe extern "C" fn pikachu_game_catchturn(agent: &mut L2CAgentBase) {
         macros::CATCH(agent, 0, Hash40::new("top"), 3.6, 0.0, 8.0, -4.0, Some(0.0), Some(8.0), Some(-18.9), *FIGHTER_STATUS_KIND_CAPTURE_PULLED, *COLLISION_SITUATION_MASK_G);
         macros::CATCH(agent, 1, Hash40::new("top"), 1.8, 0.0, 8.0, -2.2, Some(0.0), Some(8.0), Some(-20.7), *FIGHTER_STATUS_KIND_CAPTURE_PULLED, *COLLISION_SITUATION_MASK_A);
     }
-    macros::game_CaptureCutCommon(agent);
     wait(agent.lua_state_agent, 2.0);
     if macros::is_excute(agent) {
         grab!(agent, *MA_MSC_CMD_GRAB_CLEAR_ALL);
