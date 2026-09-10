@@ -56,9 +56,20 @@ mkdir -p "$ROOT/work"
 # Single-instance lock. `set -o noclobber` makes the redirect fail if the file already exists,
 # which is atomic enough for one machine talking to one console.
 if ! (set -o noclobber; echo "$$ $(date +%H:%M:%S)" > "$LOCK") 2>/dev/null; then
-    echo "another deploy is already running (lock held by $(cat "$LOCK" 2>/dev/null))"
-    echo "if that is stale: rm $LOCK"
-    exit 1
+    # A DEAD HOLDER MUST NOT BLOCK FOREVER. A deploy that was killed, or one whose shell exited
+    # without running its trap, left this file behind and every later deploy refused -- which is how
+    # a revert of a CRASHING build silently did not happen, leaving the crash installed while the
+    # log said the revert had been built. Staleness is decided by asking the OS whether the
+    # recorded pid is still alive, not by a timeout.
+    held=$(cat "$LOCK" 2>/dev/null)
+    holder=${held%% *}
+    if [ -n "$holder" ] && kill -0 "$holder" 2>/dev/null; then
+        echo "another deploy is genuinely running (lock held by $held)"
+        exit 1
+    fi
+    echo "clearing stale lock from dead pid $holder ($held)"
+    rm -f "$LOCK"
+    (set -o noclobber; echo "$$ $(date +%H:%M:%S)" > "$LOCK") 2>/dev/null || { echo "could not take lock"; exit 1; }
 fi
 trap 'rm -f "$LOCK"' EXIT
 

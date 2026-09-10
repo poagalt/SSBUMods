@@ -100,6 +100,10 @@ unsafe extern "C" fn pikachu_telemetry(fighter: &mut L2CFighterCommon) {
     }
     if !DUMPED_PARAMS[entry] {
         DUMPED_PARAMS[entry] = true;
+        // A LOAD-CRASH BISECTION MARKER, flushed immediately. Fighter object init happens before
+        // any status or ACMD runs, so if the plugin dies there this line never appears -- and its
+        // ABSENCE next to the install-time lines is the diagnostic. Cheap: once per entry.
+        sink::diag(format!("[rat] p{entry} pikachu object is alive; status/ACMD lines follow"));
         dump_params(boma, entry);
     }
 
@@ -154,6 +158,9 @@ unsafe extern "C" fn pikachu_telemetry(fighter: &mut L2CFighterCommon) {
 }
 
 pub fn install() {
+    // First thing written each boot, so the log always starts with a known marker and a missing
+    // file means the sink itself failed rather than the plugin not loading.
+    sink::diag("[rat] telemetry installed; plugin loaded".to_string());
     Agent::new("pikachu")
         .on_line(Main, pikachu_telemetry)
         .install();

@@ -97,6 +97,52 @@ else
   fi
 fi
 
+
+echo; echo "== 3f. a cloned article ships its own model and motion =="
+# THIS IS THE CHECK THAT WOULD HAVE PREVENTED A CRASH. The clone was enabled with NONE of the
+# spikeball's assets in the tree -- config.json never mentioned spikeball at all -- and loading into
+# a match died in the game's own weapon-creation path. A cloned weapon is owned by pikachu, so the
+# game looks for `fighter/pikachu/{model,motion}/spikeball/c00/...`, and there was nothing there.
+#
+# tools/gen-article-assets.sh copies or removes them to match CLONE_ENABLED, but nothing forced
+# anyone to RUN it. This does: the tree and the constant must agree in both directions, because
+# leftover assets with the clone off are dead declared paths in the search filesystem and missing
+# assets with the clone on are a null dereference on load.
+for kind in model motion; do
+  d="$ROOT/pikachu-moveset/mod/fighter/pikachu/$kind/spikeball/c00"
+  n=0; [ -d "$d" ] && n=$(find "$d" -type f | wc -l)
+  if [ "$clone_on" != "0" ] && [ "$n" = "0" ]; then
+    echo "  FAIL clone enabled but $kind/spikeball/c00 is empty -- run tools/gen-article-assets.sh"; rc=1
+  elif [ "$clone_on" = "0" ] && [ "$n" != "0" ]; then
+    echo "  FAIL clone disabled but $kind/spikeball/c00 still holds $n file(s) -- run tools/gen-article-assets.sh"; rc=1
+  elif [ "$clone_on" = "0" ]; then
+    echo "  ok  clone disabled, no $kind/spikeball assets shipped"
+  else
+    echo "  ok  clone enabled, $kind/spikeball/c00 ships $n file(s)"
+  fi
+done
+
+echo; echo "== 3g. no shipped file is empty or implausibly small =="
+# A ZERO-BYTE FILE ON THE CARD WAS BLAMED ON A CLONED ARTICLE FOR TWO CRASHES.
+# `motion/body/c00/d03speciallwstart.nuanmb` uploaded truncated to 0 bytes and stayed that way
+# across every deploy, because the verifier of the day checked presence with a directory LISTING
+# and sys-ftpd truncates those under load. tools/deploy.sh now verifies by size and repairs, so the
+# remote side is covered -- this covers the LOCAL side, where a generator that writes an empty file
+# would otherwise sail through every other check here.
+#
+# The floor is per-extension and deliberately loose: it is looking for zero and near-zero, not for
+# a file that is merely smaller than its neighbours.
+bad_small=0
+while IFS=$'\t' read -r sz path; do
+  case "$path" in
+    *.nuanmb|*.numdlb|*.numshb|*.nusktb|*.numatb|*.numshexb|*.bin|*.prc) floor=128 ;;
+    *) floor=16 ;;
+  esac
+  if [ "$sz" -lt "$floor" ]; then
+    echo "  FAIL ${path#"$ROOT/"} is $sz bytes (floor $floor)"; bad_small=$((bad_small+1)); rc=1
+  fi
+done < <(find "$ROOT/pikachu-moveset/mod" -type f -printf '%s\t%p\n')
+[ "$bad_small" = "0" ] && echo "  ok  all $(find "$ROOT/pikachu-moveset/mod" -type f | wc -l) shipped files have plausible sizes"
 echo; echo "== 3d. no replaced move plays one of Pikachu's own animations =="
 # The exhaustive version of the bug that made two of the three f-tilt angles keep his tail whip:
 # a source fighter need not have every variant Pikachu has. Classifies each into REPOINTED (the

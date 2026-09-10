@@ -1,111 +1,106 @@
-// Neutral B — Piranha Plant's Ptooie, whose spiked ball is the `spikeball` article.
+// Neutral B -- Piranha Plant's Ptooie, whose spiked ball is the `spikeball` article.
 //
-// Recipe: ssbu-mod-workshop/episode46/ArticleCloningGuide.md.
+// Recipe: vendor/ssbu-mod-workshop/episode46/ArticleCloningGuide.md.
 //
-// THE ARTICLE ID WAS WRONG. It was set to 0x7 on the belief that Pikachu has seven vanilla
-// articles. He has six, and skyline-smash's own constant table proves it -- his ids run
-// DENGEKIDAMA 0x0, DENGEKI 0x1, SPECIALUPDUMMY 0x2, CLOUD 0x3, VORTEX 0x4, MONSTERBALL 0x5.
-// So 0x6 is the next free id and 0x7 left a gap. Worth trying 0x6 before anything else when
-// this is next attempted; a clone registered into a gap is a plausible cause of the load crash.
+// ============================================================================================
+// THE CLONE MAY NEVER HAVE BEEN THE PROBLEM. Read this before re-litigating the crash.
+// ============================================================================================
 //
-// The same table is why the ported f-tilt and d-air were writing to Pikachu's own state: article
-// and work-flag ids are per-fighter enumerations that collide across fighters. See
-// tools/reach/src/bin/deforeign.rs.
+// Two load crashes were blamed on the clone. Both reports are byte-identical -- Data Abort, fault
+// address 0, TaskWorker2, and `ReturnAddress[06]: smashline + 0x2a68c
+// (fighter_initialize_object_data + 0x2c)`. That hook (vendor/sl_mod.rs:11) only sets
+// CURRENT_PLAYER_ID / CURRENT_OWNER_KIND and calls the original, so the null deref is the GAME
+// initialising something, not smashline mishandling it.
 //
-// The first attempt at this crashed the game on fighter load -- a null dereference on
-// TaskWorker2 inside smashline, with `load_fighter_effects + 0x48` as the top frame.
+// What was NOT known at the time: the card was also holding a ZERO-BYTE
+// `motion/body/c00/d03speciallwstart.nuanmb`. It arrived truncated with the Revenge-air port, the
+// then-current verifier checked presence via a directory LISTING -- which sys-ftpd truncates under
+// load, so the name being there proved nothing -- and it stayed at zero bytes across every deploy
+// after that, including both clone crashes. The size-based verifier found it on its first run and
+// repaired it.
+//
+// A zero-byte .nuanmb declared in config.json is at least as good an explanation for a null deref
+// during fighter object init as a cloned article is, and unlike the clone it is CONFIRMED to have
+// been present. So the clone is no longer the leading suspect; it is one of two. The earlier
+// conclusion that "the asset hypothesis is disproven" was checking the wrong asset: the spikeball's
+// own files were indeed on the card, but an animation belonging to a completely different move was
+// not.
+//
+// THE EXPERIMENT, in this order, one variable each:
+//
+//   1. clone OFF, card repaired.  Does Pikachu load?   <-- where we are now
+//   2. clone ON,  card repaired.  Does Pikachu load?
+//
+// If 1 and 2 both load, the clone was always fine and Ptooie is unblocked. If 1 loads and 2
+// crashes, the clone is genuinely at fault and the next thing to read is `update_weapon_count`.
+// If 1 crashes, neither suspect was right and the zero-byte file was a red herring too.
+//
+// ---------------------------------------------------------------------------------------------
 //
 // WHAT THE PARAM MACHINERY ACTUALLY DOES, read out of vendor/sl_params.rs rather than inferred.
-// `init_fighter_p_object` returns immediately unless the fighter has a registered new article or a
-// whitelisted param; otherwise it reads the prc stream the game is ALREADY loading for that
-// fighter -- the host's own vl.prc -- builds `allowed_names` (automatically including
-// `param_<new_article_name>` for every registered clone), filters the prc to those keys, and
-// serves them through a replaced `get_param_object`. So the article's param object really does
-// have to be present in the HOST's vl.prc; that part of the old note was right.
+// `get_param_reimpl` FALLS THROUGH to `original_lookup_param` on a miss, so a missing
+// `param_spikeball` does not crash -- the ball would run on fall-through params. No vl.prc override
+// is shipped or needed, which keeps the experiment above to one variable.
+// (`smashline::add_param_object` is the supported way to whitelist a param object without touching
+// a vl.prc at all, if those numbers ever turn out to matter.)
 //
-// TWO THINGS IN THE OLD NOTE WERE WRONG, and both matter:
+// WHY THE CLONE IS WORTH THE RESTARTS IT COSTS. `use_original_code: true` makes smashline load
+// Piranha Plant's fighter module and run the spikeball's OWN code (get_weapon_code_dependency in
+// vendor/sl_create_agent.rs) -- the arc, the juggling, the damage, all exactly right. The
+// alternative is hand-writing a projectile's whole lifecycle onto one of Pikachu's own articles
+// (DENGEKIDAMA 0x0 is free, since Thunder Jolt is the move being replaced), which is an order of
+// magnitude more work and still looks like an electro ball.
 //
-// 1. It claimed the missing param was the crash's root cause. The evidence never supported that.
-//    `init_fighter_p_object` and `load_fighter_effects` are different functions, and the crash was
-//    in the latter -- which handles effect search indices and never touches params.
-// 2. `smashline::add_param_object(fighter, object)` exists and was never tried. It feeds the same
-//    WHITELISTED_PARAMS the filter reads. For a CLONE it is redundant (the article registration
-//    already adds the name), but it is the supported way to whitelist a param object without
-//    editing a vl.prc at all.
-//
-// AND SHIPPING A MODIFIED vl.prc IS NOW ITSELF SUSPECT. v0.24 shipped one -- Incineroar's
-// param_special_s, nothing to do with articles -- and crashed on fighter load in
-// load_fighter_effects, the same function. Removing it fixed the crash. But that deploy ALSO had a
-// failed upload and a zero-byte .nuanmb on the card, and those files are declared in config.json's
-// new-dir-files, which injects them into the search filesystem that load_fighter_effects indexes
-// into. Two candidates, one data point each. tools/deploy.sh now repairs truncated uploads
-// automatically, which removes the second candidate from future runs and makes the next attempt
-// actually informative.
-//
-// tools/prc-tool/src/bin/vlmerge.rs still exists to copy the param object in, and tools/check.sh
-// step 3b enforces that it and CLONE_ENABLED agree in both directions.
-//
-// Visual note: the ball's appearance comes from its MODEL files, which are shipped, not from
-// effects. Absent packun's effect archive the particle work will not play, but the ball itself
-// should still have a physical form -- which is the requirement.
+// ASSETS ARE SHIPPED BY tools/gen-article-assets.sh, gated on CLONE_ENABLED, and
+// tools/gen-config.sh derives the declarations from whatever that leaves in the tree -- so
+// "declared but absent" and "shipped but undeclared" are both unreachable states now.
 use smashline::*;
 
-// Whether the article clone is actually installed. Declared rather than inferred: the call below
-// is commented out, and tools/check.sh grepping for the call itself matched the comment and
-// demanded the vl.prc override that the disabled state must NOT ship.
+// Whether the article clone is actually installed. A declared constant rather than a commented-out
+// call, because tools/check.sh greps for the call and a comment matched it -- and because flipping
+// one `bool` is the whole of running step 2 of the experiment above.
 //
-// While this is false, Pikachu must keep his vanilla vl.prc. `param_spikeball` would declare a
-// 21st article param with no weapon behind it, and Training Modpack's save state walks article
-// indices calling get_article and remove_exist_object_id.
-// ENABLED, as a deliberate single-variable experiment.
-//
-// Everything else about this build is unchanged: Piranha Plant's neutral-B ACMDs are still NOT
-// ported, so Pikachu's neutral-B is still Thunder Jolt and no move behaves differently. The only
-// observable is whether Pikachu LOADS. That makes the answer unambiguous either way, and if it
-// loads, nothing about a playtest of the rest is compromised.
-//
-// WHY IT IS WORTH THE ONE RESTART THIS COSTS. `use_original_code: true` makes smashline load
-// Piranha Plant's fighter module and run the spikeball's OWN code (see get_weapon_code_dependency
-// in vendor/sl_create_agent.rs) -- so a working clone gives the ball's entire real behaviour,
-// exactly: the arc, the juggling, the damage, all of it. Without it, Ptooie means hand-writing a
-// projectile's whole lifecycle onto one of Pikachu's own articles, which also looks wrong. The two
-// paths differ by an order of magnitude in both effort and fidelity, so which one to build is worth
-// settling before building either.
-//
-// NO vl.prc IS SHIPPED WITH THIS. The old belief was that the clone requires param_spikeball in
-// the host's vl.prc or smashline null-dereferences. vendor/sl_params.rs says otherwise:
-// get_param_reimpl falls through to `original_lookup_param` on a miss. So the ball runs on
-// fall-through params rather than crashing, and leaving vl.prc alone keeps this experiment to one
-// variable -- which matters, because a modified vl.prc was the other suspect for the v0.24 load
-// crash and conflating them again would waste the test.
-//
-// IF PIKACHU FAILS TO LOAD: set this back to false, rebuild, redeploy. That is a one-line revert
-// and roughly a minute now that deploys skip unchanged files.
-pub const CLONE_ENABLED: bool = true;
+// tools/check.sh step 3b enforces that this and the shipped vl.prc agree in BOTH directions, and
+// tools/gen-article-assets.sh ships or removes the ball's model and motion to match. So the only
+// manual part of enabling this is porting Piranha Plant's neutral-B ACMD, which is deliberately
+// still absent: without a working article it would spawn nothing, making neutral-B strictly worse
+// than the Thunder Jolt it replaces.
+pub const CLONE_ENABLED: bool = false;
 
 pub const FIGHTER_PIKACHU_GENERATE_ARTICLE_SPIKEBALL: i32 = 0x6;
 
 pub fn install() {
-    // Gated rather than commented out, so enabling this is a one-line change and the call itself
-    // stays compiled and type-checked. TO TRY IT, three steps in order:
+    // The numbers get logged whether or not the clone is on, because "what is the spikeball's
+    // weapon kind on this build" turned out to be a question nobody had ever written down, and it
+    // is free to answer here. It also puts a line in the log BEFORE the risky call, so the log
+    // itself says whether install() reached the clone -- which is the point of sink::diag.
     //
-    //   1. set CLONE_ENABLED = true above
-    //   2. ship Pikachu's vl.prc with param_spikeball merged in
-    //      (tools/prc-tool/src/bin/vlmerge.rs) -- check.sh step 3b enforces this pairing in both
-    //      directions and will refuse to deploy if only one of the two is done
-    //   3. port Piranha Plant's neutral-B ACMD, which is deliberately NOT ported yet: without a
-    //      working article it would spawn nothing, making neutral-B strictly worse than the
-    //      Thunder Jolt it replaces
-    //
-    // Do it AFTER testing everything else. The previous attempt crashed on fighter LOAD, which
-    // blocks testing every other move rather than just this one.
+    // NO vl.prc IS NEEDED to turn this on. The old three-step recipe here demanded one; the header
+    // explains why that was wrong (get_param_reimpl falls through on a miss). Enabling this is
+    // CLONE_ENABLED = true, `bash tools/gen-article-assets.sh`, `bash tools/gen-config.sh`,
+    // rebuild, deploy -- all of which tools/check.sh verifies agree.
+    let kind = *smash::lib::lua_const::WEAPON_KIND_PACKUN_SPIKEBALL;
+    crate::telemetry::sink::diag(format!(
+        "[rat] articles: CLONE_ENABLED={CLONE_ENABLED} WEAPON_KIND_PACKUN_SPIKEBALL={kind:#x} \
+         expected_article_id={FIGHTER_PIKACHU_GENERATE_ARTICLE_SPIKEBALL:#x}"
+    ));
+
     if CLONE_ENABLED {
-        smashline::clone_weapon(
+        // THE RETURN VALUE WAS BEING DISCARDED, through two crashes. smashline_clone_weapon
+        // returns the article's index within the fighter's NEW_ARTICLES list -- so 0 for the first
+        // clone, and the real article id is Pikachu's vanilla article count plus that. It also
+        // returns early with an existing index if the same clone was registered twice. Logging it
+        // turns "what id did this actually get" from an assumption into a fact.
+        let idx = smashline::clone_weapon(
             "packun",
-            *smash::lib::lua_const::WEAPON_KIND_PACKUN_SPIKEBALL,
+            kind,
             "pikachu",
             "spikeball",
             true,
         );
+        crate::telemetry::sink::diag(format!(
+            "[rat] articles: clone_weapon returned index {idx} -- article id should be 0x6 \
+             (Pikachu's six vanilla articles are 0x0..0x5)"
+        ));
     }
 }

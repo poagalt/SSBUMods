@@ -55,6 +55,23 @@ pub fn log(line: String) {
     }
 }
 
+/// Queue one line AND write it out immediately.
+///
+/// FOR DIAGNOSING A CRASH, which the buffered path cannot do. Anything that kills the game before
+/// the next 120-frame flush is lost, and the crashes worth diagnosing here all happen during
+/// fighter load -- before a single frame of telemetry ever flushes. The TCP log is no help either,
+/// because it needs a listener attached at the moment it happens.
+///
+/// So this pays a file open per line, deliberately. It is for install-time and load-time markers,
+/// where there are a handful of lines total and the cost is irrelevant, and it means the file on
+/// the card tells you how far the plugin got before it died.
+pub fn diag(line: String) {
+    println!("{line}");
+    let Ok(mut s) = SINK.lock() else { return };
+    s.lines.push(line);
+    flush_locked(&mut s);
+}
+
 /// Call once per frame. Flushes on the timer or when the buffer is full.
 pub fn tick() {
     let Ok(mut s) = SINK.lock() else { return };
