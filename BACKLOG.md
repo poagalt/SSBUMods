@@ -710,3 +710,54 @@ animations against a stale motion_list. The card is now verified clean at 48/48.
 **Needs one re-test before spending more on it.** If it survives a verified deploy, the next thing
 to look at is Pikachu's jab status machinery rather than the move data: his `attack_11` loops back
 to itself, whereas Chrom's transitions to `attack_12`, which Pikachu does not have.
+
+## State at v0.17
+
+### Confirmed working on hardware
+- **All 18 movement attributes.** Telemetry from playtest-042639.log spans the v0.13 deploy and
+  shows both states: weight 79 -> 135, walk 1.302 -> 1.575, dash 1.98 -> 2.42, run 2.039 -> 2.464,
+  jump_y 35.5 -> 50.51, mini 17.12 -> 17.34, aerial 35.5 -> 50.51, initial 19.525 -> 27.781,
+  air_x 0.957 -> 1.332, air_y 1.55 -> 1.63, dive 2.48 -> 3.097, gravity 0.095 -> 0.13,
+  air_accel mul/add 0.09/0.01 -> 0.08/0.05. Every one matches the expected value exactly.
+- **Root motion needs no scale correction.** Little Mac's f-smash travels +20.59 world units
+  against his own 19.72, within 4.4%.
+- 21 moves, 276 hitbox-frames, all 0.00 world units from the source character.
+
+### Blocked only on the game being open
+Run `grep -vE '^\s*#|^\s*$' tools/arc-pull/paths-round3.txt | tools/arc-pull/target/release/arc-pull.exe <console-ip>:43022 extracted`
+with Smash running, then rebuild. That unblocks:
+- **Dodge timing params.** getparam reports escape_air_slide_speed, _distance, escape_air_cancel_frame
+  and every other escape_* param ABSENT from fighter_param.prc for both Pikachu and Fox, so they
+  live in fighter_param_motion.prc. The dodge ACMDs and motion timings are already in.
+- **Chrom's jab combo.** Needs c00attack12/13/100/100end, synthesised motions with adopted
+  animations (the three-part recipe the angled f-smashes used), and
+  StatusModule::change_status_request_from_script per workshop episode 10.
+- Incineroar's Revenge, Game & Watch's up-B animations, DK's cargo throws.
+
+### Needs one playtest before more work
+- **Jab facing left.** Nothing found wrong; see the investigation above. The report coincided with
+  a deploy cut off after 48 of 60 files, which left new animations against a stale motion_list.
+- **Training Modpack save states.** `Os { code: 3586 }` is FS `ResultFsTargetLocked`. Every
+  mod-side cause was eliminated. save_states.toml is backed up in work/tm/ and renamed on the card
+  so it starts fresh.
+- **Whether the aerials move Pikachu.** Telemetry now logs vertical travel and peak per motion;
+  compare a short hop with an aerial against one without.
+
+### Open, not blocked
+- **Hitbox radius is 4-16% small on scaled moves.** topscale corrects offsets but not `size`.
+  The better mechanism for the whole scale problem is `PostureModule::set_scale` on entering a
+  ported move and back on exit: the fighter `scale` param is the "Character Size multiplier", so
+  one call would make positions, bone-local offsets AND radii exact at once, replacing both the
+  Rot-node animation edit and topscale. Not attempted blind -- the current approach is verified at
+  0.00 on positions and switching mechanisms unverified could regress all 21 moves.
+- **Ptooie.** Article id corrected to 0x6 (Pikachu's own run 0x0-0x5, so 0x7 left a gap). Still
+  behind CLONE_ENABLED = false because it crashed on fighter load. Re-enabling also requires
+  shipping vl.prc again with param_spikeball; check.sh 3b enforces that pairing in both directions.
+- Sword trail (workshop episode 40) would restore what the AFTER_IMAGE strip removed.
+- Alolan Whip; sword orientation calibration; rename from the "Rat of Doom" placeholder is now
+  moot for the CSS but info.toml still uses it.
+
+### Hazard worth remembering
+tools/build.sh used to prepend w64devkit to PATH, which shadows grep, awk, iconv, od, xxd and tr
+with minimal builds -- its grep returns 0 for any pattern containing "/". Any check using those
+utilities could behave differently inside the build than outside. w64devkit now goes last.
