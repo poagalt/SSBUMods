@@ -19,11 +19,16 @@ use hash40::hash40;
 
 // new entry | pikachu template entry | source fighter | source entry | adopt source animation
 const SYNTH: &[(&str, &str, &str, &str, bool)] = &[
-    // Game & Watch up-B (Fire + parachute)
-    ("special_hi",       "special_hi_start",     "gamewatch", "special_hi",       false),
-    ("special_air_hi",   "special_air_hi_start", "gamewatch", "special_air_hi",   false),
-    ("special_hi_open",  "special_air_hi1",      "gamewatch", "special_hi_open",  false),
-    ("special_hi_close", "special_air_hi_end",   "gamewatch", "special_hi_close", false),
+    // Game & Watch up-B (Fire + parachute). All four ADOPT his animations. They used to keep the
+    // template's, which meant the up-B played Pikachu's QUICK ATTACK animations -- d02specialhi
+    // start / d02specialairhistart and friends -- with G&W's `move` flag on top, so his own
+    // teleport root motion was being applied. Reported as the up-B teleporting Pikachu extremely
+    // high. G&W's four files are new names on Pikachu (d02specialhi, d02specialairhi,
+    // d02specialhiopen, d02specialhiclose), so they need anim-dropin AND config.json entries.
+    ("special_hi",       "special_hi_start",     "gamewatch", "special_hi",       true),
+    ("special_air_hi",   "special_air_hi_start", "gamewatch", "special_air_hi",   true),
+    ("special_hi_open",  "special_air_hi1",      "gamewatch", "special_hi_open",  true),
+    ("special_hi_close", "special_air_hi_end",   "gamewatch", "special_hi_close", true),
     // Incineroar Revenge
     ("special_lw_start", "special_lw",           "gaogaen",   "special_lw_start", true),
     ("special_lw_turn",  "special_lw",           "gaogaen",   "special_lw_turn",  true),

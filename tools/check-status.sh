@@ -48,9 +48,50 @@ for f in $FOREIGN; do
 done
 [ "$found" -eq 0 ] || rc=1
 
+# THE NEW STATUS KINDS must be past the end of Pikachu's table and distinct from each other.
+#
+# src/specials/status.rs already asserts the range at compile time, but not uniqueness -- two
+# statuses sharing an id would silently install one on top of the other, and the symptom would be
+# an up-B that behaves like an Alolan Whip follow-up. Cheap to check here, impossible to debug in
+# game. 0x1F0 is FIGHTER_PIKACHU_STATUS_KIND_NUM.
+STATUS_RS="$SRC/specials/status.rs"
+if [ ! -f "$STATUS_RS" ]; then
+    echo "  FAIL src/specials/status.rs is missing -- the new status kinds have no single home"
+    rc=1
+else
+    vals=$(grep -oE '^pub const RAT_STATUS_KIND_[A-Z_0-9]+: i32 = 0x[0-9A-Fa-f]+' "$STATUS_RS" \
+           | grep -v RAT_STATUS_KIND_NUM | awk '{print $NF}')
+    nvals=$(printf '%s\n' "$vals" | grep -c . || true)
+    nuniq=$(printf '%s\n' "$vals" | sort -u | grep -c . || true)
+    if [ "$nvals" -ne "$nuniq" ]; then
+        echo "  FAIL two RAT_STATUS_KIND_* constants share an id ($nvals declared, $nuniq distinct)"
+        rc=1
+    fi
+    low=$(printf '%s\n' "$vals" | awk 'strtonum($1) < strtonum("0x1F0")' | grep -c . || true)
+    if [ "$low" -ne 0 ]; then
+        echo "  FAIL $low RAT_STATUS_KIND_* constant(s) below 0x1F0 -- they would shadow one of Pikachu's"
+        rc=1
+    fi
+    [ "$rc" -eq 0 ] && echo "  ok  $nvals new status kinds, all distinct and past Pikachu's 0x1F0"
+fi
+
+# STATUS-SCOPED flags deforeign is asked to KEEP must actually survive into the built source.
+# Losing G&W's LANDING_ENABLE puts the up-B back to floating above the ground instead of landing,
+# and losing Incineroar's THROW_ROPE leaves Alolan Whip with no whip. Both are silent failures.
+for k in FIGHTER_GAMEWATCH_STATUS_SPECIAL_HI_FLAG_LANDING_ENABLE \
+         FIGHTER_GAMEWATCH_STATUS_SPECIAL_HI_FLAG_PARACHUTE_OPEN \
+         FIGHTER_GAMEWATCH_STATUS_SPECIAL_HI_FLAG_DECIDE_DIRECTION \
+         FIGHTER_GAOGAEN_STATUS_SPECIAL_S_FLAG_THROW_ROPE; do
+    n=$( { grep -rl "$k" "$SRC" 2>/dev/null || true; } | grep -c . || true)
+    if [ "$n" -eq 0 ]; then
+        echo "  FAIL $k was stripped -- add it to deforeign's KEEP_STATUS_IDS"
+        rc=1
+    fi
+done
+
 if [ "$rc" -eq 0 ]; then
-    n=$(grep -rc "FIGHTER_PIKACHU_STATUS_KIND_" "$SRC/specials" -r 2>/dev/null | awk -F: '{s+=$2} END{print s+0}')
-    echo "  ok  hand-written code uses no other fighter's constants ($n Pikachu status references)"
+    n=$(grep -rc "RAT_STATUS_KIND_" "$SRC/specials" -r 2>/dev/null | awk -F: '{s+=$2} END{print s+0}')
+    echo "  ok  hand-written code uses no other fighter's constants ($n new-status references)"
 else
     echo "  a hand-written module uses another fighter's namespaced constant -- those ids are"
     echo "  per-fighter enumerations and do not mean the same thing on Pikachu"

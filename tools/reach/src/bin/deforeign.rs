@@ -22,15 +22,63 @@
 //
 // usage: deforeign <plugin-src-dir>
 
-// Fighter namespaces we port from -- keep in step with tools/gen-moves.sh. Constants under
-// FIGHTER_ATTACK_*, FIGHTER_KINETIC_*, FIGHTER_STATUS_* and the like are engine-global, shared by
-// every fighter, and must NOT be stripped.
+// Fighter namespaces we port from. Constants under FIGHTER_ATTACK_*, FIGHTER_KINETIC_*,
+// FIGHTER_STATUS_* and the like are engine-global, shared by every fighter, and must NOT be
+// stripped.
+//
+// THIS LIST WENT STALE ONCE AND THE HOLE WAS SILENT. DONKEY was missing while gen-moves.sh was
+// already porting five of his cargo-throw scripts, so
+// FIGHTER_DONKEY_STATUS_SHOULDER_START_FLAG_SHOULDER_WAIT sailed through into the built plugin --
+// a write into DK's own SHOULDER_START status region, landing on whatever Pikachu keeps at that
+// index during a throw. A list that has to be kept in step by hand will not be, so build.sh now
+// diffs it against the fighters gen-moves.sh actually names and refuses if one is missing.
 const SOURCES: &[&str] = &[
     "CHROM", "ELIGHT", "FALCO", "ROBOT", "LITTLEMAC", "FOX", "GAMEWATCH", "PALUTENA", "DEMON",
-    "CLOUD", "KAMUI", "KROOL", "GAOGAEN", "MEWTWO", "KOOPA", "GANON",
+    "CLOUD", "KAMUI", "KROOL", "GAOGAEN", "MEWTWO", "KOOPA", "GANON", "DONKEY",
+];
+
+// STATUS-SCOPED work ids that are deliberately KEPT.
+//
+// The blanket rule above is right about INSTANCE work ids and article ids: those live in the
+// fighter's global state and a source fighter's index means something else on the host. Status
+// work ids are different. They are indices into the region belonging to whatever status is
+// currently running, so they only collide with ids the HOST uses IN THAT SAME STATUS -- and where
+// this moveset replaces every line of a status, no host code runs in it and the region is ours.
+//
+// That distinction matters because these particular flags are the only record of the move's
+// timing. Incineroar's game_specialsthrow raises FLAG_THROW_ROPE on frame 37 and that is the exact
+// frame the victim is whipped at the ropes; stripping it left the status machine with nothing to
+// read and no way to recover the number. Same story for G&W's up-B, whose LANDING_ENABLE and
+// PARACHUTE_OPEN flags decide when he lands and when the parachute comes out.
+//
+// SAFETY CHECK before adding a name here, in order:
+//   1. the moveset must register Pre, Main and End (and Init/Exec where the source has them) for
+//      the status the script runs in, so no host line executes inside it;
+//   2. the numeric index must fall inside the region the host fighter itself uses, so it is
+//      certainly allocated. Pikachu's own status flags reach 0x2100001A (Skull Bash) and his
+//      status ints reach 0x1100000A, which covers every id kept below;
+//   3. it must be a STATUS_ id, not an INSTANCE_ or GENERATE_ARTICLE_ one.
+//
+// Anything not listed is still stripped.
+const KEEP_STATUS_IDS: &[&str] = &[
+    // Alolan Whip -- SPECIAL_S and its five follow-up statuses are entirely ours.
+    "FIGHTER_GAOGAEN_STATUS_SPECIAL_S_FLAG_THROW_ROPE",
+    "FIGHTER_GAOGAEN_STATUS_SPECIAL_S_FLAG_THROW_ROPE_END",
+    "FIGHTER_GAOGAEN_STATUS_SPECIAL_S_FLAG_DAMAGE_CUT",
+    "FIGHTER_GAOGAEN_STATUS_SPECIAL_S_FLAG_ENABLE_GRAVITY",
+    "FIGHTER_GAOGAEN_STATUS_SPECIAL_S_WORK_ID_FLAG_AIR_CONTROL",
+    "FIGHTER_GAOGAEN_STATUS_SPECIAL_S_FLOAT_LARIAT_HIT_FRAME",
+    // Game & Watch up-B -- SPECIAL_HI is entirely ours.
+    "FIGHTER_GAMEWATCH_STATUS_SPECIAL_HI_FLAG_DECIDE_DIRECTION",
+    "FIGHTER_GAMEWATCH_STATUS_SPECIAL_HI_FLAG_LANDING_ENABLE",
+    "FIGHTER_GAMEWATCH_STATUS_SPECIAL_HI_FLAG_PARACHUTE_OPEN",
+    "FIGHTER_GAMEWATCH_STATUS_SPECIAL_HI_WORK_INT_ATTACK_AIR_KIND",
 ];
 
 fn is_foreign(line: &str) -> bool {
+    if KEEP_STATUS_IDS.iter().any(|k| line.contains(k)) {
+        return false;
+    }
     SOURCES.iter().any(|s| {
         line.contains(&format!("FIGHTER_{s}_")) || line.contains(&format!("WEAPON_{s}_"))
     })

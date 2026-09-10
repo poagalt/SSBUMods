@@ -49,21 +49,39 @@ echo; echo "== 1. generate move scripts from vanilla ACMD (verbatim, original bo
 bash "$ROOT/tools/gen-moves.sh"
 
 
-echo; echo "== 1a. retarget the command grab at a capture status Pikachu can complete =="
-# Applied as its own step rather than inside gen-moves' pipeline. See tools/catch-remap.sed.
-for m in "$ROOT"/pikachu-moveset/plugin/src/*/mod.rs; do
-  sed -i -f "$ROOT/tools/catch-remap.sed" "$m"
-done
-# `|| true` on the grep: with zero matches it exits 1, and under `set -e` that killed the build
-# right here. That is the THIRD time this pattern has bitten in this file -- grep is a predicate,
-# not a data source, and its exit code has to be neutralised whenever it feeds a pipeline.
-left=$( { grep -c SWING_GAOGAEN "$ROOT"/pikachu-moveset/plugin/src/*/mod.rs 2>/dev/null || true; } | awk -F: '{s+=$2} END{print s+0}')
-if [ "$left" -ne 0 ]; then
-  echo "  REFUSING: $left SWING_GAOGAEN reference(s) survived the remap" >&2
+echo; echo "== 1a. the command grab keeps Incineroar's own victim status =="
+# THE REMAP IS GONE. tools/catch-remap.sed used to rewrite Incineroar's
+# FIGHTER_STATUS_KIND_SWING_GAOGAEN_CATCHED into FIGHTER_STATUS_KIND_CAPTURE_PULLED, on the belief
+# that Pikachu could not complete the swing because he has no equivalent of Incineroar's grabber
+# statuses and none could be added. That premise was wrong -- smashline extends the status table
+# (see src/specials/status.rs) -- and the remap was itself the reported bug: the ordinary capture
+# pulled the victim in and released them, which playtest saw as "modified pikachu teleports back
+# to where he was, facing the other direction, and does the enemy freed from grab animation".
+#
+# All seven SWING_GAOGAEN victim statuses (0x176-0x17C) are in the engine's COMMON list, so the
+# roped swing works for any grabber. This step now only asserts the reference survived: if a
+# future pass strips it, the grab silently stops connecting.
+kept=$( { grep -c SWING_GAOGAEN_CATCHED "$ROOT"/pikachu-moveset/plugin/src/*/mod.rs 2>/dev/null || true; } | awk -F: '{s+=$2} END{print s+0}')
+if [ "$kept" -eq 0 ]; then
+  echo "  REFUSING: no SWING_GAOGAEN_CATCHED reference left -- the command grab has no victim status" >&2
   exit 1
 fi
-echo "  ok  command grab targets FIGHTER_STATUS_KIND_CAPTURE_PULLED"
+echo "  ok  command grab targets FIGHTER_STATUS_KIND_SWING_GAOGAEN_CATCHED ($kept CATCH call(s))"
 echo; echo "== 1b. strip foreign constants and unsupported macro calls =="
+# EVERY fighter gen-moves.sh ports from must be in deforeign's SOURCES list, or that fighter's
+# namespaced constants are never stripped. DONKEY was missing for as long as the cargo throws have
+# existed and nothing noticed, so the two lists are diffed here rather than trusted.
+missing=""
+for f in $(grep -oE "^[^|#]*\|[a-z]+\|" "$ROOT/tools/gen-moves.sh" | cut -d'|' -f2 | sort -u); do
+  U=$(printf '%s' "$f" | tr 'a-z' 'A-Z')
+  grep -q "\"$U\"" "$ROOT/tools/reach/src/bin/deforeign.rs" || missing="$missing $U"
+done
+if [ -n "$missing" ]; then
+  echo "  REFUSING: gen-moves.sh ports from$missing but deforeign's SOURCES does not list them," >&2
+  echo "  so their namespaced constants would reach the plugin unstripped" >&2
+  exit 1
+fi
+echo "  ok  every ported fighter's namespace is known to deforeign"
 # The macro allowlist is read from smash-script's own source, so it cannot drift from the crate
 # actually being compiled against.
 SS=$(ls -d /c/Users/poaga/.cargo/git/checkouts/smash-script-*/*/src 2>/dev/null | head -1)
@@ -107,7 +125,9 @@ echo; echo "== 5. pre-flight the motion entries against the dropped-in animation
   gaogaen:special_s_start gaogaen:special_s_end gaogaen:special_lw \
   gaogaen:special_s_shoulder gaogaen:special_s_lariat gaogaen:special_s_throw \
   gaogaen:special_s_failure gaogaen:special_lw_start gaogaen:special_lw_turn \
-  donkey:throw_f_f donkey:throw_f_b donkey:throw_f_hi donkey:throw_f_lw | tail -4
+  donkey:throw_f_f donkey:throw_f_b donkey:throw_f_hi donkey:throw_f_lw \
+  gamewatch:special_hi gamewatch:special_air_hi gamewatch:special_hi_open \
+  gamewatch:special_hi_close | tail -4
 
 echo; echo "== 6. compile =="
 cd "$ROOT/pikachu-moveset/plugin"

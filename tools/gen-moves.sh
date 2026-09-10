@@ -108,12 +108,19 @@ Revenge counter (Incineroar)|gaogaen|SpecialLw|speciallw
 # Alolan Whip. The victim side is engine-global (FIGHTER_STATUS_KIND_SWING_GAOGAEN_*), so only
 # Pikachu's own six scripts are ported; the CATCH in specialsstart names the victim status
 # directly and works for any grabber.
+#
 Alolan Whip lunge (Incineroar)|gaogaen|SpecialSStart|specialsstart
 Alolan Whip shoulder (Incineroar)|gaogaen|SpecialSShoulder|specialsshoulder
 Alolan Whip lariat (Incineroar)|gaogaen|SpecialSLariat|specialslariat
 Alolan Whip throw (Incineroar)|gaogaen|SpecialSThrow|specialsthrow
 Alolan Whip whiff (Incineroar)|gaogaen|SpecialSFailure|specialsfailure
 Alolan Whip end (Incineroar)|gaogaen|SpecialSEnd|specialsend
+# Pikachu's Skull Bash RELEASE effect script, nulled. effect_specials fires
+# pikachu_rocket_bomb, pikachu_rocket_aura and pikachu_rocket_jet and FLASHes him blue-green. The
+# motion it belongs to, special_s, is not one Alolan Whip plays -- but the whole point of the
+# audit is that nothing of Pikachu's own specials should be reachable at all, and an empty
+# override costs one line.
+Skull Bash release effects, nulled|N|-|specials
 "
 
 DODGES="
@@ -141,6 +148,18 @@ emit_module() {
             echo "unsafe extern \"C\" fn pikachu_game_$fname(_agent: &mut L2CAgentBase) {}" >> "$file"
             echo "" >> "$file"
             installs="$installs        .game_acmd(\"game_$fname\", pikachu_game_$fname, Default)
+"
+            continue
+        fi
+        if [ "$fighter" = "N" ]; then
+            # Null BOTH scripts. Used for a Pikachu script that must never run and has no ported
+            # replacement, so an empty override is the whole point rather than a side effect.
+            echo "// ---- $slot : empty override of game_$fname AND effect_$fname ----" >> "$file"
+            echo "unsafe extern \"C\" fn pikachu_game_$fname(_agent: &mut L2CAgentBase) {}" >> "$file"
+            echo "unsafe extern \"C\" fn pikachu_effect_$fname(_agent: &mut L2CAgentBase) {}" >> "$file"
+            echo "" >> "$file"
+            installs="$installs        .game_acmd(\"game_$fname\", pikachu_game_$fname, Default)
+        .effect_acmd(\"effect_$fname\", pikachu_effect_$fname, Default)
 "
             continue
         fi

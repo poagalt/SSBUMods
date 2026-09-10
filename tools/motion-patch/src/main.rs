@@ -1,8 +1,10 @@
 // Patches Pikachu's motion_list.bin with FAF (cancel_frame), intangibility
 // (xlu_start / xlu_end) and animation flags from each move's source fighter.
 //
-// Only `extra` and `flags` are copied. `animations`, `game_script` and `scripts` stay
-// Pikachu's -- those point at Pikachu's own animation files and script names.
+// Only `extra` and `flags` are copied by MAP. `animations`, `game_script` and `scripts` stay
+// Pikachu's -- those point at Pikachu's own animation files and script names. REANIM below is the
+// one exception, and it only ever repoints an entry at ANOTHER PIKACHU ENTRY's file, so it can
+// never name a path the mod does not ship.
 use hash40::hash40;
 use std::collections::BTreeMap;
 
@@ -46,6 +48,23 @@ const MAP: &[(&str, &str, &str)] = &[
     ("escape_air_slide", "escape_air_slide", "fox"),
 ];
 
+// Entries whose ANIMATION must be repointed at another of Pikachu's entries.
+//
+// A source fighter does not necessarily have a motion for every variant Pikachu has. Mythra has
+// NO attack_s3_hi and NO attack_s3_lw at all -- her f-tilt is one animation for all three angles,
+// which is why gen-moves.sh aliases both angled ACMDs to her attacks3 script. Pikachu, though,
+// does have c01attacks3hi.nuanmb and c01attacks3lw.nuanmb, and nothing was overriding them, so
+// two of the three angles kept playing HIS tail-whip: reported in playtest as "pikachu's down and
+// up angled ftilt animations still exist".
+//
+// Pointing both at attack_s3_s's file makes every angle play Mythra's single animation, matching
+// what she actually does. That file is already dropped in by tools/anim-dropin.sh, so this needs
+// no new shipped path and no config.json entry.
+const REANIM: &[(&str, &str)] = &[
+    ("attack_s3_hi", "attack_s3_s"),
+    ("attack_s3_lw", "attack_s3_s"),
+];
+
 fn main() {
     let ex = std::env::args().nth(1).expect("usage: motion-patch <extracted-root> <out.bin>");
     let out = std::env::args().nth(2).expect("out path");
@@ -84,7 +103,26 @@ fn main() {
         done += 1;
     }
 
+    // Animation repoints, after the flag/FAF pass so a repointed entry keeps its source's timing.
+    // Both sides must exist on Pikachu; a typo here would otherwise silently do nothing, so this
+    // panics rather than warning.
+    let mut reanimed = 0;
+    for (entry, from) in REANIM {
+        let src_anims = match pika.list.get(&hash40(from)) {
+            Some(e) => e.animations.clone(),
+            None => panic!("REANIM source '{from}' is not a pikachu motion entry"),
+        };
+        match pika.list.get_mut(&hash40(entry)) {
+            Some(d) => {
+                d.animations = src_anims;
+                println!("  ok {entry:<22} animation <- {from}");
+                reanimed += 1;
+            }
+            None => panic!("REANIM target '{entry}' is not a pikachu motion entry"),
+        }
+    }
+
     motion_lib::save(&out, &pika).expect("save");
-    println!("\npatched {done}, source-missing {missing_src}, pikachu-missing {missing_dst}");
+    println!("\npatched {done}, reanimed {reanimed}, source-missing {missing_src}, pikachu-missing {missing_dst}");
     println!("wrote {out}");
 }

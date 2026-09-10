@@ -9,13 +9,43 @@
 // the detection is built from what a plugin can actually reach.
 //
 // THE TUNING IS THE GAME'S OWN, not invented. fighter/gaogaen/param/vl.prc, param_special_lw[0]:
-//   special_lw_revenge_rate_base_add       = 0.5    flat boost on a successful counter
+//   special_lw_revenge_rate_base_add       = 0.5    flat boost per successful counter
 //   special_lw_revenge_rate_attack_mul_add = 0.075  added per point of damage countered
 //   special_lw_revenge_rate_max            = 3.0    cap -- this is the "stores x3" in the brief
-//   special_lw_revenge_time                = 60     duration
+//   special_lw_revenge_time                = 60     seconds an UNUSED boost survives
 //   special_lw_hit_damage_mul              = 0.4    retaliation damage scales with what it ate
-//   special_lw_revenge_cancel_percent      = 36     damage above which the counter is cancelled
+//   special_lw_revenge_cancel_percent      = 36     damage taken that DESTROYS a stored boost
 // so rate = min(1 + 0.5 + 0.075 * countered_damage, 3.0), which for a 10% hit gives 2.25x.
+//
+// AND THE RULES ARE THE GAME'S OWN TOO, checked against SmashWiki's Revenge and Incineroar
+// down-special pages rather than guessed:
+//
+//   * the boost is CONSUMED when Incineroar lands an attack -- it is a next-hit buff, not a
+//     60-second aura. Playtest caught the difference: "revenge appears to have permanently stored
+//     the extra damage rather than using it up on the next move". 60 seconds is only the ceiling
+//     on an unused boost.
+//   * counters STACK. A second counter with a boost already up adds to it rather than replacing
+//     it, still capped at 3.0.
+//   * cancel_percent is a LOSS condition on the STORED boost -- take 36% while holding one and it
+//     is gone. It was previously read as a per-hit ceiling on whether the counter fires at all,
+//     which is a different rule, and it also left the window stuck open when a big hit landed.
+//   * being thrown loses the boost.
+//   * the counterattack itself does NOT consume the boost. It belongs to the Revenge move; the
+//     buff is for the attack after it.
+//
+// The one documented rule not reproduced: SmashWiki says the boost "decreases if Incineroar uses
+// attacks that miss". Whiff detection is not something a plugin frame hook can do with any
+// confidence, and getting it wrong would silently drain a boost that should still be there.
+//
+// COUNTER WINDOW TIMING IS EXACT, and worth writing down because it looks wrong. The stance ACMD
+// opens the window on script frame 8 and closes it on 28, while Ultimate Frame Data lists the
+// counter as active on frames 3-27. Both are right: FT_MOTION_RATE(r) is GAME FRAMES PER MOTION
+// FRAME -- see smash_script's FT_MOTION_RATE_RANGE, which computes r = game_frames / motion_span
+// -- so the stance's FT_MOTION_RATE(0.25) runs motion frames 1..9 four times faster than real
+// time. Script frame 8 arrives on real frame ~3; the 1.5 and 1.0 stretches then put script frame
+// 28 at real frame ~28. The window really is ~25 real frames at the very start of a much longer
+// animation. Playtest read that as "I can only get it to trigger at the very start of the move",
+// which is Incineroar's actual behaviour and is deliberately left alone.
 //
 // STATE IS PER-ENTRY STATICS, NOT WORK VARIABLES. Incineroar's own work ids cannot be reused:
 // FIGHTER_GAOGAEN_INSTANCE_WORK_ID_FLAG_IS_ATTACK_HIT_REVENGE is 0x200000E3, which on Pikachu is
@@ -39,11 +69,15 @@ const RATE_BASE_ADD: f32 = 0.5;
 const RATE_ATTACK_MUL_ADD: f32 = 0.075;
 const RATE_MAX: f32 = 3.0;
 const HIT_DAMAGE_MUL: f32 = 0.4;
+/// Cumulative damage taken that destroys a stored boost.
 const CANCEL_PERCENT: f32 = 36.0;
 // `special_lw_revenge_time` is 60 and the label set includes `revenge_second`, so it is read as
-// seconds. This is the one interpretive choice in the port; change the multiplier if the boost
-// turns out to last a frame-count instead.
+// seconds. This is the ceiling on an UNUSED boost; landing an attack ends it far sooner.
 const REVENGE_TIME_FRAMES: i32 = 60 * 60;
+/// Real frames the counter stays live once opened. Belt to the ACMD's braces: if the stance is
+/// interrupted before its frame-28 close_window, the window used to stay open indefinitely and a
+/// hit long afterwards would still counter.
+const WINDOW_FRAMES: i32 = 26;
 
 // The counter window is opened and closed by the hand-written stance ACMD in ../acmd_speciallw,
 // at the SCRIPT frames Incineroar uses (8 and 28).
@@ -58,6 +92,7 @@ const REVENGE_TIME_FRAMES: i32 = 60 * 60;
 pub unsafe fn open_window(boma: *mut BattleObjectModuleAccessor) {
     let e = entry_of(boma);
     WINDOW_OPEN[e] = true;
+    WINDOW_LEFT[e] = WINDOW_FRAMES;
     LAST_DAMAGE[e] = DamageModule::damage(boma, 0);
 }
 
@@ -73,14 +108,92 @@ pub const PHASE_COUNTER: i32 = 1;
 
 pub static mut PHASE: [i32; 8] = [PHASE_STANCE; 8];
 pub static mut WINDOW_OPEN: [bool; 8] = [false; 8];
+static mut WINDOW_LEFT: [i32; 8] = [0; 8];
 pub static mut LAST_DAMAGE: [f32; 8] = [0.0; 8];
 pub static mut RATE: [f32; 8] = [1.0; 8];
 pub static mut TIMER: [i32; 8] = [0; 8];
 pub static mut COUNTERED: [f32; 8] = [0.0; 8];
+/// Damage taken since the boost was banked, weighed against CANCEL_PERCENT.
+static mut DAMAGE_SINCE_BOOST: [f32; 8] = [0.0; 8];
+/// Whether the active-Revenge visual is up, so it is spawned and killed exactly once.
+static mut AURA_ON: [bool; 8] = [false; 8];
+/// Frames since the visual went up, driving the colour pulse.
+static mut AURA_CLOCK: [i32; 8] = [0; 8];
 
 unsafe fn entry_of(boma: *mut BattleObjectModuleAccessor) -> usize {
     let e = WorkModule::get_int(boma, *FIGHTER_INSTANCE_WORK_ID_INT_ENTRY_ID) as usize;
     if e >= 8 { 0 } else { e }
+}
+
+// THE ACTIVE-REVENGE VISUAL.
+//
+// Incineroar's is `gaogaen_revenge_aura`, followed on shoulderr, shoulderl, kneer, kneel and
+// feelerca -- read straight off his effect_speciallwrevenge script, which his C++ fires when a
+// counter banks and cancels from effect_speciallwrevengeend. That effect lives in his own effect
+// archive, so ADR 0002 rules it out. The bone list, though, transfers exactly: Pikachu has
+// ShoulderL/R and KneeL/R (feelerca is Incineroar's flame whiskers and has no counterpart).
+//
+// So the aura keeps his structure with a `sys_` effect substituted, and the colour cue is carried
+// by FLASH -- which is what Incineroar himself uses on this very move: effect_speciallwstart
+// pulses FLASH(0.67, 0, 0.78) purple against grey while he takes the stance. FLASH tints the model
+// through ColorBlendModule and needs no archive at all, so it is guaranteed to show even if the
+// substituted aura does not. SmashWiki describes the active state as "its fur radiating an orange
+// glow", so the pulse here is orange.
+const AURA: &str = "sys_final_aura";
+const AURA_BONES: [&str; 4] = ["shoulderr", "shoulderl", "kneer", "kneel"];
+/// Length of one orange/normal pulse, in frames.
+const PULSE: i32 = 24;
+
+unsafe fn aura_on(fighter: &mut L2CFighterCommon) {
+    let e = entry_of(fighter.module_accessor);
+    if AURA_ON[e] {
+        return;
+    }
+    AURA_ON[e] = true;
+    AURA_CLOCK[e] = 0;
+    for bone in AURA_BONES {
+        macros::EFFECT_FOLLOW(
+            &mut **fighter, Hash40::new(AURA), Hash40::new(bone),
+            0, 0, 0, 0, 0, 0, 1, false
+        );
+    }
+}
+
+unsafe fn aura_off(fighter: &mut L2CFighterCommon) {
+    let boma = fighter.module_accessor;
+    let e = entry_of(boma);
+    if !AURA_ON[e] {
+        return;
+    }
+    AURA_ON[e] = false;
+    EffectModule::kill_kind(boma, Hash40::new(AURA), false, false);
+    macros::COL_NORMAL(&mut **fighter);
+}
+
+unsafe fn aura_tick(fighter: &mut L2CFighterCommon) {
+    let e = entry_of(fighter.module_accessor);
+    let t = AURA_CLOCK[e] % PULSE;
+    AURA_CLOCK[e] += 1;
+    // Only touch the tint on the two boundary frames, so the ordinary damage flash is not being
+    // fought every single frame for the rest of the pulse.
+    if t == 0 {
+        macros::FLASH(&mut **fighter, 1.0, 0.45, 0.0, 0.35);
+    } else if t == PULSE / 2 {
+        macros::COL_NORMAL(&mut **fighter);
+    }
+}
+
+/// Drop a stored boost and everything that goes with it.
+unsafe fn clear_boost(fighter: &mut L2CFighterCommon) {
+    let boma = fighter.module_accessor;
+    let e = entry_of(boma);
+    TIMER[e] = 0;
+    RATE[e] = 1.0;
+    COUNTERED[e] = 0.0;
+    DAMAGE_SINCE_BOOST[e] = 0.0;
+    AttackModule::set_power_up(boma, 1.0);
+    AttackModule::set_reaction_mul(boma, 1.0);
+    aura_off(fighter);
 }
 
 unsafe extern "C" fn pikachu_speciallw_pre(fighter: &mut L2CFighterCommon) -> L2CValue {
@@ -175,14 +288,15 @@ pub unsafe extern "C" fn pikachu_revenge_frame(fighter: &mut L2CFighterCommon) {
     let damage = DamageModule::damage(boma, 0);
     let taken = damage - LAST_DAMAGE[entry];
 
-    // A hit landed while the window was open. `cancel_percent` is Incineroar's own threshold:
-    // above it the counter does not trigger, which is what stops Revenge eating a kill move.
-    if WINDOW_OPEN[entry] && taken > 0.0 && taken < CANCEL_PERCENT {
-        // Refund the damage the counter absorbed, then bank the boost.
+    // A hit landed while the window was open.
+    if WINDOW_OPEN[entry] && WINDOW_LEFT[entry] > 0 && taken > 0.0 {
+        // Refund the damage the counter absorbed, then bank the boost. Counters STACK: the new
+        // rate builds on whatever is already stored, still capped at revenge_rate_max.
         DamageModule::add_damage(boma, -taken, 0);
         COUNTERED[entry] = taken;
-        RATE[entry] = (1.0 + RATE_BASE_ADD + RATE_ATTACK_MUL_ADD * taken).min(RATE_MAX);
+        RATE[entry] = (RATE[entry] + RATE_BASE_ADD + RATE_ATTACK_MUL_ADD * taken).min(RATE_MAX);
         TIMER[entry] = REVENGE_TIME_FRAMES;
+        DAMAGE_SINCE_BOOST[entry] = 0.0;
         WINDOW_OPEN[entry] = false;
         PHASE[entry] = PHASE_COUNTER;
         LAST_DAMAGE[entry] = DamageModule::damage(boma, 0);
@@ -192,29 +306,59 @@ pub unsafe extern "C" fn pikachu_revenge_frame(fighter: &mut L2CFighterCommon) {
         return;
     }
 
+    if WINDOW_OPEN[entry] {
+        WINDOW_LEFT[entry] -= 1;
+        if WINDOW_LEFT[entry] <= 0 {
+            WINDOW_OPEN[entry] = false;
+        }
+    }
+
     if TIMER[entry] > 0 {
+        let status = StatusModule::status_kind(boma);
+        let in_counter_attack = PHASE[entry] == PHASE_COUNTER
+            && MotionModule::motion_kind(boma) == smash::hash40("special_lw");
+
+        // LOSS CONDITIONS, both Incineroar's own: taking cancel_percent in total while holding a
+        // boost destroys it, and so does being thrown.
+        if taken > 0.0 {
+            DAMAGE_SINCE_BOOST[entry] += taken;
+        }
+        if DAMAGE_SINCE_BOOST[entry] >= CANCEL_PERCENT
+            || status == *FIGHTER_STATUS_KIND_THROWN
+            || status == *FIGHTER_STATUS_KIND_CAPTURE_PULLED
+            || status == *FIGHTER_STATUS_KIND_CAPTURE_WAIT
+        {
+            clear_boost(fighter);
+            LAST_DAMAGE[entry] = damage;
+            return;
+        }
+
         // Two DIFFERENT multipliers, because Incineroar uses two. The retaliation's own damage
         // scales by special_lw_hit_damage_mul (0.4) against what it absorbed, while the STORED
         // rate is what boosts everything afterwards. Applying the stored rate to the retaliation
         // as well would double-count -- a 10% counter would swing it from 1.4x to 2.25x.
-        let mul = if PHASE[entry] == PHASE_COUNTER
-            && MotionModule::motion_kind(boma) == smash::hash40("special_lw")
-        {
-            retaliation_damage_mul(boma)
-        } else {
-            RATE[entry]
-        };
+        let mul = if in_counter_attack { retaliation_damage_mul(boma) } else { RATE[entry] };
         // power_up scales damage, reaction_mul scales knockback. revenge_data in Incineroar's
         // vl.prc carries reaction_mul 1.15-1.2 per move against power_mul 1, so knockback is the
         // larger part of the effect; both are driven from the same stored rate here.
         AttackModule::set_power_up(boma, mul);
         AttackModule::set_reaction_mul(boma, mul);
+        aura_on(fighter);
+        aura_tick(fighter);
+
+        // CONSUMED BY THE NEXT LANDED ATTACK, which is the whole point of the move and was the
+        // reported bug. The counterattack is exempt: it belongs to Revenge itself and is already
+        // scaled by hit_damage_mul, so letting it eat the stored boost would make the buff
+        // unusable.
+        if !in_counter_attack && AttackModule::is_attack_occur(boma) {
+            clear_boost(fighter);
+            LAST_DAMAGE[entry] = damage;
+            return;
+        }
+
         TIMER[entry] -= 1;
         if TIMER[entry] == 0 {
-            RATE[entry] = 1.0;
-            COUNTERED[entry] = 0.0;
-            AttackModule::set_power_up(boma, 1.0);
-            AttackModule::set_reaction_mul(boma, 1.0);
+            clear_boost(fighter);
         }
     }
     LAST_DAMAGE[entry] = damage;

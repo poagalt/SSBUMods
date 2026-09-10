@@ -1,3 +1,4 @@
+use super::status::*;
 use {
     smash::{
         lua2cpp::*,
@@ -83,7 +84,7 @@ unsafe extern "C" fn pikachu_specialhifall_main_loop(fighter: &mut L2CFighterCom
                         if fighter.global_table[0x1b].get_f32() <= squat_stick_y {
                             let stick_prev_y = ControlModule::get_stick_prev_y(fighter.module_accessor);
                             if squat_stick_y < stick_prev_y {
-                                fighter.change_status(FIGHTER_PIKACHU_STATUS_KIND_SPECIAL_HI_WARP.into(), false.into());
+                                fighter.change_status(RAT_STATUS_KIND_SPECIAL_HI_CLOSE.into(), false.into());
                                 return 1.into();
                             }
                         }
@@ -91,13 +92,13 @@ unsafe extern "C" fn pikachu_specialhifall_main_loop(fighter: &mut L2CFighterCom
                         if jump_stick_y <= fighter.global_table[0x1b].get_f32() {
                             let stick_prev_y = ControlModule::get_stick_prev_y(fighter.module_accessor);
                             if stick_prev_y < jump_stick_y {
-                                fighter.change_status(FIGHTER_PIKACHU_STATUS_KIND_SPECIAL_HI_WARP.into(), false.into());
+                                fighter.change_status(RAT_STATUS_KIND_SPECIAL_HI_CLOSE.into(), false.into());
                                 return 1.into();
                             }
                         }
                         return 0.into();
                     }
-                    fighter.change_status(FIGHTER_PIKACHU_STATUS_KIND_SPECIAL_HI_WARP.into(), false.into());
+                    fighter.change_status(RAT_STATUS_KIND_SPECIAL_HI_CLOSE.into(), false.into());
                     return 1.into();
                 }
             }
@@ -107,7 +108,7 @@ unsafe extern "C" fn pikachu_specialhifall_main_loop(fighter: &mut L2CFighterCom
 }
 
 unsafe extern "C" fn pikachu_specialhifall_end(fighter: &mut L2CFighterCommon) -> L2CValue {
-    if fighter.global_table[0xb] != *FIGHTER_PIKACHU_STATUS_KIND_SPECIAL_HI_WARP {
+    if fighter.global_table[0xb] != RAT_STATUS_KIND_SPECIAL_HI_CLOSE {
         let jump_count_max = WorkModule::get_int(fighter.module_accessor, *FIGHTER_INSTANCE_WORK_ID_INT_JUMP_COUNT_MAX);
         WorkModule::set_int(fighter.module_accessor, jump_count_max, *FIGHTER_INSTANCE_WORK_ID_INT_JUMP_COUNT);
     }
@@ -116,9 +117,9 @@ unsafe extern "C" fn pikachu_specialhifall_end(fighter: &mut L2CFighterCommon) -
 
 pub fn install() {
     Agent::new("pikachu")
-        .status(Pre, *FIGHTER_PIKACHU_STATUS_KIND_SPECIAL_HI_END, pikachu_specialhifall_pre)
-        .status(Init, *FIGHTER_PIKACHU_STATUS_KIND_SPECIAL_HI_END, pikachu_specialhifall_init)
-        .status(Main, *FIGHTER_PIKACHU_STATUS_KIND_SPECIAL_HI_END, pikachu_specialhifall_main)
-        .status(End, *FIGHTER_PIKACHU_STATUS_KIND_SPECIAL_HI_END, pikachu_specialhifall_end)
+        .status(Pre, RAT_STATUS_KIND_SPECIAL_HI_OPEN, pikachu_specialhifall_pre)
+        .status(Init, RAT_STATUS_KIND_SPECIAL_HI_OPEN, pikachu_specialhifall_init)
+        .status(Main, RAT_STATUS_KIND_SPECIAL_HI_OPEN, pikachu_specialhifall_main)
+        .status(End, RAT_STATUS_KIND_SPECIAL_HI_OPEN, pikachu_specialhifall_end)
         .install();
 }

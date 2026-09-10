@@ -1,3 +1,4 @@
+use super::status::*;
 use {
     smash::{
         lua2cpp::*,
@@ -64,7 +65,13 @@ unsafe extern "C" fn pikachu_specialhi_main(fighter: &mut L2CFighterCommon) -> L
 
 unsafe extern "C" fn pikachu_specialhi_main_loop(fighter: &mut L2CFighterCommon) -> L2CValue {
     if !fighter.sub_transition_group_check_air_cliff().get_bool() {
-        let is_end = MotionModule::is_end(fighter.module_accessor);
+        // G&W raises FLAG_PARACHUTE_OPEN on script frame 33 of game_specialhi, and that -- not
+        // the end of the animation -- is when the parachute comes out. The port used
+        // MotionModule::is_end as a stand-in because the flag had no source; ../acmd_specialhi
+        // now sets it on his exact frame, so read the real thing and keep is_end only as the
+        // backstop for a motion that somehow runs past it.
+        let is_end = WorkModule::is_flag(fighter.module_accessor, *FIGHTER_GAMEWATCH_STATUS_SPECIAL_HI_FLAG_PARACHUTE_OPEN)
+            || MotionModule::is_end(fighter.module_accessor);
         if !is_end {
             if fighter.global_table[0x16] == *SITUATION_KIND_GROUND {
                 let is_landing_enable = WorkModule::is_flag(fighter.module_accessor, *FIGHTER_GAMEWATCH_STATUS_SPECIAL_HI_FLAG_LANDING_ENABLE);
@@ -78,7 +85,7 @@ unsafe extern "C" fn pikachu_specialhi_main_loop(fighter: &mut L2CFighterCommon)
         let attack_air_kind = ControlModule::get_attack_air_kind(fighter.module_accessor);
         WorkModule::set_int(fighter.module_accessor, attack_air_kind, *FIGHTER_GAMEWATCH_STATUS_SPECIAL_HI_WORK_INT_ATTACK_AIR_KIND);
         
-        fighter.change_status(FIGHTER_PIKACHU_STATUS_KIND_SPECIAL_HI_END.into(), false.into());
+        fighter.change_status(RAT_STATUS_KIND_SPECIAL_HI_OPEN.into(), false.into());
     }
     return 1.into();
 }

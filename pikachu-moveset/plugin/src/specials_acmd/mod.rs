@@ -65,8 +65,8 @@ unsafe extern "C" fn pikachu_game_specialsstart(agent: &mut L2CAgentBase) {
     frame(agent.lua_state_agent, 18.0);
     if macros::is_excute(agent) {
         AttackModule::clear_all(agent.module_accessor);
-        macros::CATCH(agent, 0, Hash40::new("top"), 4.0, 0.0, 8.0, 2.0, Some(0.0), Some(8.0), Some(8.0), *FIGHTER_STATUS_KIND_CAPTURE_PULLED, *COLLISION_SITUATION_MASK_G);
-        macros::CATCH(agent, 1, Hash40::new("top"), 1.5, 0.0, 8.0, 2.0, Some(0.0), Some(8.0), Some(10.5), *FIGHTER_STATUS_KIND_CAPTURE_PULLED, *COLLISION_SITUATION_MASK_GA);
+        macros::CATCH(agent, 0, Hash40::new("top"), 4.0, 0.0, 8.0, 2.0, Some(0.0), Some(8.0), Some(8.0), *FIGHTER_STATUS_KIND_SWING_GAOGAEN_CATCHED, *COLLISION_SITUATION_MASK_G);
+        macros::CATCH(agent, 1, Hash40::new("top"), 1.5, 0.0, 8.0, 2.0, Some(0.0), Some(8.0), Some(10.5), *FIGHTER_STATUS_KIND_SWING_GAOGAEN_CATCHED, *COLLISION_SITUATION_MASK_GA);
     }
     frame(agent.lua_state_agent, 35.0);
     if macros::is_excute(agent) {
@@ -77,6 +77,9 @@ unsafe extern "C" fn pikachu_game_specialsstart(agent: &mut L2CAgentBase) {
     frame(agent.lua_state_agent, 44.0);
     macros::FT_MOTION_RATE(agent, 0.8);
     frame(agent.lua_state_agent, 67.0);
+    if macros::is_excute(agent) {
+        WorkModule::on_flag(agent.module_accessor, *FIGHTER_GAOGAEN_STATUS_SPECIAL_S_WORK_ID_FLAG_AIR_CONTROL);
+    }
     frame(agent.lua_state_agent, 74.0);
     macros::FT_MOTION_RATE(agent, 1.0);
 }
@@ -118,17 +121,26 @@ unsafe extern "C" fn pikachu_game_specialsshoulder(agent: &mut L2CAgentBase) {
         lua_bind::FighterCutInManager::set_throw_finish_offset(singletons::FighterCutInManager(), Vector3f{x: 0.0, y: 0.0, z: 0.0});
     }
     frame(agent.lua_state_agent, 18.0);
+    if macros::is_excute(agent) {
+        WorkModule::on_flag(agent.module_accessor, *FIGHTER_GAOGAEN_STATUS_SPECIAL_S_FLAG_DAMAGE_CUT);
+    }
     frame(agent.lua_state_agent, 20.0);
     if macros::is_excute(agent) {
         AttackModule::clear_all(agent.module_accessor);
         macros::REVERSE_LR(agent);
     }
     frame(agent.lua_state_agent, 42.0);
+    if macros::is_excute(agent) {
+        WorkModule::on_flag(agent.module_accessor, *FIGHTER_GAOGAEN_STATUS_SPECIAL_S_FLAG_ENABLE_GRAVITY);
+    }
     frame(agent.lua_state_agent, 45.0);
     if macros::is_excute(agent) {
         damage!(agent, *MA_MSC_DAMAGE_DAMAGE_NO_REACTION, *DAMAGE_NO_REACTION_MODE_NORMAL, 0);
     }
     frame(agent.lua_state_agent, 52.0);
+    if macros::is_excute(agent) {
+        WorkModule::on_flag(agent.module_accessor, *FIGHTER_GAOGAEN_STATUS_SPECIAL_S_WORK_ID_FLAG_AIR_CONTROL);
+    }
 }
 
 
@@ -150,6 +162,7 @@ unsafe extern "C" fn pikachu_game_specialslariat(agent: &mut L2CAgentBase) {
         damage!(agent, *MA_MSC_DAMAGE_DAMAGE_NO_REACTION, *DAMAGE_NO_REACTION_MODE_DAMAGE_POWER, 11.99);
         macros::ATTACK_ABS(agent, *FIGHTER_ATTACK_ABSOLUTE_KIND_THROW, 0, 0.0, 145, 454, 0, 20, 0.0, 1.0, *ATTACK_LR_CHECK_B, 0.0, true, Hash40::new("collision_attr_normal"), *ATTACK_SOUND_LEVEL_S, *COLLISION_SOUND_ATTR_NONE, *ATTACK_REGION_THROW);
         AttackModule::set_force_reaction(agent.module_accessor, 0, true, true);
+        WorkModule::set_float(agent.module_accessor, 9.0, *FIGHTER_GAOGAEN_STATUS_SPECIAL_S_FLOAT_LARIAT_HIT_FRAME);
     }
     frame(agent.lua_state_agent, 9.0);
     if macros::is_excute(agent) {
@@ -159,14 +172,21 @@ unsafe extern "C" fn pikachu_game_specialslariat(agent: &mut L2CAgentBase) {
         lua_bind::FighterCutInManager::set_throw_finish_offset(singletons::FighterCutInManager(), Vector3f{x: 0.0, y: 0.0, z: 0.0});
     }
     frame(agent.lua_state_agent, 14.0);
+    if macros::is_excute(agent) {
+        WorkModule::on_flag(agent.module_accessor, *FIGHTER_GAOGAEN_STATUS_SPECIAL_S_FLAG_DAMAGE_CUT);
+    }
     frame(agent.lua_state_agent, 20.0);
     if macros::is_excute(agent) {
         AttackModule::clear_all(agent.module_accessor);
         macros::REVERSE_LR(agent);
     }
     frame(agent.lua_state_agent, 50.0);
+    if macros::is_excute(agent) {
+        WorkModule::on_flag(agent.module_accessor, *FIGHTER_GAOGAEN_STATUS_SPECIAL_S_FLAG_ENABLE_GRAVITY);
+    }
     frame(agent.lua_state_agent, 58.0);
     if macros::is_excute(agent) {
+        WorkModule::on_flag(agent.module_accessor, *FIGHTER_GAOGAEN_STATUS_SPECIAL_S_WORK_ID_FLAG_AIR_CONTROL);
         damage!(agent, *MA_MSC_DAMAGE_DAMAGE_NO_REACTION, *DAMAGE_NO_REACTION_MODE_NORMAL, 0);
     }
 }
@@ -190,6 +210,9 @@ unsafe extern "C" fn pikachu_game_specialsthrow(agent: &mut L2CAgentBase) {
     frame(agent.lua_state_agent, 20.0);
     macros::FT_MOTION_RATE(agent, 0.5);
     frame(agent.lua_state_agent, 37.0);
+    if macros::is_excute(agent) {
+        WorkModule::on_flag(agent.module_accessor, *FIGHTER_GAOGAEN_STATUS_SPECIAL_S_FLAG_THROW_ROPE);
+    }
     frame(agent.lua_state_agent, 60.0);
     macros::FT_MOTION_RATE(agent, 1.0);
     frame(agent.lua_state_agent, 95.0);
@@ -228,12 +251,21 @@ unsafe extern "C" fn pikachu_game_specialsfailure(agent: &mut L2CAgentBase) {
         damage!(agent, *MA_MSC_DAMAGE_DAMAGE_NO_REACTION, *DAMAGE_NO_REACTION_MODE_NORMAL, 0);
     }
     frame(agent.lua_state_agent, 6.0);
+    if macros::is_excute(agent) {
+        WorkModule::on_flag(agent.module_accessor, *FIGHTER_GAOGAEN_STATUS_SPECIAL_S_FLAG_DAMAGE_CUT);
+    }
     wait(agent.lua_state_agent, 10.0);
     if macros::is_excute(agent) {
         macros::REVERSE_LR(agent);
     }
     frame(agent.lua_state_agent, 26.0);
+    if macros::is_excute(agent) {
+        WorkModule::on_flag(agent.module_accessor, *FIGHTER_GAOGAEN_STATUS_SPECIAL_S_FLAG_ENABLE_GRAVITY);
+    }
     frame(agent.lua_state_agent, 34.0);
+    if macros::is_excute(agent) {
+        WorkModule::on_flag(agent.module_accessor, *FIGHTER_GAOGAEN_STATUS_SPECIAL_S_WORK_ID_FLAG_AIR_CONTROL);
+    }
 }
 
 
@@ -255,13 +287,23 @@ unsafe extern "C" fn pikachu_game_specialsend(agent: &mut L2CAgentBase) {
         macros::REVERSE_LR(agent);
     }
     frame(agent.lua_state_agent, 30.0);
+    if macros::is_excute(agent) {
+        WorkModule::on_flag(agent.module_accessor, *FIGHTER_GAOGAEN_STATUS_SPECIAL_S_FLAG_ENABLE_GRAVITY);
+    }
     frame(agent.lua_state_agent, 38.0);
+    if macros::is_excute(agent) {
+        WorkModule::on_flag(agent.module_accessor, *FIGHTER_GAOGAEN_STATUS_SPECIAL_S_WORK_ID_FLAG_AIR_CONTROL);
+    }
 }
 
 
 // ---- Alolan Whip end (Incineroar) : effect_specialsend, sys_ effects only (ADR 0002) ----
 unsafe extern "C" fn pikachu_effect_specialsend(agent: &mut L2CAgentBase) {
 }
+
+// ---- Skull Bash release effects, nulled : empty override of game_specials AND effect_specials ----
+unsafe extern "C" fn pikachu_game_specials(_agent: &mut L2CAgentBase) {}
+unsafe extern "C" fn pikachu_effect_specials(_agent: &mut L2CAgentBase) {}
 
 pub fn install() {
     Agent::new("pikachu")
@@ -279,5 +321,7 @@ pub fn install() {
         .effect_acmd("effect_specialsfailure", pikachu_effect_specialsfailure, Default)
         .game_acmd("game_specialsend", pikachu_game_specialsend, Default)
         .effect_acmd("effect_specialsend", pikachu_effect_specialsend, Default)
+        .game_acmd("game_specials", pikachu_game_specials, Default)
+        .effect_acmd("effect_specials", pikachu_effect_specials, Default)
         .install();
 }
