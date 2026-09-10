@@ -1024,3 +1024,101 @@ Its `src/lib.rs:12` binds inside a `loop` and unwraps, so a held port panics the
 rather than retrying — OS error 98 is EADDRINUSE. Killing a client mid-transfer is enough to
 trigger it, and it then blocks launching the game at all until a full reboot. Once extraction is
 genuinely finished for good, move `libarc_network.nro` out of the plugins directory.
+
+## v0.25–v0.29: what the harness found once it was pointed at the specials
+
+Pikachu loads on the vl.prc-reverted build, which settles the biggest open risk: **status kinds past
+0x1F0 work on hardware.** Every design that depended on it — the up-B's two statuses, Alolan Whip's
+five, the seven-status lockout — is sound.
+
+### The specials had never been measured
+`tools/moves.tsv` covered 21 moves. The mod replaces more. The up-B, Revenge and every Alolan Whip
+hitbox were **outside the hitbox trace entirely**, so "all 276 hitbox-frames within 0.05 world
+units" had never been a claim about the moves under active development.
+
+Adding them: up-B **0.38** off, Revenge **0.44**, Alolan Whip's lunge/shoulder/whiff **0.29 / 0.24 /
+0.45** — and the lariat, whose hitbox rides `arml`, **exactly 0.00**. Bone-anchored exact and
+top-anchored wrong is the signature of `topscale` not running, and it was not: **every special was
+missing from its MAP**, and the walk was one level deep so the hand-written up-B ACMDs two levels
+down had never been opened at all. All ten are in MAP, the walk recurses, all measure 0.00. The
+harness now covers 28 moves and 340 hitbox-frames.
+
+Third instance of one pattern: a parallel list that must be kept in step by hand and is not.
+`throw_f` outside the dropin pre-flight, `DONKEY` missing from deforeign's `SOURCES`, every special
+missing from topscale's `MAP`. `tools/ported-motions.txt` now consolidates three of those lists.
+
+### The recursion immediately broke something, and that is the useful part
+`topscale` multiplies offsets in place and is **not idempotent** — safe only because `gen-moves.sh`
+rewrites its targets from the vanilla dumps first. Recursing pulled a hand-written module into
+scope and one build turned an offset of 6.0 into 6.2500005. The next would have compounded it,
+with hitboxes drifting outward every rebuild and nothing visible in a diff of generated files.
+
+Two fixes so it cannot recur: the up-B ACMDs are **generated** now (they were hand-placed only
+because deforeign strips `FIGHTER_GAMEWATCH_*`, and `KEEP_STATUS_IDS` already preserves the three
+flags they need), and topscale **refuses to write a file lacking the `@generated` marker**, naming
+the file and the two ways out.
+
+### Four more false cleans closed
+The count is now nine on this project, and the shape is always identical: a check that reports
+success on work it did not do.
+
+- **`blend.rs` passed on zero work.** It took motions as command-line arguments and had never been
+  given any, so it printed an empty table and "0 wrong" for as long as it had existed. Exits 2 now.
+  With real input it found one defect in 48 motions: Palutena's `catch_dash` blends over 3 frames
+  and ours snapped in over 0. `blend_frames` — how many frames the engine cross-fades INTO a motion,
+  which is the seamless-transition requirement in numbers — had never been copied at all.
+- **FK dumps were undeclared build inputs**, made by hand in earlier sessions with nothing
+  regenerating them. `tools/gen-fk.sh` generates them from the local extraction.
+- **`check-hitboxes.sh` failed on "no FK skeleton" while `trace-all` prints "no FK data"**, so a
+  move with missing inputs silently stopped being measured instead of failing.
+- **`gen-moves.sh` truncated itself.** Each move group is a double-quoted shell string; a comment
+  containing a double quote ends it, and everything after is executed as commands. The only symptom
+  was a stray `: No such file or directory`.
+
+### Pikachu's own moves are now unreachable, not merely unused
+`tools/motion-patch/src/bin/variants.rs` answers exhaustively what had only ever been answered by
+accident. For each replaced slot: which motions does Pikachu have that the SOURCE lacks? Eight. Two
+were the f-tilt angles (Mythra has no angled f-tilt at all). The other six are Skull Bash's
+release/charge/weak, Thunder's hit reaction and Quick Attack's windup/recovery.
+
+`src/specials/lockout/mod.rs` bounces all seven retired status kinds (0x1E1–0x1E7) to wait/fall and
+logs loudly; sixteen leftover `game_`/`effect_` scripts are nulled. Two of those mattered beyond
+cosmetics: `effect_specials` fires his rocket effects, and the Quick Attack effect scripts call
+`VisibilityModule::set_whole` where only their own tails restore visibility — so reaching one and
+leaving early strands him invisible for the stock. The up-B restores it on entry as insurance.
+
+Neutral-B is deliberately excluded: Thunder Jolt is still his until Ptooie lands.
+
+### Cargo carry moves now
+DK implements it as eleven fighter-specific statuses with their own locomotion. Adding statuses is
+possible, and reproducing his shape was still wrong: it means reimplementing walking, turning and
+jumping and then hand-fitting Pikachu's speeds back in. Instead he stays in **his own** movement
+statuses and the carry overrides only the pose, so the locomotion is his by construction. Attack,
+special and guard transition groups are disabled every frame the carry is live.
+
+**All nine carry animations were already on disk** — the first real dividend from the full c00
+extraction. A feature filed as blocked on a console session was entirely local work.
+
+### The infrastructure that made the rest possible
+- **sys-ftpd was always running.** It is a boot sysmodule; the requests just lacked credentials, and
+  FTP's `430` reads like a connection failure rather than an auth failure. Every "close Smash and
+  relaunch ftpd" request in this project's history was unnecessary.
+- **The deploy verifier was lying.** One run reported 64 files "remote absent" that had uploaded
+  minutes earlier; a targeted `SIZE` query proved the card correct the whole time. sys-ftpd truncates
+  LIST responses when busy — i.e. whenever Smash is running. Listings are a first pass now; anything
+  suspicious gets a single-file query. Second time this file's own warning came true.
+- Deploys skip unchanged files (a full run is ~10 minutes) and repair truncated uploads
+  automatically. Verification remains the sole authority on success.
+- **Telemetry writes to the SD card** as well as the TCP log, so a session can be played with nobody
+  watching and read afterwards. The mount prefix is probed, not guessed.
+
+### Still open
+1. **Neutral-B (Ptooie)** — the only un-ported slot, blocked on the article clone. The mechanism is
+   understood now from reading `init_fighter_p_object` rather than inferring: the param object must
+   be in the host's own vl.prc, and `smashline::add_param_object` exists and was never tried. Two
+   wrong claims in the old note are corrected. The decisive experiment is one deploy plus one
+   restart, now that repairs eliminate the truncated-upload candidate.
+2. **A playtest of v0.29.** Nothing here has been verified in motion.
+3. Hitbox `size` scaling (4–20% small) — needs hardware to settle whether the engine folds in the
+   anchor bone's inherited scale.
+4. DK's `_PASS` (carrying through a soft platform).
