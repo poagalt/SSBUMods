@@ -79,6 +79,41 @@ const REVENGE_TIME_FRAMES: i32 = 60 * 60;
 /// hit long afterwards would still counter.
 const WINDOW_FRAMES: i32 = 26;
 
+// WHAT THIS PORT DOES NOT REPRODUCE, enumerated because tools/check-srcparams.sh asks and because
+// "we did not know" and "we decided not to" should not look the same in six months.
+//
+// NOT MODELLED: special_lw_start_x_mul special_air_lw_speed_y_mul
+//   Incineroar keeps 60% of his horizontal speed and 70% of his vertical when Revenge starts.
+//   This port hard-stops instead -- FIGHTER_KINETIC_TYPE_GROUND_STOP / AIR_STOP in _main -- so a
+//   running or rising Revenge plants where his drifts. NONE of his four Revenge ACMDs contains a
+//   speed call, so both are applied by his C++ status and the names are all there is to go on:
+//   "multiply the entering speed" is the obvious reading and "the start motion's own x energy" is
+//   a real alternative. Implementing the wrong one turns a stop into a slide, which is worse than
+//   the stop. THE PLAYTEST SETTLES IT: telemetry logs `moved x` and `peak` per motion, so run into
+//   a grounded Revenge and rise into an air one, then do the same with Incineroar and compare.
+//
+// NOT MODELLED: special_lw_hit_stop_mul special_air_lw_hit_accel_y
+//   1.5x hitlag on the counter hit, and 0.02 downward acceleration during the airborne one.
+//   Both are status-side, both are small, and neither changes whether the move works.
+//
+// NOT MODELLED: special_lw_revenge_shield_damage_mul special_lw_revenge_rate_correct_max
+// NOT MODELLED: special_lw_revenge_rate_max_team
+//   Revenge also builds from shield damage at 0.2x, the stored rate has a separate correction
+//   ceiling, and team battles cap it at 1.5 instead of 3.0. The shield case is real behaviour and
+//   worth adding; the team cap only matters in a mode this mod is not aimed at.
+//
+// NOT MODELLED: special_lw_revenge_emmisive_scale_min special_lw_revenge_emmisive_scale_max
+// NOT MODELLED: special_lw_revenge_pitch_min special_lw_revenge_pitch_max
+// NOT MODELLED: special_lw_revenge_pitch_max_rate
+//   The glow intensity and voice pitch scale with the stored rate. The glow is approximated with
+//   sys_final_aura and an orange flash (ADR 0002 forbids Incineroar's own effects), and the pitch
+//   would need his voice, which is not shipped.
+//
+// NOT MODELLED: critical_frame critical_slow_rate critical_zoom_rate critical_zoom_in_frame
+// NOT MODELLED: critical_camera_offset_x critical_camera_offset_y critical_1_on_1
+//   The KO cinematic on a Revenge-boosted finish. Pure presentation, and it belongs with the rest
+//   of the visual layer that is deferred by design.
+
 // The counter window is opened and closed by the hand-written stance ACMD in ../acmd_speciallw,
 // at the SCRIPT frames Incineroar uses (8 and 28).
 //

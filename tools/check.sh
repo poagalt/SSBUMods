@@ -199,6 +199,13 @@ MLP="$ROOT/tools/motion-patch/target/release/mlparity.exe"
 "$MLP" "$ROOT/extracted" "$M" $MOTIONS >/dev/null 2>&1 \
   || { echo "  FAIL a ported move's motion entry does not match its source's"; rc=1; }
 
+echo; echo "== 3j. the hand-written specials use their source fighter's own param values =="
+# The generated ACMDs are copied verbatim and step 3i proves it. Alolan Whip, Revenge, the cargo
+# carry and the up-B are hand-written, and every number in them was read out of the source's vl.prc
+# once and typed in. This checks they still match, and -- the part that had no answer at all --
+# that every param those objects contain is either used or explicitly declined.
+bash "$ROOT/tools/check-srcparams.sh" || rc=1
+
 echo; echo "== 3i. every ported move carries its source's damage and knockback =="
 # check-hitboxes.sh measures WHERE a hitbox is and HOW BIG. This checks everything else the macro
 # carries -- damage, angle, KBG, FKB, BKB, hitlag, SDI, collision attribute, sound level -- plus

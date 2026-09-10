@@ -39,12 +39,29 @@ unsafe extern "C" fn pikachu_specialhi_pre(fighter: &mut L2CFighterCommon) -> L2
     0.into()
 }
 
+// WHICH OF G&W'S UP-B PARAMS THIS PORT ACTUALLY MODELS, because tools/check-srcparams.sh asks and
+// the answer should be written down rather than rediscovered.
+//
+// `gamewatch param_special_hi` has five: stick_min 0.25, stick_mul 30, limit_y_mul 0.5,
+// landing_frame 40, pass_speed_mul 1.1. This port uses stick_min in _exec, landing_frame in _end,
+// and pass_speed_mul as the motion speed multiplier below.
+//
+// NOT MODELLED: stick_mul limit_y_mul -- and that is not an oversight this session can fix.
+// They are read by Game & Watch's own C++ SPECIAL_HI status, which no ACMD dump contains, and the
+// community reference port this module derives from (vendor/ssbuGeorgeMoveset) does not model them
+// either -- it is byte-identical here apart from the flag-id bug. Reproducing them means knowing
+// what the engine does with them under FIGHTER_KINETIC_TYPE_MOTION_AIR_ANGLE, and guessing at a
+// 30-unit multiplier would be inventing behaviour rather than porting it.
+//
+// The observable difference, if any, is in how much horizontal control the rise has. Worth a
+// direct comparison against Game & Watch in training before writing any code for it.
 unsafe extern "C" fn pikachu_specialhi_init(fighter: &mut L2CFighterCommon) -> L2CValue {
     fighter.agent.clear_lua_stack();
     fighter.agent.push_lua_stack(&mut L2CValue::new_int(*FIGHTER_KINETIC_ENERGY_ID_MOTION as u64));
+    // gamewatch param_special_hi pass_speed_mul = 1.1
     fighter.agent.push_lua_stack(&mut L2CValue::new_num(1.1));
     sv_kinetic_energy::set_speed_mul(fighter.lua_state_agent);
-    
+
     0.into()
 }
 
@@ -107,6 +124,7 @@ unsafe extern "C" fn pikachu_specialhi_main_loop(fighter: &mut L2CFighterCommon)
 unsafe extern "C" fn pikachu_specialhi_exec(fighter: &mut L2CFighterCommon) -> L2CValue {
     let is_decide_direction = WorkModule::is_flag(fighter.module_accessor, *FIGHTER_GAMEWATCH_STATUS_SPECIAL_HI_FLAG_DECIDE_DIRECTION);
     if is_decide_direction {
+        // gamewatch param_special_hi stick_min = 0.25
         let stick_min = 0.25;
         let stick_x = ControlModule::get_stick_x(fighter.module_accessor).abs();
         
@@ -124,6 +142,7 @@ unsafe extern "C" fn pikachu_specialhi_exec(fighter: &mut L2CFighterCommon) -> L
 
 unsafe extern "C" fn pikachu_specialhi_end(fighter: &mut L2CFighterCommon) -> L2CValue {
     if fighter.global_table[0xb] == *FIGHTER_STATUS_KIND_LANDING_FALL_SPECIAL {
+        // gamewatch param_special_hi landing_frame = 40
         WorkModule::set_float(fighter.module_accessor, 40.0, *FIGHTER_INSTANCE_WORK_ID_FLOAT_LANDING_FRAME);
     }
     

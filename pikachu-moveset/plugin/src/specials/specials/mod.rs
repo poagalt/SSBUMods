@@ -113,6 +113,54 @@ const FAILURE_X: f32 = 6.0;
 /// a backstop; the flag itself is what this reads, now that deforeign keeps it.
 const THROW_ROPE_FALLBACK_FRAME: i32 = 24;
 
+// WHAT THIS PORT DOES NOT REPRODUCE, from `gaogaen param_special_s`. Enumerated because
+// tools/check-srcparams.sh asks and because a gap nobody wrote down is a gap nobody fixes.
+//
+// FIRST, THREE THAT TURN OUT NOT TO BE GAPS AT ALL. `special_air_s_start_speed_mul` is 1.3,
+// `special_air_s_catch_speed_x_mul` is 0.2 and `special_air_s_catch_brake_x` is 0.25 -- identical
+// to their grounded counterparts, which this module already uses. The air whip sharing START_SPEED_MUL
+// with the grounded one is therefore correct rather than a shortcut, and worth knowing before
+// anyone "fixes" it.
+//
+// NOT MODELLED: special_air_s_catch_speed_y_max
+//   0.05, and the only air param with no grounded twin: a cap on vertical drift while holding
+//   someone in the air. Real, small, and cheap to add once the air whip has been seen to work.
+//
+// NOT MODELLED: special_s_lariat_node special_s_lariat_size special_s_lariat_offset_y1
+// NOT MODELLED: special_s_lariat_offset_x2 special_s_lariat_offset_y2
+// NOT MODELLED: special_s_lariat_end_node special_s_lariat_end_size
+// NOT MODELLED: special_s_lariat_end_offset_y1 special_s_lariat_end_offset_x2
+// NOT MODELLED: special_s_lariat_end_offset_y2
+// NOT MODELLED: special_s_failure_node special_s_failure_size
+// NOT MODELLED: special_s_failure_offset_y1 special_s_failure_offset_x2
+// NOT MODELLED: special_s_failure_offset_y2
+//   Each band is really a CAPSULE on `top` -- x1,y1 to x2,y2 with a radius -- and this module
+//   reads only x1, as a one-dimensional gate on the gap between Pikachu and the victim. The
+//   vertical span (y 12 down to 2, radius 2) is what makes it a region rather than a line. The
+//   simplification holds because `drive_victim` moves the victim along x only, so their y never
+//   leaves the band; it stops holding the moment the airborne whip lets them separate vertically.
+//
+// NOT MODELLED: special_s_attack_after_control_speed_x_mul special_s_attack_after_control_speed_x_stable
+//   0.9 and 0.7: reduced air control after the move, which is part of how committal it feels.
+//
+// NOT MODELLED: special_s_invalid_capture_frame
+//   60 frames during which the victim cannot be grabbed again. Anti-infinite protection, and the
+//   one item on this list whose absence is a balance problem rather than a fidelity one.
+//
+// NOT MODELLED: special_s_lariat_motion_rate_min special_s_lariat_motion_rate_max
+//   The lariat plays between 1x and 2x speed. What selects the rate is Incineroar's C++, not any
+//   ACMD, so the endpoints are known and the input is not.
+//
+// NOT MODELLED: special_s_through_target_motion_frame_fix special_s_through_target_return_motion_frame_fix
+// NOT MODELLED: special_s_catch_clatter_damage_mul_frame_add special_s_catch_clatter_dec_frame
+// NOT MODELLED: special_s_through_target_cancel_frame_no_rope special_s_through_target_speed_over_rope
+//   Motion-frame fixes during the drag, clatter decay, and the no-rope and over-rope variants for
+//   stage geometry this port does not distinguish.
+//
+// NOT MODELLED: critical_frame critical_slow_rate critical_zoom_rate critical_zoom_in_frame
+// NOT MODELLED: critical_camera_offset_x critical_camera_offset_y critical_1_on_1
+//   The KO cinematic. Presentation, deferred with the rest of the visual layer.
+
 /// The victim, captured when the grab connects. `CatchModule::capture_object_id` stops answering
 /// once they leave the CATCHED status, and the follow-up decision needs their position for the
 /// whole rebound, so it is cached rather than re-read.

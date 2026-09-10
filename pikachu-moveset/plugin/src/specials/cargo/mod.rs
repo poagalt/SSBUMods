@@ -75,6 +75,27 @@ use {
 // valve, not a tuning value.
 const CARRY_TIMEOUT: i32 = 120;
 
+// NOT MODELLED: walk_accel_mul_mul walk_accel_add_mul walk_speed_max_mul
+//
+// `donkey param_lifting_walk` is three 1.1x multipliers: DK walks ten percent faster, and
+// accelerates ten percent harder, while carrying someone. Pikachu keeps his own locomotion by
+// design (see the header), so the faithful port is to multiply HIS walk by the same 1.1 rather
+// than to adopt DK's absolute speed -- the relationship is what transfers.
+//
+// The API is a direct match, which is the strongest evidence available that this is exactly how
+// the game applies the object: sv_kinetic_energy has `mul_x_accel_mul`, `mul_x_accel_add` and
+// `mul_x_speed_max`, one per param, named the same.
+//
+// IT IS NOT DONE BECAUSE THEY MULTIPLY IN PLACE AND THE CARRY SPANS STATUS CHANGES. Applied once
+// at carry start they are wiped by the first WAIT -> WALK transition, which re-initialises the
+// control energy from params; applied every frame they compound, and 1.1 per frame is Pikachu
+// launched off the stage inside a second. Doing it correctly means tracking whether the current
+// status has been multiplied yet, in the one module that cannot be tested before shipping and
+// whose failure mode is a stuck grab. Ten percent of walk speed is not worth that risk today.
+//
+// When it is done: hook the status change rather than the frame, and verify with telemetry's
+// `moved x` on shoulder_walk_middle against an unencumbered walk over the same number of frames.
+
 static mut CARRYING: [bool; 8] = [false; 8];
 static mut CARRY_FRAMES: [i32; 8] = [0; 8];
 /// The carried fighter. Cached because `CatchModule::capture_object_id` stops answering once they
