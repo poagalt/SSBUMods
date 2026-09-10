@@ -1,0 +1,70 @@
+# Round 2 extraction: everything still playing Pikachu's own animation.
+#
+# SSBU names an animation identically on every fighter, so each filename below was read out of
+# PIKACHU's motion_list (tools/motion-patch/target/release/animof.exe) and then requested from the
+# SOURCE fighter's directory. That is the same property that makes the drop-in a plain file
+# replacement (ADR 0003), verified 11/11 on the first batch.
+#
+# Playtest gaps this closes:
+#   - "krool dair transitions straight to the animation of base pikachu landing dair, same with
+#      fair, bair, uair" -> the five landing_air_* animations
+#   - "certain moves, like dtilt and dsmash, still have base pikachu animations"
+#   - smash charge holds, which are a separate motion from the swing
+#   - the angled f-tilt variants, which share Mythra's s3 script but not her animation
+
+# --- landing animations for the five aerials (the loudest complaint) ---
+fighter/palutena/motion/body/c00/c05landingairn.nuanmb
+fighter/demon/motion/body/c00/c05landingairf.nuanmb
+fighter/cloud/motion/body/c00/c05landingairb.nuanmb
+fighter/kamui/motion/body/c00/c05landingairhi.nuanmb
+fighter/krool/motion/body/c00/c05landingairlw.nuanmb
+
+# --- d-tilt (R.O.B.) and d-smash (Game & Watch) ---
+fighter/robot/motion/body/c00/c02attacklw3.nuanmb
+fighter/gamewatch/motion/body/c00/c04attacklw4.nuanmb
+fighter/gamewatch/motion/body/c00/c04attacklw4charge.nuanmb
+
+# --- smash charge holds ---
+fighter/littlemac/motion/body/c00/c03attacks4charge.nuanmb
+fighter/fox/motion/body/c00/c04attackhi4charge.nuanmb
+
+# --- angled f-tilt (Mythra) ---
+fighter/elight/motion/body/c00/c01attacks3hi.nuanmb
+fighter/elight/motion/body/c00/c01attacks3lw.nuanmb
+
+# --- angled f-smash (Little Mac). Pikachu has no such motion; our synthesised entries currently
+#     point both at c03attacks4s. Extracting these lets them point at the real thing later.
+fighter/littlemac/motion/body/c00/c03attacks4hi.nuanmb
+fighter/littlemac/motion/body/c00/c03attacks4lw.nuanmb
+
+# --- grab family (Palutena) and pummel (Kazuya) ---
+fighter/palutena/motion/body/c00/e00catch.nuanmb
+fighter/palutena/motion/body/c00/e00catchdash.nuanmb
+fighter/palutena/motion/body/c00/e00catchturn.nuanmb
+fighter/palutena/motion/body/c00/e00catchwait.nuanmb
+fighter/palutena/motion/body/c00/e00catchpull.nuanmb
+fighter/palutena/motion/body/c00/e00catchcut.nuanmb
+fighter/demon/motion/body/c00/e00catchattack.nuanmb
+
+# --- throws: b-throw (Incineroar), u-throw (Mewtwo) ---
+fighter/gaogaen/motion/body/c00/e01throwb.nuanmb
+fighter/mewtwo/motion/body/c00/e01throwhi.nuanmb
+
+# --- get-up and trip attacks (Bowser), ledge attack (Ganondorf) ---
+fighter/koopa/motion/body/c00/f03downattacku.nuanmb
+fighter/koopa/motion/body/c00/f04downattackd.nuanmb
+fighter/koopa/motion/body/c00/g03slipattack.nuanmb
+fighter/ganon/motion/body/c00/g02cliffattack.nuanmb
+
+# --- dodges (Fox). escape_air and escape_air_slide share one animation. ---
+fighter/fox/motion/body/c00/b02escapeair.nuanmb
+fighter/fox/motion/body/c00/b02escapef.nuanmb
+
+# --- skeletons for the fighters we have not measured yet, so tools/trace-all.sh can verify
+#     these moves instead of reporting them unmeasurable ---
+fighter/robot/model/body/c00/model.nusktb
+fighter/gamewatch/model/body/c00/model.nusktb
+fighter/koopa/model/body/c00/model.nusktb
+fighter/ganon/model/body/c00/model.nusktb
+fighter/mewtwo/model/body/c00/model.nusktb
+fighter/gaogaen/model/body/c00/model.nusktb

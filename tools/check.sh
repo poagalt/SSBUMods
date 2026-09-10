@@ -52,9 +52,17 @@ fi
 echo; echo "== 3c. ported hitboxes land where the source character's do =="
 bash "$ROOT/tools/check-hitboxes.sh" || rc=1
 
-echo; echo "== 4. prcxml is UTF-16 with BOM =="
-P="$ROOT/pikachu-moveset/mod/fighter/common/param/fighter_param.prcxml"
-if [ "$(xxd -l 2 -p "$P")" = "fffe" ]; then echo "  ok  BOM present"; else echo "  FAIL no BOM"; rc=1; fi
+echo; echo "== 4. fighter_param.prcxml parses and carries Pikachu's attributes =="
+# Parses the file the way ARCropolis does and asserts the values are present at Pikachu's index.
+# The previous version of this check only looked for a UTF-16 byte order mark -- and the BOM was
+# the bug: ARCropolis parses prcxml with prcx + xml-rs 0.8, both UTF-8 only, so the file was
+# silently dropped and every attribute stayed vanilla on hardware. Encoding checks cannot catch
+# that; parsing can.
+"$ROOT/tools/prc-tool/target/release/prcxmlcheck.exe" \
+  "$ROOT/pikachu-moveset/mod/fighter/common/param/fighter_param.prcxml" 7 \
+  weight=135 walk_speed_max=1.575 dash_speed=2.42 run_speed_max=2.464 \
+  jump_y=50.51 mini_jump_y=17.34 jump_aerial_y=50.51 jump_initial_y=27.7805 \
+  air_speed_x_stable=1.332 air_speed_y_stable=1.63 dive_speed_y=3.097 air_accel_y=0.13 || rc=1
 
 echo; [ $rc -eq 0 ] && echo "ALL CHECKS PASSED" || echo "CHECKS FAILED"
 exit $rc

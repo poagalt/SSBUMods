@@ -2,7 +2,14 @@
 # Generates the attribute patch: fighter/common/param/fighter_param.prcxml
 #
 # ARCropolis prcxml patch format: every list index must be present; unchanged entries are the
-# scalar placeholder `dummy`. File must be UTF-16. Schema verified against a working example
+# scalar placeholder `dummy`.
+#
+# THE FILE MUST BE UTF-8, NOT UTF-16. ARCropolis parses prcxml with `prcx` plus `xml-rs` 0.8,
+# both of which are UTF-8 only. Shipped as UTF-16LE with a BOM, this file failed to parse, so
+# ARCropolis silently dropped it -- which is also why it never reported a conflict against the
+# George mod's fighter_param.prcx. Telemetry caught it: every live attribute was vanilla
+# (weight 79 not 135, jump_y 35.5 not 50.51). check.sh now parses the file rather than
+# inspecting its byte order mark, which is what let the mistake stand.
 # (bomb_single_slots .../ui_chara_db.prcxml).
 #
 # Pikachu is index 7 of fighter_param_table (94 entries), found with tools/prc-tool.
@@ -43,7 +50,7 @@ jump_speed_x_mul|0.9|Falco
 
 tmp="$(mktemp)"
 {
-    echo '<?xml version="1.0" encoding="UTF-16"?>'
+    echo '<?xml version="1.0" encoding="utf-8"?>'
     echo '<struct>'
     echo -e '\t<list hash="fighter_param_table">'
     for i in $(seq 0 $((TABLE_LEN - 1))); do
@@ -62,9 +69,6 @@ tmp="$(mktemp)"
     echo '</struct>'
 } > "$tmp"
 
-iconv -f UTF-8 -t UTF-16LE < "$tmp" > "$OUT.body"
-printf '\xff\xfe' > "$OUT"
-cat "$OUT.body" >> "$OUT"
-rm -f "$OUT.body" "$tmp"
+mv "$tmp" "$OUT"
 
-echo "wrote $OUT ($(wc -c < "$OUT") bytes, UTF-16LE with BOM)"
+echo "wrote $OUT ($(wc -c < "$OUT") bytes, UTF-8)"

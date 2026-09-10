@@ -4,5 +4,5 @@ version = "0.1.0"
 edition = "2021"
 
 [dependencies]
-prc-rs = "1.6"
+prc-rs = { version = "1.6", features = ["xml-feat"] }
 hash40 = "1"
