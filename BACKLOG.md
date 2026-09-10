@@ -637,3 +637,50 @@ Movement measured this session, confirming the earlier root-motion table:
   top out at `0x5` (MONSTERBALL) per skyline-smash's tables -- so 0x6 is the next free id and 0x7
   leaves a gap. Worth trying 0x6 before anything else.
 - Revenge, Alolan Whip, DK cargo throws; sword orientation calibration; rename from "Rat of Doom".
+
+## Open after v0.15 (full animation set, exact hitboxes, working attributes)
+
+### Closed since v0.11
+- **Attributes were never applying at all.** Shipped as UTF-16; ARCropolis parses prcxml with
+  prcx + xml-rs, both UTF-8 only. Telemetry read every value as vanilla. Now UTF-8, and check.sh
+  parses the file rather than checking its byte order mark (which was asserting the bug).
+- **Landing, d-tilt, d-smash and 20 other animations** now come from the source fighter: 38
+  shipped, up from 11.
+- **Angled f-smashes** play Little Mac's own angled animations. They were up to 18.65 world units
+  out of place, the worst error in the mod.
+- **Two scale constants were wrong** (Cloud 1.03 vs 0.98, K. Rool 1.15 vs 0.89). All scales now
+  generated from fighter_param.prc via each entry's own `fighter_kind` field.
+- **motion_list.bin is built by tools/build.sh**, not by hand.
+- **Root motion needs no correction.** Little Mac's f-smash travels +20.59 world units on
+  hardware against his own 19.72, within 4.4%.
+- **The aerial body lift is accepted by decision** -- see the ADR 0003 addendum.
+
+### Blocked on the user
+- **Training Modpack save-state crash.** Decoded: `Os { code: 3586 }` is FS module 2 description
+  7, `ResultFsTargetLocked` -- `save_states.toml` is locked open by another handle while
+  Training Modpack rewrites it. Every mod-side cause was eliminated: our plugin does no file I/O
+  (Skyline has no SD log dir), no FTP server is resident during gameplay (the one answering is
+  hand-launched ftpd, which exits on game launch), and saving is otherwise read-only apart from a
+  `sys_deku_flash` effect on `top`. The file has been backed up to work/tm/ and renamed to
+  `.bak` on the console so Training Modpack starts fresh. Awaiting a re-test.
+
+### To measure on hardware
+- **Hitbox radius.** `topscale.rs` scales offsets but not `size`, because whether the engine folds
+  the anchor bone's inherited scale into the radius is not answerable offline. Ours is currently
+  4-16% small on the scaled moves. If radius does not follow bone scale, scale `size` by the same
+  ratio; if it does, only `top`-anchored radii need it.
+- **Peak height.** Telemetry now logs vertical travel and peak per motion. Compare a short hop
+  with an aerial against one without, to confirm the trajectory is unaffected by the drop-in.
+
+### Still to do
+- **Chrom's jab combo.** He has attack_12, attack_13, attack_100 and attack_100_end; Pikachu has
+  none of them, so only jab 1 is ported. Needs synthesised motions with adopted animations, the
+  same three-part recipe the angled f-smashes used.
+- **Ptooie / spikeball.** `clone_weapon` still crashes on fighter load and is disabled
+  (`CLONE_ENABLED`). Note `FIGHTER_PIKACHU_GENERATE_ARTICLE_SPIKEBALL` is set to `0x7`, but
+  Pikachu's vanilla article ids top out at `0x5` per skyline-smash's tables, so `0x6` is the next
+  free id and `0x7` leaves a gap. Try `0x6` first.
+- Revenge, Alolan Whip, DK cargo throws (motions synthesised, animations not extracted).
+- Sword orientation calibration; rename from "Rat of Doom".
+- Dodge timing params (`escape_*_cancel_frame`, `escape_air_slide_speed`) still unshipped --
+  `fighter_param_motion.prcxml` was never written. The dodge ACMDs and motion timings are in.
