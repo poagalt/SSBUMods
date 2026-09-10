@@ -120,6 +120,12 @@ mkdir -p "$ROOT/work/ml"
 echo; echo "== 3c. generate config.json from what the mod tree actually contains =="
 bash "$ROOT/tools/gen-config.sh"
 
+# Before the compile, so the in-game self-test always walks the list this build actually shipped.
+# The whole value of that self-test is that it names motions the CONSOLE failed to resolve, and a
+# stale table would name motions the mod no longer ships while saying nothing about new ones.
+echo; echo "== 3f. regenerate the in-game self-test's motion table =="
+bash "$ROOT/tools/gen-selftest.sh"
+
 echo; echo "== 4. scale top-anchored hitbox offsets =="
 "$ROOT/tools/reach/target/release/topscale.exe" \
   "$ROOT/pikachu-moveset/plugin/src" "$ROOT/tools/scales.tsv" | tail -1

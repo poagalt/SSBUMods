@@ -28,6 +28,8 @@ use {
 };
 
 pub mod sink;
+mod motions;
+pub mod selftest;
 
 pub const ENABLED: bool = true;
 
@@ -105,6 +107,11 @@ unsafe extern "C" fn pikachu_telemetry(fighter: &mut L2CFighterCommon) {
         // ABSENCE next to the install-time lines is the diagnostic. Cheap: once per entry.
         sink::diag(format!("[rat] p{entry} pikachu object is alive; status/ACMD lines follow"));
         dump_params(boma, entry);
+        // Ask the game what it actually loaded, once, while we have a live object to ask through.
+        // `global_table[0xC]` is where smashline writes the extended status-kind count
+        // (vendor/sl_create_agent.rs:738), so this is also the only way to confirm from inside the
+        // running game that the seven new kinds registered rather than assuming they did.
+        selftest::run(boma, entry, fighter.global_table[0xC].get_int() as i32);
     }
 
     let motion = MotionModule::motion_kind(boma);

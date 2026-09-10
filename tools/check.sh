@@ -143,6 +143,28 @@ while IFS=$'\t' read -r sz path; do
   fi
 done < <(find "$ROOT/pikachu-moveset/mod" -type f -printf '%s\t%p\n')
 [ "$bad_small" = "0" ] && echo "  ok  all $(find "$ROOT/pikachu-moveset/mod" -type f | wc -l) shipped files have plausible sizes"
+
+echo; echo "== 3h. the in-game self-test walks the list this build ships =="
+# The self-test's value is that it names motions the CONSOLE failed to resolve. A stale table would
+# name motions the mod no longer ships -- reporting failures that are not real -- while saying
+# nothing about ones it added, which is the worse half. tools/build.sh regenerates it before the
+# compile; this catches a plugin built without running the build.
+G="$ROOT/pikachu-moveset/plugin/src/telemetry/motions.rs"
+want=$(grep -vE '^\s*#|^\s*$' "$ROOT/tools/ported-motions.txt" | cut -d: -f2 | sort -u)
+have=$(grep -oE '^\s+"[a-z_0-9]+",' "$G" 2>/dev/null | tr -d ' ",' | sort -u)
+if [ ! -f "$G" ]; then
+  echo "  FAIL no motions.rs -- run tools/gen-selftest.sh"; rc=1
+elif [ "$want" != "$have" ]; then
+  echo "  FAIL motions.rs is stale -- run tools/gen-selftest.sh"
+  diff <(echo "$want") <(echo "$have") | head -6 | sed 's/^/        /'
+  rc=1
+else
+  # Every name it will ask the console about must be a name we actually put in motion_list.bin,
+  # or an UNRESOLVED line on hardware would be the check's own bug rather than a real failure.
+  # Step 3e already proves that: blend.exe reports "not comparable (we do not ship it)" per motion
+  # and came back with none.
+  echo "  ok  motions.rs matches ported-motions.txt ($(echo "$have" | wc -l | tr -d ' ') motions)"
+fi
 echo; echo "== 3d. no replaced move plays one of Pikachu's own animations =="
 # The exhaustive version of the bug that made two of the three f-tilt angles keep his tail whip:
 # a source fighter need not have every variant Pikachu has. Classifies each into REPOINTED (the
