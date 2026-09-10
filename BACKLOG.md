@@ -3,74 +3,125 @@
 **Authoritative.** Every outstanding item and planned future item for this repo lives here.
 If it isn't in this file, it isn't tracked.
 
+> **This front section was badly stale and has been rewritten.** It carried every Tier 1, 2 and 3
+> item unchecked while the work was done and verified, and it still said extraction needs the game
+> running after the full c00 dump had made that false. That is not a cosmetic problem: a backlog
+> that lists finished work as open is a backlog that gets ignored, and it nearly caused a second
+> port of the animation set. The historical sections below are left as written -- they record how
+> each thing was found -- but this section is now the state of the mod.
+
 ---
 
-## pikachu-moveset
+## Where the mod actually is
 
-### Tier 1 — conventional moveset (current work)
+Everything below is verified by `tools/check.sh`, which passes in full. The numbers are from its
+own output, not from memory.
 
-- [ ] Source-of-truth hitbox table for all 20 conventional moves, from public datamined data
-- [ ] Parity verification harness (static diff of emitted params against the table)
-- [ ] Jab (Chrom) · Dash attack (Mythra) · F-tilt (Terry) · U-tilt (Falco) · D-tilt (R.O.B.)
-- [ ] F-smash (Little Mac, **super armor f8–15 / f9–15 down-angled**) · U-smash (Fox) ·
-      D-smash (Game & Watch)
-- [ ] N-air (Palutena) · F-air (Kazuya) · B-air (Cloud) · U-air (Corrin) · D-air (K. Rool)
-- [ ] Grab (Palutena) · Pummel (Kazuya) · B-throw (Incineroar) · U-throw (Mewtwo);
-      D-throw stays Pikachu
-- [ ] Down B — Revenge (Incineroar): stored multiplier, 3 stacks, 60 s timer, lost on grab or 36 %
-- [ ] Spot dodge, forward roll, back roll, air dodges (Fox)
-- [ ] Attributes: weight (Bowser) · initial dash (ZSS) · run speed (Little Mac) · walk (Marth) ·
-      air speed + air accel (Jigglypuff) · jump heights (Falco) · fall + fast-fall (Joker) ·
-      **gravity 0.13** (chosen — see `docs/decisions.md`)
-- [ ] Reach audit across all 24 slots → proposed runtime-scaling list for approval
-- [ ] Chrom Falchion appendage on the four sword moves (jab, dash attack, b-air, u-air)
+| Area | State |
+| --- | --- |
+| Moves ported | Every slot except neutral B. D-throw is deliberately vanilla Pikachu; nothing else is. |
+| Hitbox positions | 36 moves, 452 hitbox-frames, every one within 0.00 world units of its source. |
+| Hitbox radii | Every one exact, top- and bone-anchored, under the hypothesis in `topscale.rs`. |
+| Animations | 74 shipped, 72 scale-compensated; 31 synthesised motion_list entries. |
+| Animation coverage | 0 gaps in both directions: no replaced move plays a Pikachu animation, and no source variant in a ported family is unreproduced. |
+| Blend timing | 77 of 77 motions blend on their source's timing. |
+| ACMD reachability | 71 of 71 registered scripts reachable from a motion entry. |
+| Status kinds | 7 new kinds at 0x1F0-0x1F6, starting exactly at Pikachu's own NUM of 0x1F0; RAT_STATUS_KIND_NUM is 0x1F7. Verified loading on hardware. |
+| Attributes | `fighter_param.prcxml` carries 23, `fighter_param_motion.prcxml` 14, both UTF-8. |
+| Deploys | 86 files, every one verified by size on the console, truncated uploads repaired. |
 
-### Tier 2
+### The one thing that has not happened
 
-- [ ] Up B — Game & Watch Fire, including the parachute state
-- [ ] Get-up attack (source under research)
-- [ ] Ledge attack (recommendation to be folded into the get-up attack research)
+**Nothing from v0.23 onward has been played.** Every claim above is either static analysis or a
+console-side file check. The moves have not been seen to work. That is the single highest-value
+action available and it needs a controller, not more tooling.
 
-### Tier 3 — new state machines, each potentially a session on its own
+`tools/deploy.sh` reports DEPLOY OK against the current build, so the card is ready. One training
+mode load with Pikachu now produces a written report -- see the next section.
 
-- [ ] F-throw — DK cargo carry state: carry walk, carry jump, carry turn, plus all four
-      cargo throws
-- [ ] Side B — Incineroar Alolan Whip: command grab with three branching follow-ups
-      (Lariat / Back Body Drop / Chest Bounce) and damage-based armor
-- [ ] Neutral B — Piranha Plant Ptooie: an article with its own model, hittable by both players
+---
 
-### Deferred — left vanilla Pikachu for now, to be changed later
+## Open work
 
-- [ ] Ledge attack visuals *(gameplay side is Tier 2)*
-- [ ] Taunts (up / side / down)
-- [ ] Victory animations and victory theme
-- [ ] Voice clips and SFX
-- [ ] CSS name, portraits, stock icons, boxing-ring title
-- [ ] **Animation pass** — the whole visual layer. Tier 1 ships driving Pikachu's existing
-      animations, which will look wrong by design. Retargeting real source animations onto
-      Pikachu's skeleton is a separate project requiring Blender and the Smash Blender addon,
-      neither of which is installed.
-- [ ] Per-source-fighter appendages beyond the sword (Mac's glove, K. Rool's foot, Kazuya's leg)
-      and their hurtboxes
+### 1. Neutral B / Ptooie -- the last unported slot
 
-### Open edge cases — decide before they bite
+Blocked on one question: does a cloned `spikeball` article load? The experiment is two launches:
 
-- [ ] Kirby's copy ability: neutral B becomes Ptooie, an article. Smashline exposes
-      `smashline_whitelist_kirby_copy_article` — decide what Kirby inherits.
-- [ ] Pikachu's own articles (Thunder Jolt, Thunder) are orphaned once neutral B and down B are
-      replaced. Decide whether to strip them.
-- [ ] Costume scope is "all eight slots, for now" — revisit if vanilla Pikachu is wanted
-      alongside.
-- [ ] No reflector in the build (deliberate). Revisit only if the character plays badly against
-      projectiles.
+1. clone OFF, card repaired -- does Pikachu load? *(the current build; this is also the playtest)*
+2. clone ON -- does Pikachu load?
+
+Both previous clone crashes had a zero-byte animation on the card at the same time, which is at
+least as good an explanation and is confirmed to have been present, so the clone is no longer the
+leading suspect. Full reasoning in `pikachu-moveset/plugin/src/articles/mod.rs`.
+
+If the clone works, the remaining Ptooie work is scoped and small on the ball's side -- its six
+weapon ACMDs are one hitbox each (14 damage, angle 55, KBG 80, BKB 50, size 5.0; 18 damage on
+Shoot) -- and a new state machine on the fighter's side: six statuses per situation
+(Start / Wait / ShootF / ShootB / End / Failure), driven by holding and tilting, plus a `SEARCH`
+box so either player can hit the ball. The fighter-side ACMDs are nearly trivial: Start sets a
+generate flag at frame 10, ShootF/B call `ArticleModule::shoot_exist`, End calls `remove_exist`.
+
+If it does not, the fallback is Pikachu's own `DENGEKIDAMA` (article 0x0, free because Thunder Jolt
+is the move being replaced) with the spikeball's model shipped under
+`fighter/pikachu/model/dengekidama/c00/`. No registration, no load-time risk, but the ball's whole
+lifecycle has to be hand-written.
+
+### 2. Questions one playtest answers
+
+The self-test (`plugin/src/telemetry/selftest.rs`) and the per-frame telemetry already log
+everything these need. Read `<sd>/rat-telemetry.log` over FTP afterwards with
+`bash tools/ftpq.sh get /rat-telemetry.log`.
+
+- **Did every motion load?** `SELFTEST ... motions N/77 resolved`, with any failure named. All 77
+  are confirmed present in the shipped `motion_list.bin`, so an UNRESOLVED line is a console-side
+  failure.
+- **Is the object scale really 0.96?** `SELFTEST ... scale=` reads it from the running game. Every
+  hitbox radius and top-anchored offset in the mod is corrected against that number and it has
+  only ever been asserted.
+- **Did the 7 new status kinds register?** `SELFTEST ... status_kind_count=`, read from
+  `global_table[0xC]` where smashline writes it. Expect >= 0x1f7.
+- **Do the attribute changes apply?** `PARAMS` vs `EXPECTED` on the first frame of each fighter.
+- **Does the engine scale root motion by the fighter scale param?** `moved x` per motion. Little
+  Mac's f-smash `Trans` runs 0 -> 17.77 model units; compare `attack_s4_s` against 19.72.
+- **Kazuya's f-air forward push.** Neither script has a movement call and `move` is clear on both
+  motion entries, so it is neither ACMD nor root motion. Read `moved x` for `attack_air_f`.
+- **Training Modpack save-state crash.** The dead `param_spikeball` article param and the
+  `FLAG_PAUSE` leak, its two best candidates, are both fixed. Re-test.
+
+### 3. Bone-anchored hitbox radii -- a decision that can be falsified in one look
+
+`SCALE_BONE_RADII` in `tools/reach/src/bin/topscale.rs` is set on the object-scale hypothesis, with
+the reasoning written out there. Training Modpack's hitbox visualisation settles it: put modded
+Pikachu's f-smash beside Little Mac's own and compare each fist bubble against its owner. Both
+states are verified to build clean and it is a one-line flip.
+
+### 4. Still genuinely open
+
+- **Soft-platform carry.** DK's cargo carry does not use `_PASS`, so carrying an opponent through
+  a soft platform behaves as Pikachu's own movement does rather than as DK's.
+- **`arc-raw` full `data.arc` pull.** Abandoned at 0.59 GiB and resumable. Not needed now that the
+  c00 extraction covers every fighter's models, skeletons and animations -- 40,300 files locally,
+  with no console involved.
+- **Kirby's copy ability.** Neutral B becomes Ptooie, which is an article.
+  `smashline::whitelist_kirby_copy_article` exists; decide what Kirby inherits once Ptooie works.
+- **Pikachu's orphaned articles.** Thunder Jolt and Thunder are unreachable now that neutral B and
+  down B are replaced. `lockout/mod.rs` bounces their statuses; the articles themselves remain.
+- **Rename.** "Rat of Doom" is a placeholder. The CSS rename ships and is verified as UTF-16LE
+  with all five labels.
+
+### 5. Deferred by design
+
+The whole visual layer beyond animations: taunts, victory animations and theme, voice clips and
+SFX, portraits and stock icons, the boxing-ring title. Per-source appendages beyond Chrom's
+Falchion (Mac's glove, K. Rool's foot, Kazuya's leg) and their hurtboxes. No reflector, and no
+K. Rool belly armor -- both deliberate, see `docs/decisions.md`.
 
 ### Known risks
 
-- **No source frame data on this machine.** No `data.arc`, no romfs, no game. Tier 1 depends
-  entirely on public datamined databases being complete enough. Any move they underspecify gets
-  flagged rather than guessed.
 - **ARCropolis 4.0.9 is pinned to Smash 13.0.5.** A console update breaks the whole toolchain.
-- **No local test path.** Nothing can be verified in-game here; hardware is the only target.
+- **No local test path.** Nothing runs in-game on this machine; the console is the only target.
+- **sys-ftpd truncates roughly one upload in eighty to zero bytes** with a clean return code. The
+  size-based verifier and repair pass in `tools/deploy.sh` are load-bearing because of it.
 
 ---
 
