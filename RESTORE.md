@@ -58,3 +58,21 @@ validated by round-tripping through `ssbh_data_json`, but they are untested in g
 `ultimate/mods/Rat of Doom/fighter/pikachu/model/` on the console. That drops back to vanilla
 geometry while keeping the moveset, attributes and motion patch. The blade simply will not
 render; `set_mesh_visibility` on a mesh that does not exist is a no-op.
+
+## Note on what is in git
+
+The repo holds **tools and source**, not game-derived binaries. Model files, patched
+`motion_list.bin` and the `extracted/` tree are gitignored: they are derivatives of Nintendo
+assets and all of them are reproducible.
+
+```bash
+bash tools/gen-moves.sh        # move scripts from vanilla ACMD
+bash tools/gen-params.sh       # attribute prcxml
+bash tools/merge-sword.sh      # sword into Pikachu's model
+tools/motion-patch/target/release/motion-patch.exe extracted <out.bin>
+tools/motion-patch/target/release/synth.exe        extracted <out.bin> <out.bin>
+cd pikachu-moveset/plugin && cargo skyline build --release
+```
+
+Rebuilding requires `extracted/`, which comes from the console via `tools/arc-pull` while
+`arc-network` is loaded and the game is running.

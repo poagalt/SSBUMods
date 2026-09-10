@@ -5,3 +5,14 @@ target/
 pikachu-moveset/plugin/target/
 .ftp-credentials.local
 !releases/**/*.nro
+work/
+# Derived from Nintendo assets -- reproducible from tools/, not redistributed via git.
+releases/**/*.numshb
+releases/**/*.nusktb
+releases/**/*.numdlb
+releases/**/*.numatb
+releases/**/*.numshexb
+releases/**/*.adjb
+releases/**/*.bin
+pikachu-moveset/mod/fighter/pikachu/model/
+pikachu-moveset/mod/fighter/pikachu/motion/
