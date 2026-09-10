@@ -14,6 +14,11 @@
 # is fine: they only use the generic sys_down_smoke and sys_crown.
 #
 # Regenerate with:  bash tools/gen-moves.sh
+#
+# EACH GROUP BELOW IS A DOUBLE-QUOTED SHELL STRING, so a comment inside one MUST NOT contain a
+# double quote -- it terminates the string, the remaining lines get executed as commands, and the
+# module is silently generated with only the entries before that point. That happened once and the
+# only symptom was a stray ": No such file or directory". Use single quotes or none.
 set -euo pipefail
 
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"
@@ -115,12 +120,46 @@ Alolan Whip lariat (Incineroar)|gaogaen|SpecialSLariat|specialslariat
 Alolan Whip throw (Incineroar)|gaogaen|SpecialSThrow|specialsthrow
 Alolan Whip whiff (Incineroar)|gaogaen|SpecialSFailure|specialsfailure
 Alolan Whip end (Incineroar)|gaogaen|SpecialSEnd|specialsend
-# Pikachu's Skull Bash RELEASE effect script, nulled. effect_specials fires
-# pikachu_rocket_bomb, pikachu_rocket_aura and pikachu_rocket_jet and FLASHes him blue-green. The
-# motion it belongs to, special_s, is not one Alolan Whip plays -- but the whole point of the
-# audit is that nothing of Pikachu's own specials should be reachable at all, and an empty
-# override costs one line.
-Skull Bash release effects, nulled|N|-|specials
+# EVERY REMAINING SCRIPT OF THE THREE REPLACED SPECIALS, nulled.
+#
+# Skull Bash (side-B), Quick Attack (up-B) and Thunder (down-B) are all replaced, but each has
+# scripts on motions this moveset never plays -- and never-plays is an argument about code that
+# does not exist, which has already been wrong twice here. The up-B remap ran Quick Attack's own
+# Init and Exec for a whole version, and playtest reported charging animations while the charge
+# status was believed unreachable.
+#
+# Two of these are worse than cosmetic. effect_specials fires pikachu_rocket_bomb, _aura and _jet
+# and FLASHes him blue-green; effect_specialhistart and effect_specialairhi1/2/end call
+# VisibilityModule::set_whole, and the only thing that turns visibility back on is the tail of
+# those same scripts -- so reaching one and leaving early strands Pikachu invisible for the stock.
+#
+# NEUTRAL-B IS DELIBERATELY ABSENT from this list. Thunder Jolt is still Pikachu's move until
+# Ptooie lands, so specialn, specialnshoot and specialairn must keep working.
+#
+# The list was generated, not guessed: every game_/effect_ script Pikachu has for a replaced
+# special, minus the ones the plugin already registers.
+#
+# THREE WERE REMOVED AGAIN after check.sh step 2 flagged them: specialhi1, specialhi2 and
+# specialslanding are scripts with no motion entry naming them, on Pikachu or anywhere -- he has
+# no special_hi_1, special_hi_2 or special_s_landing motion at all, so those scripts are dead in
+# vanilla too and an override for them is dead code. The reachability check catching that is the
+# division of labour working: this list can be generous, and step 2 prunes it.
+Skull Bash release, nulled|N|-|specials
+Skull Bash charge, nulled|N|-|specialshold
+Skull Bash weak release, nulled|N|-|specialsweak
+Skull Bash air start, nulled|N|-|specialairsstart
+Skull Bash air hold, nulled|N|-|specialairshold
+Skull Bash air end, nulled|N|-|specialairsend
+Skull Bash air miss end, nulled|N|-|specialairsmissend
+Quick Attack windup, nulled|N|-|specialhistart
+Quick Attack recovery, nulled|N|-|specialhiend
+Quick Attack air windup, nulled|N|-|specialairhistart
+Quick Attack air leg 1, nulled|N|-|specialairhi1
+Quick Attack air leg 2, nulled|N|-|specialairhi2
+Quick Attack air recovery, nulled|N|-|specialairhiend
+Thunder hit, nulled|N|-|speciallwhit
+Thunder air, nulled|N|-|specialairlw
+Thunder air hit, nulled|N|-|specialairlwhit
 "
 
 DODGES="

@@ -301,9 +301,69 @@ unsafe extern "C" fn pikachu_game_specialsend(agent: &mut L2CAgentBase) {
 unsafe extern "C" fn pikachu_effect_specialsend(agent: &mut L2CAgentBase) {
 }
 
-// ---- Skull Bash release effects, nulled : empty override of game_specials AND effect_specials ----
+// ---- Skull Bash release, nulled : empty override of game_specials AND effect_specials ----
 unsafe extern "C" fn pikachu_game_specials(_agent: &mut L2CAgentBase) {}
 unsafe extern "C" fn pikachu_effect_specials(_agent: &mut L2CAgentBase) {}
+
+// ---- Skull Bash charge, nulled : empty override of game_specialshold AND effect_specialshold ----
+unsafe extern "C" fn pikachu_game_specialshold(_agent: &mut L2CAgentBase) {}
+unsafe extern "C" fn pikachu_effect_specialshold(_agent: &mut L2CAgentBase) {}
+
+// ---- Skull Bash weak release, nulled : empty override of game_specialsweak AND effect_specialsweak ----
+unsafe extern "C" fn pikachu_game_specialsweak(_agent: &mut L2CAgentBase) {}
+unsafe extern "C" fn pikachu_effect_specialsweak(_agent: &mut L2CAgentBase) {}
+
+// ---- Skull Bash air start, nulled : empty override of game_specialairsstart AND effect_specialairsstart ----
+unsafe extern "C" fn pikachu_game_specialairsstart(_agent: &mut L2CAgentBase) {}
+unsafe extern "C" fn pikachu_effect_specialairsstart(_agent: &mut L2CAgentBase) {}
+
+// ---- Skull Bash air hold, nulled : empty override of game_specialairshold AND effect_specialairshold ----
+unsafe extern "C" fn pikachu_game_specialairshold(_agent: &mut L2CAgentBase) {}
+unsafe extern "C" fn pikachu_effect_specialairshold(_agent: &mut L2CAgentBase) {}
+
+// ---- Skull Bash air end, nulled : empty override of game_specialairsend AND effect_specialairsend ----
+unsafe extern "C" fn pikachu_game_specialairsend(_agent: &mut L2CAgentBase) {}
+unsafe extern "C" fn pikachu_effect_specialairsend(_agent: &mut L2CAgentBase) {}
+
+// ---- Skull Bash air miss end, nulled : empty override of game_specialairsmissend AND effect_specialairsmissend ----
+unsafe extern "C" fn pikachu_game_specialairsmissend(_agent: &mut L2CAgentBase) {}
+unsafe extern "C" fn pikachu_effect_specialairsmissend(_agent: &mut L2CAgentBase) {}
+
+// ---- Quick Attack windup, nulled : empty override of game_specialhistart AND effect_specialhistart ----
+unsafe extern "C" fn pikachu_game_specialhistart(_agent: &mut L2CAgentBase) {}
+unsafe extern "C" fn pikachu_effect_specialhistart(_agent: &mut L2CAgentBase) {}
+
+// ---- Quick Attack recovery, nulled : empty override of game_specialhiend AND effect_specialhiend ----
+unsafe extern "C" fn pikachu_game_specialhiend(_agent: &mut L2CAgentBase) {}
+unsafe extern "C" fn pikachu_effect_specialhiend(_agent: &mut L2CAgentBase) {}
+
+// ---- Quick Attack air windup, nulled : empty override of game_specialairhistart AND effect_specialairhistart ----
+unsafe extern "C" fn pikachu_game_specialairhistart(_agent: &mut L2CAgentBase) {}
+unsafe extern "C" fn pikachu_effect_specialairhistart(_agent: &mut L2CAgentBase) {}
+
+// ---- Quick Attack air leg 1, nulled : empty override of game_specialairhi1 AND effect_specialairhi1 ----
+unsafe extern "C" fn pikachu_game_specialairhi1(_agent: &mut L2CAgentBase) {}
+unsafe extern "C" fn pikachu_effect_specialairhi1(_agent: &mut L2CAgentBase) {}
+
+// ---- Quick Attack air leg 2, nulled : empty override of game_specialairhi2 AND effect_specialairhi2 ----
+unsafe extern "C" fn pikachu_game_specialairhi2(_agent: &mut L2CAgentBase) {}
+unsafe extern "C" fn pikachu_effect_specialairhi2(_agent: &mut L2CAgentBase) {}
+
+// ---- Quick Attack air recovery, nulled : empty override of game_specialairhiend AND effect_specialairhiend ----
+unsafe extern "C" fn pikachu_game_specialairhiend(_agent: &mut L2CAgentBase) {}
+unsafe extern "C" fn pikachu_effect_specialairhiend(_agent: &mut L2CAgentBase) {}
+
+// ---- Thunder hit, nulled : empty override of game_speciallwhit AND effect_speciallwhit ----
+unsafe extern "C" fn pikachu_game_speciallwhit(_agent: &mut L2CAgentBase) {}
+unsafe extern "C" fn pikachu_effect_speciallwhit(_agent: &mut L2CAgentBase) {}
+
+// ---- Thunder air, nulled : empty override of game_specialairlw AND effect_specialairlw ----
+unsafe extern "C" fn pikachu_game_specialairlw(_agent: &mut L2CAgentBase) {}
+unsafe extern "C" fn pikachu_effect_specialairlw(_agent: &mut L2CAgentBase) {}
+
+// ---- Thunder air hit, nulled : empty override of game_specialairlwhit AND effect_specialairlwhit ----
+unsafe extern "C" fn pikachu_game_specialairlwhit(_agent: &mut L2CAgentBase) {}
+unsafe extern "C" fn pikachu_effect_specialairlwhit(_agent: &mut L2CAgentBase) {}
 
 pub fn install() {
     Agent::new("pikachu")
@@ -323,5 +383,35 @@ pub fn install() {
         .effect_acmd("effect_specialsend", pikachu_effect_specialsend, Default)
         .game_acmd("game_specials", pikachu_game_specials, Default)
         .effect_acmd("effect_specials", pikachu_effect_specials, Default)
+        .game_acmd("game_specialshold", pikachu_game_specialshold, Default)
+        .effect_acmd("effect_specialshold", pikachu_effect_specialshold, Default)
+        .game_acmd("game_specialsweak", pikachu_game_specialsweak, Default)
+        .effect_acmd("effect_specialsweak", pikachu_effect_specialsweak, Default)
+        .game_acmd("game_specialairsstart", pikachu_game_specialairsstart, Default)
+        .effect_acmd("effect_specialairsstart", pikachu_effect_specialairsstart, Default)
+        .game_acmd("game_specialairshold", pikachu_game_specialairshold, Default)
+        .effect_acmd("effect_specialairshold", pikachu_effect_specialairshold, Default)
+        .game_acmd("game_specialairsend", pikachu_game_specialairsend, Default)
+        .effect_acmd("effect_specialairsend", pikachu_effect_specialairsend, Default)
+        .game_acmd("game_specialairsmissend", pikachu_game_specialairsmissend, Default)
+        .effect_acmd("effect_specialairsmissend", pikachu_effect_specialairsmissend, Default)
+        .game_acmd("game_specialhistart", pikachu_game_specialhistart, Default)
+        .effect_acmd("effect_specialhistart", pikachu_effect_specialhistart, Default)
+        .game_acmd("game_specialhiend", pikachu_game_specialhiend, Default)
+        .effect_acmd("effect_specialhiend", pikachu_effect_specialhiend, Default)
+        .game_acmd("game_specialairhistart", pikachu_game_specialairhistart, Default)
+        .effect_acmd("effect_specialairhistart", pikachu_effect_specialairhistart, Default)
+        .game_acmd("game_specialairhi1", pikachu_game_specialairhi1, Default)
+        .effect_acmd("effect_specialairhi1", pikachu_effect_specialairhi1, Default)
+        .game_acmd("game_specialairhi2", pikachu_game_specialairhi2, Default)
+        .effect_acmd("effect_specialairhi2", pikachu_effect_specialairhi2, Default)
+        .game_acmd("game_specialairhiend", pikachu_game_specialairhiend, Default)
+        .effect_acmd("effect_specialairhiend", pikachu_effect_specialairhiend, Default)
+        .game_acmd("game_speciallwhit", pikachu_game_speciallwhit, Default)
+        .effect_acmd("effect_speciallwhit", pikachu_effect_speciallwhit, Default)
+        .game_acmd("game_specialairlw", pikachu_game_specialairlw, Default)
+        .effect_acmd("effect_specialairlw", pikachu_effect_specialairlw, Default)
+        .game_acmd("game_specialairlwhit", pikachu_game_specialairlwhit, Default)
+        .effect_acmd("effect_specialairlwhit", pikachu_effect_specialairlwhit, Default)
         .install();
 }
