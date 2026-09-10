@@ -4,3 +4,4 @@ extracted/
 target/
 pikachu-moveset/plugin/target/
 .ftp-credentials.local
+!releases/**/*.nro
