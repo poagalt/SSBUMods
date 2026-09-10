@@ -64,8 +64,14 @@ unsafe extern "C" fn pikachu_telemetry(fighter: &mut L2CFighterCommon) {
         MOTION_START[entry] = frame;
     }
 
+    // Status changes carry the motion frame they happened on. Leaving an attack status is the
+    // frame you actually become actionable, which is the number that decides whether our
+    // patched FAF is being honoured or whether the animation's length is governing instead.
     if status != LAST_STATUS[entry] {
-        println!("[rat] p{} status {} -> {}", entry, LAST_STATUS[entry], status);
+        println!(
+            "[rat] p{} status {} -> {} on frame {:.0} of {:#012x} (anim end {:.0})",
+            entry, LAST_STATUS[entry], status, frame, motion, end
+        );
         LAST_STATUS[entry] = status;
     }
 }

@@ -3,33 +3,12 @@
         "fighter/pikachu/c00": [
             "fighter/pikachu/model/body/c00/met_chrom_001_col.nutexb",
             "fighter/pikachu/model/body/c00/met_chrom_001_nor.nutexb",
-            "fighter/pikachu/model/body/c00/met_chrom_001_prm.nutexb",
-            "fighter/pikachu/model/spikeball/c00/dark_model.numatb",
-            "fighter/pikachu/model/spikeball/c00/light_model.numatb",
-            "fighter/pikachu/model/spikeball/c00/metal_spikeball_001_col.nutexb",
-            "fighter/pikachu/model/spikeball/c00/metal_spikeball_001_nor.nutexb",
-            "fighter/pikachu/model/spikeball/c00/metal_spikeball_001_prm.nutexb",
-            "fighter/pikachu/model/spikeball/c00/metamon_model.numatb",
-            "fighter/pikachu/model/spikeball/c00/model.nuhlpb",
-            "fighter/pikachu/model/spikeball/c00/model.numatb",
-            "fighter/pikachu/model/spikeball/c00/model.numdlb",
-            "fighter/pikachu/model/spikeball/c00/model.numshb",
-            "fighter/pikachu/model/spikeball/c00/model.numshexb",
-            "fighter/pikachu/model/spikeball/c00/model.nusktb",
-            "fighter/pikachu/model/spikeball/c00/model.nusrcmdlb",
-            "fighter/pikachu/model/spikeball/c00/model.xmb",
-            "fighter/pikachu/motion/spikeball/c00/motion_list.bin"
+            "fighter/pikachu/model/body/c00/met_chrom_001_prm.nutexb"
         ]
     },
     "share-to-added": {
-        "fighter/chrom/model/sword/c00/met_chrom_001_col.nutexb": [
-            "fighter/pikachu/model/body/c00/met_chrom_001_col.nutexb"
-        ],
-        "fighter/chrom/model/sword/c00/met_chrom_001_nor.nutexb": [
-            "fighter/pikachu/model/body/c00/met_chrom_001_nor.nutexb"
-        ],
-        "fighter/chrom/model/sword/c00/met_chrom_001_prm.nutexb": [
-            "fighter/pikachu/model/body/c00/met_chrom_001_prm.nutexb"
-        ]
+        "fighter/chrom/model/sword/c00/met_chrom_001_col.nutexb": ["fighter/pikachu/model/body/c00/met_chrom_001_col.nutexb"],
+        "fighter/chrom/model/sword/c00/met_chrom_001_nor.nutexb": ["fighter/pikachu/model/body/c00/met_chrom_001_nor.nutexb"],
+        "fighter/chrom/model/sword/c00/met_chrom_001_prm.nutexb": ["fighter/pikachu/model/body/c00/met_chrom_001_prm.nutexb"]
     }
 }

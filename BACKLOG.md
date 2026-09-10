@@ -348,3 +348,59 @@ effect archive the particle work will not play, but the ball should still have a
 - [ ] **Unverified in game.** Needs a training-mode load to confirm the crash is gone.
 - [ ] Nothing generates the article yet — neutral B still needs packun's `special_n` status
       ported. That is unchanged by this fix.
+
+## Reach: root-caused with measurements
+
+`tools/reach` does forward kinematics over a source fighter's skeleton and animation, so a
+hitbox's actual world position can be computed frame by frame. Two reported symptoms turned out
+to have **different** causes, and my original single explanation ("bone-local offsets don't
+reach") was wrong about the mechanism.
+
+### Little Mac f-smash: lost root motion
+
+His f-smash animation translates the root **21.45 units forward** — he lunges. Pikachu's f-smash
+animation has **no root-motion track at all**. Measured `Trans` z displacement:
+
+| frame | Little Mac | Pikachu |
+|---|---|---|
+| 8 | 5.47 | — |
+| 14 | 15.91 | — |
+| 30 | 17.71 | — |
+
+The arm itself is *not* the problem: with root motion excluded, Mac's `armr` at frame 14 sits at
+z=4.75 and Pikachu's at z=5.04 — nearly identical. All the missing range is the lunge.
+
+Root motion across the other ported moves, so the scope is known:
+
+| slot | source | pikachu | delta |
+|---|---|---|---|
+| f-smash (Little Mac) | 21.45 | 0.00 | **+21.45** |
+| dash attack (Mythra) | 29.70 | 48.02 | −18.33 (travels too far) |
+| f-tilt (Mythra) | 3.67 | 0.00 | +3.67 |
+| jab, u-tilt, u-smash, n-air | ~0 | ~0 | none |
+
+That matches the playtest exactly: only f-smash was reported short, and only f-smash loses
+meaningful root motion.
+
+### Falco u-tilt second hit: bone in a different place
+
+Its three hitboxes anchor to `shoulderl`/`arml` at frame 12. Falco's `arml` is then at
+**y=19.15** — swung high, it is an anti-air. Pikachu's `arml` is at **y=0.88**, by his feet. The
+hitbox spawns roughly 18 units too low. It does come out; it is nowhere useful.
+
+### The decision this forces
+
+Fixing reach by re-anchoring to `top` at the measured world position works, and the numbers are
+in hand (scale ratios: Mac 1.11/0.96, Falco 1.05/0.96, Pikachu 0.96). But absolute reach on a
+much smaller fighter puts hitboxes far from the body — Falco's u-tilt hit would sit ~21 units
+above a Pikachu who is a fraction of that tall, with nothing drawn there.
+
+This is exactly what the brief's "port in the appendage for the period the hitbox is active"
+anticipated. Options:
+
+1. Apply exact reach now; accept invisible hitboxes far from the body until appendages exist.
+2. Apply exact reach only where it stays near the body; scale the rest to Pikachu's proportions.
+3. Reproduce root motion (give Pikachu Mac's 21-unit lunge) rather than offsetting hitboxes —
+   faithful for f-smash specifically, and it moves the hurtbox too, which is how the real move
+   trades range for commitment.
+4. Do the appendage work first so exact reach has something drawn behind it.
