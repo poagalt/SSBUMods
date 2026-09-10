@@ -163,3 +163,15 @@ and Tier 1 remains script-first.
 **Risk downgraded:** `ModelModule::set_scale` and `set_joint_scale` are confirmed to exist in the
 `lua_bind` surface. Runtime scaling still has no worked example in a shipped mod, but it is no
 longer speculative — only unproven.
+
+---
+
+## Sword confirmed into Tier 1
+
+- [x] Sword returns to **Tier 1**. Both reasons for deferring it (needs Blender, no precedent)
+      were false. Path: prove the pipeline with Byleth `swordflare` (already on disk), then ship
+      Chrom's real Falchion by the episode 39 recipe.
+- [ ] Our plugin must not be named `plugin.nro` — George already occupies that filename in the
+      console's Skyline plugins folder.
+- [ ] Verify the Ken-Sugimori-sourced `pikachu_c00_model.nusktb` against a vanilla dump. A
+      restyle should not touch the skeleton, but this is currently an assumption.
