@@ -210,3 +210,45 @@ effectively the same defensive situation.
 
 **Sword asset** — Open. Chrom's Falchion is a sub-mesh of his body model and cannot be isolated
 without Blender, so an in-game substitute is being researched.
+
+## Implementation findings
+
+**The parity source changed, for the better.** `WuBoytH/SSBU-Dumped-Scripts` ships all 96
+fighters' ACMD already converted to smashline Rust. `tools/gen-moves.sh` copies those scripts
+**verbatim** and renames the agent, so frame-data parity holds by construction with no
+transcription step at all. The JSON-table codegen agreed in Round 4 was aiming at exactly this
+property; this reaches it more directly. The table survives as a verification artifact, not a
+generator.
+
+**Only `game_*` scripts are ported.** Vanilla `effect_*` scripts reference fighter-prefixed
+effect archives, which ADR 0002 forbids, so Pikachu keeps his own effects.
+
+**Four hitboxes anchored to bones Pikachu lacks** — `sword1` (Chrom jab), `stick` (Palutena
+n-air), `to_open`/`to_close` (Mythra dash and f-tilt) — are remapped to `haver` by
+`tools/bone-remap.sed`. Offsets are inherited from the source fighter and are **not** recalibrated
+for Pikachu's proportions, so those four have approximate placement.
+
+**A strings dump of the skeleton is not a valid bone list.** It reports `top` as absent, yet
+Pikachu's own scripts use it 287 times. `tools/check-bones.sh` therefore validates against
+Pikachu's own ACMD usage as well.
+
+**Pikachu has no `attack_s4_hi` / `attack_s4_lw` motion entries**, so Little Mac's angled f-smash
+variants have nowhere to run and are deliberately omitted. The straight version, with its super
+armor, is what ships.
+
+**Specials are gated on motion entries, not on scripting.** Pikachu's Quick Attack uses
+`special_hi_start` / `special_air_hi1` / `special_air_hi2`; there is no plain `special_hi` for
+G&W's up-B, no Incineroar side-B states, and no `throw_f_{f,b,hi,lw}` for DK's cargo throws.
+The fix is that **a new motion entry needs *an* animation file, not a *retargeted* one** —
+`tools/motion-patch/src/bin/synth.rs` clones an existing Pikachu entry as the template and
+overwrites only `extra` and `flags` from the source fighter. Ten entries synthesized this way.
+
+**Revenge is deliberately not shipped.** Its counter detection, three-stack storage, 60-second
+timer and damage/knockback multiplier live in fighter-specific status logic and work variables,
+none of which is in the ACMD dumps. Porting only the ACMD would produce a down-B that poses like
+Revenge without countering — worse than leaving Thunder in place.
+
+**Risk on the up-B:** George's status scripts reference
+`FIGHTER_GAMEWATCH_INSTANCE_WORK_ID_FLAG_SPECIAL_HI`. Instance work IDs are per-fighter, so using
+G&W's index on Pikachu may collide with a Pikachu variable. George ships exactly this pattern on
+Diddy, so it is the proven path, but it is untested here and it replaces the recovery.

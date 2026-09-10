@@ -32,3 +32,16 @@ untouched.
 
 `releases/v0.1/librat_of_doom.nro` — 22 moves, no attributes, no motion_list patch.
 Tagged `v0.1-moves`.
+
+## Known-good builds, continued
+
+`releases/v0.2/` — adds attributes, the motion_list patch (FAF, intangibility, Fox dodges) and
+Game & Watch's up-B.
+
+**To roll back to v0.1** (moves only, vanilla recovery and vanilla attributes):
+
+1. Upload `releases/v0.1/librat_of_doom.nro` over the installed one.
+2. Delete the mod folder `ultimate/mods/Rat of Doom/`.
+
+The up-B is the highest-risk component — it replaces the recovery and could not be tested here.
+If the character cannot recover, or the game hangs on selecting Pikachu, do the two steps above.

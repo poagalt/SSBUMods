@@ -1,0 +1,8 @@
+[package]
+name = "motion-patch"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]
+motion_list_rs = "1.5"
+hash40 = "1.3"
