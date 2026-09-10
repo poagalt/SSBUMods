@@ -287,3 +287,33 @@ gaogaen and donkey. `model.nuanmb`, `main.nuanmb` and `update.prc` do not exist 
 Both mods ship `fighter/pikachu/model/body/c00/model.{adjb,numatb,numdlb,numshb,numshexb,nusktb}`
 — six files. Introduced by v0.3, the first version to touch Pikachu's model. Resolution chosen:
 disable the Ken Sugimori mod by prefixing its folder with a dot, which ARCropolis skips.
+
+## Ptooie caused a hard crash — article clone reverted
+
+Enabling `clone_weapon` for the spikeball article crashed the game on fighter load, reliably.
+Three Atmosphère crash reports, all Data Abort with fault address `0x0` on thread `TaskWorker2`:
+
+```
+ReturnAddress[06]:  (smashline + 0x2a68c) (fighter_initialize_object_data + 0x2c)   x2
+ReturnAddress[00]:  (smashline + 0x1769c) (load_fighter_effects + 0x48)             x1
+```
+
+Cause is named in episode46's own guide: *"if you're cloning something like Mario's Fireball, or
+any other article that calls to a fighter specific effect, you need to copy said effect to the
+agent you're cloning to."* Ptooie's spikeball references packun effects and nothing under
+`effect/fighter/pikachu/` provides them, so smashline dereferences null while loading them.
+
+**Reverted:** the `clone_weapon` call is commented out and the article's assets are parked at
+`pikachu-moveset/staged-spikeball/` instead of shipping. Console files removed too.
+
+**This creates a real conflict with ADR 0002.** Making the clone work means shipping
+`effect/fighter/packun/...` under `pikachu`, and a fighter-prefixed effect archive is exactly the
+CSK dependency the brief forbids. Options, none free:
+
+1. Ship packun's effect archive anyway and accept a CSK-style dependency for neutral B only.
+2. Find whether the spikeball article can be cloned with effects stubbed out — unknown whether
+   smashline tolerates a missing effect set.
+3. Drop Ptooie and pick a neutral B whose article has no fighter-specific effects.
+4. Keep Thunder Jolt.
+
+Needs a decision before any further work on neutral B.

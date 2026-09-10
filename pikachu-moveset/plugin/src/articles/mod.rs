@@ -1,23 +1,30 @@
-// Neutral B — Piranha Plant's Ptooie, whose spiked ball is the `spikeball` article.
+// Neutral B — Piranha Plant's Ptooie (the `spikeball` article).
 //
-// Recipe: ssbu-mod-workshop/episode46/ArticleCloningGuide.md (PhazoGanon & LilyLambda).
-// Pikachu has exactly seven vanilla articles (cloud, dengeki, dengekidama, kaminari,
-// monsterball, specialupdummy, vortex) per ultimate-research/param-labels articles/Labels.txt,
-// so 0x7 is the first free index.
+// DISABLED. Enabling the clone below crashed the game on fighter load, every time,
+// with a null dereference inside smashline:
 //
-// INCOMPLETE: this registers the article and ships its assets. Nothing spawns it yet --
-// that needs Piranha Plant's special_n status ported, which is the same class of untestable
-// status work as Revenge. Registering an article that is never generated is inert.
-use smashline::*;
-
-pub const FIGHTER_PIKACHU_GENERATE_ARTICLE_SPIKEBALL: i32 = 0x7;
+//   ReturnAddress[06]: (smashline + 0x2a68c) (fighter_initialize_object_data + 0x2c)
+//   ReturnAddress[00]: (smashline + 0x1769c) (load_fighter_effects + 0x48)
+//
+// Cause: episode46's guide warns that cloning an article which references fighter-specific
+// effects requires copying those effects to the receiving agent. Ptooie's spikeball uses
+// packun effects, and nothing under effect/fighter/pikachu/ provides them.
+//
+// Note the tension with ADR 0002: supplying them means shipping a fighter-prefixed effect
+// archive, which is the CSK dependency the brief forbids. Resolve that before re-enabling.
+//
+// Assets are extracted and staged; see BACKLOG.md.
+//
+// pub const FIGHTER_PIKACHU_GENERATE_ARTICLE_SPIKEBALL: i32 = 0x7;
 
 pub fn install() {
-    smashline::clone_weapon(
-        "packun",
-        *smash::lib::lua_const::WEAPON_KIND_PACKUN_SPIKEBALL,
-        "pikachu",
-        "spikeball",
-        true,
-    );
+    // Intentionally empty. See above before re-enabling.
+    //
+    // smashline::clone_weapon(
+    //     "packun",
+    //     *smash::lib::lua_const::WEAPON_KIND_PACKUN_SPIKEBALL,
+    //     "pikachu",
+    //     "spikeball",
+    //     true,
+    // );
 }
