@@ -332,22 +332,76 @@ unsafe extern "C" fn pikachu_specials_main(fighter: &mut L2CFighterCommon) -> L2
 }
 
 unsafe extern "C" fn pikachu_specials_main_loop(fighter: &mut L2CFighterCommon) -> L2CValue {
+    use crate::telemetry::probe;
     let boma = fighter.module_accessor;
     let entry = entry_of(boma);
+    let mframe = MotionModule::frame(boma);
 
-    // CatchModule::is_catch reports whether our CATCH collision has someone. The ACMD opens it on
-    // frame 18 and clears it on 35, so this can only be true inside that window.
-    if CatchModule::is_catch(boma) {
-        VICTIM[entry] = CatchModule::capture_object_id(boma, false) as u32;
+    // THE GRAB DOES NOT CONNECT, AND THIS ROUND'S JOB IS TO FIND OUT WHICH SIGNAL TO READ.
+    //
+    // `CatchModule::is_catch` was the only thing consulted, on the reasoning that it reports
+    // whether our CATCH collision has someone. Playtest says the whip never grabs, and the
+    // hardware log confirms it: SPECIAL_S goes straight to RAT_SPECIAL_S_END and
+    // RAT_SPECIAL_S_SHOULDER never appears. The ACMD is byte-identical to Incineroar's and the
+    // catch boxes are measured in the right place, so the collision is almost certainly
+    // connecting and we are asking the wrong question about it.
+    //
+    // The likely reason: `is_catch` is about holding someone in an ordinary CAPTURE. A command
+    // grab sends the victim to FIGHTER_STATUS_KIND_SWING_GAOGAEN_CATCHED instead, which need not
+    // touch the catcher's capture bookkeeping at all. `GrabModule::is_grab` asks about the GRAB
+    // COLLISION, which is what `macros::CATCH` actually creates.
+    //
+    // So: act on any of the three, and log all of them every frame the window is open. Whichever
+    // one fires in the next log is the one to keep, and if none of them does the problem is the
+    // collision rather than the query -- which the same lines also show, because they include the
+    // opponent's distance.
+    let is_catch = CatchModule::is_catch(boma);
+    let is_grab = GrabModule::is_grab(boma, 0);
+    let cap = CatchModule::capture_object_id(boma, false) as u32;
+    let has_cap = cap != *BATTLE_OBJECT_ID_INVALID as u32;
+    // The window the ACMD opens (script frame 18) and clears (35). Logged a little wider so the
+    // edges are visible rather than inferred.
+    if (14.0..40.0).contains(&mframe) {
+        probe::frame(format!(
+            "[rat] WHIP p{entry} f={mframe:.1} is_catch={is_catch} is_grab={is_grab} \
+             cap={cap:#x} rebound={} ; {}",
+            GrabModule::is_rebound(boma),
+            probe::ctx(boma)
+        ));
+    }
+
+    if is_catch || is_grab || has_cap {
+        VICTIM[entry] = cap;
+        probe::event(format!(
+            "[rat] WHIP p{entry} CAUGHT on f={mframe:.1} via is_catch={is_catch} is_grab={is_grab} \
+             cap={cap:#x}; {}",
+            probe::ctx(boma)
+        ));
         fighter.change_status(RAT_STATUS_KIND_SPECIAL_S_THROW.into(), false.into());
         return 1.into();
     }
 
-    if MotionModule::is_end(boma) {
-        // A whiffed lunge just ends. The 4% is special_s_fail_damage and belongs to the FAILURE
-        // follow-up -- the price of not pressing anything after a successful grab -- not to
-        // missing the grab in the first place.
-        fighter.change_status(RAT_STATUS_KIND_SPECIAL_S_END.into(), false.into());
+    // A WHIFF ENDS AT THE MOVE'S OWN FAF, NOT AT THE END OF THE ANIMATION.
+    //
+    // This waited for `MotionModule::is_end`, and `special_s_start` is a 117-frame animation
+    // because it covers the whole HOLD -- Incineroar keeps posing while he has someone. Playtest
+    // measured exactly that: 117 frames of lunge, then 44 more of special_s_end, about two and
+    // three quarter seconds for a whiffed side-B, and it read as "the enemy escaped animation
+    // when that's not native behavior".
+    //
+    // Incineroar's own entry says what a whiff costs: `special_s_start` has a cancel_frame of 64.
+    // Read at runtime from the shipped motion_list rather than hardcoded, so it tracks whatever
+    // motion-patch put there. There is no special_s_end on a whiff either -- that motion is the
+    // recovery from a COMPLETED sequence, and playing it was the second half of the same mistake.
+    let faf = FighterMotionModuleImpl::get_cancel_frame(boma, Hash40::new(&situated(fighter, "_start")), true);
+    if (faf >= 1.0 && mframe >= faf) || MotionModule::is_end(boma) {
+        probe::event(format!(
+            "[rat] WHIP p{entry} whiffed, ending at f={mframe:.1} (faf {faf:.0}); {}",
+            probe::ctx(boma)
+        ));
+        let ground = fighter.global_table[0x16] == *SITUATION_KIND_GROUND;
+        let next = if ground { *FIGHTER_STATUS_KIND_WAIT } else { *FIGHTER_STATUS_KIND_FALL };
+        fighter.change_status(next.into(), false.into());
         return 1.into();
     }
     0.into()

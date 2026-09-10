@@ -148,5 +148,30 @@ echo; echo "== 5. pre-flight the motion entries against the dropped-in animation
   donkey:shoulder_jump donkey:shoulder_fall donkey:shoulder_landing | tail -4
 
 echo; echo "== 6. compile =="
+# GATED ON THE EXIT CODE, NOT ON GREPPING THE OUTPUT.
+#
+# This used to be `cargo skyline build | grep -E "^error|Finished"`, and cargo writes ANSI colour
+# codes BEFORE the word "error" -- so `^error` never matched, a failing build printed nothing, and
+# the step looked like it had simply been quiet. It stayed quiet through a build that failed with
+# five type errors, and the deploy that followed would have shipped the previous .nro while every
+# check passed against source that does not compile.
+#
+# That is the same false-clean shape as everything else this file guards against, in the one step
+# where it matters most. Strip the colours for readability, and let the pipeline's real exit
+# status decide.
 cd "$ROOT/pikachu-moveset/plugin"
-cargo skyline build --release 2>&1 | grep -E "^error|error\[|Finished" | head -8
+set -o pipefail
+if ! cargo skyline build --release 2>&1 | sed 's/\x1b\[[0-9;]*m//g' \
+        | grep -E "^error|^warning: unused|-->|Finished" | head -30; then
+    echo "  COMPILE FAILED -- see the errors above" >&2
+    exit 1
+fi
+NRO="$ROOT/pikachu-moveset/plugin/target/aarch64-skyline-switch/release/librat_of_doom.nro"
+# And prove the artifact is newer than the newest source file, so a cached success cannot pass for
+# a fresh build either.
+newest=$(find "$ROOT/pikachu-moveset/plugin/src" -name '*.rs' -newer "$NRO" | head -1)
+if [ -n "$newest" ]; then
+    echo "  COMPILE STALE -- $NRO is older than ${newest#"$ROOT/"}" >&2
+    exit 1
+fi
+echo "  ok  $(stat -c%s "$NRO") byte .nro, newer than every source file"

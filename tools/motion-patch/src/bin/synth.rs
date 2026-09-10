@@ -110,6 +110,24 @@ fn main() {
         // Take the source fighter's game_script too. Without this the new entry keeps the
         // template's script name and any ACMD we register against the source name is dead.
         m.game_script = s.game_script;
+        // AND ITS `scripts`, WHICH THIS DID NOT DO -- THE BUG THAT MADE THE UP-B INVISIBLE.
+        //
+        // `scripts` is the expression / sound / effect trio, and it was left pointing at the
+        // TEMPLATE's. So `special_hi_open`, cloned from one of Pikachu's Quick Attack entries,
+        // named `expression_specialairhi1` -- and Pikachu's SpecialAirHi1 expression script calls
+        // `VisibilityModule::set_whole(false)`. The up-B's own status logic was correct all along
+        // and measured working on hardware (special_hi -> _open -> _close, +74.98 units of rise);
+        // he was simply hidden by his own script running under our animation.
+        //
+        // Thirty-eight of seventy-seven entries were like this, which is also where the "quick
+        // attack arrows" came from -- `effect_specialhistart` under G&W's Fire -- and it put
+        // Pikachu's THUNDER expression and effect scripts on Revenge's stance.
+        //
+        // Same reasoning as game_script, and it should always have been the same line: a
+        // synthesised entry that keeps ANY of the template's script names runs Pikachu's code for
+        // a move that is no longer Pikachu's. Where we register nothing under the source's name
+        // the script is simply absent, which is a no-op -- strictly better than the wrong script.
+        m.scripts = s.scripts.clone();
         // Same reasoning as motion-patch MAP: the source's cross-fade into the move is part of the
         // move. A synthesised entry inherits the template's otherwise.
         m.blend_frames = s.blend_frames;

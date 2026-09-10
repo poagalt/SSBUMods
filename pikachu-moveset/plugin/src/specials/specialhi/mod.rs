@@ -155,8 +155,38 @@ unsafe extern "C" fn pikachu_specialhi_end(fighter: &mut L2CFighterCommon) -> L2
     0.into()
 }
 
+/// Watches for Pikachu being invisible during the up-B, restores him, and says so.
+///
+/// THE ROOT CAUSE IS FIXED ELSEWHERE, in tools/motion-patch/src/bin/synth.rs: the synthesised
+/// `special_hi_open` entry named `expression_specialairhi1`, one of Pikachu's Quick Attack
+/// scripts, and that script calls `VisibilityModule::set_whole(false)`. Synth now repoints
+/// `scripts` alongside `game_script`, so nothing should hide him any more.
+///
+/// This stays anyway, for two reasons. The failure mode is a mod that looks completely broken --
+/// three playtests in a row reported it -- and the cost is one call per frame during one move.
+/// And it LOGS, so if anything hides him again the next log names the status and frame instead of
+/// starting another round of "still invisible".
+unsafe extern "C" fn pikachu_specialhi_visible(fighter: &mut L2CFighterCommon) {
+    let boma = fighter.module_accessor;
+    let s = StatusModule::status_kind(boma);
+    if s != *FIGHTER_STATUS_KIND_SPECIAL_HI
+        && s != RAT_STATUS_KIND_SPECIAL_HI_OPEN
+        && s != RAT_STATUS_KIND_SPECIAL_HI_CLOSE
+    {
+        return;
+    }
+    if VisibilityModule::get_whole(boma) == 0 {
+        crate::telemetry::probe::event(format!(
+            "[rat] UPB was INVISIBLE, restoring -- something still calls set_whole(false); {}",
+            crate::telemetry::probe::ctx(boma)
+        ));
+        VisibilityModule::set_whole(boma, true);
+    }
+}
+
 pub fn install() {
     Agent::new("pikachu")
+        .on_line(Main, pikachu_specialhi_visible)
         .status(Pre, *FIGHTER_STATUS_KIND_SPECIAL_HI, pikachu_specialhi_pre)
         .status(Init, *FIGHTER_STATUS_KIND_SPECIAL_HI, pikachu_specialhi_init)
         .status(Main, *FIGHTER_STATUS_KIND_SPECIAL_HI, pikachu_specialhi_main)

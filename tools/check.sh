@@ -184,6 +184,28 @@ if ! "$VAR" "$ROOT/extracted" "$M" 2>/dev/null | grep -q '^0 source motion'; the
   echo "  FAIL a ported move has a variant on the source fighter that this moveset does not have"; rc=1
 fi
 
+echo; echo "== 3k. no synthesised motion runs one of Pikachu's own scripts =="
+# THE BUG THAT MADE THE UP-B INVISIBLE, and it was thirty-eight entries wide.
+#
+# A motion entry names four scripts: game_, plus expression_/sound_/effect_. synth.rs repointed
+# game_script to the source's and left the other three pointing at the TEMPLATE's -- so
+# `special_hi_open`, cloned from a Quick Attack entry, named `expression_specialairhi1`, and
+# Pikachu's SpecialAirHi1 expression script calls VisibilityModule::set_whole(false). The up-B's
+# own logic was correct and measured working on hardware; he was hidden by his own script.
+#
+# Same mechanism put Pikachu's Thunder scripts on Revenge's stance and his Quick Attack effect
+# script under Game & Watch's Fire, which is where the "quick attack arrows" came from.
+#
+# REPOINTED entries are exempt and must be: `attack_s4_s` legitimately names `game_attacks4`,
+# because that is what vanilla Pikachu calls it and what our ACMD is registered as. Only the
+# entries synth.rs CREATES have to name their own. The list comes from synth.rs's own table, so
+# it cannot drift from what is actually synthesised.
+SYNTH_MOTIONS=$(sed -n '/^const SYNTH/,/^\];/p' "$ROOT/tools/motion-patch/src/bin/synth.rs" \
+                | grep -oE '^\s*\("[a-z_0-9]+"' | tr -d ' ("' | tr '\n' ' ')
+"$ROOT/tools/motion-patch/target/release/mlshow.exe" "$M" --all-scripts $SYNTH_MOTIONS 2>/dev/null | tail -1
+"$ROOT/tools/motion-patch/target/release/mlshow.exe" "$M" --all-scripts $SYNTH_MOTIONS >/dev/null 2>&1 \
+  || { echo "  FAIL a synthesised motion runs another motion's scripts -- see mlshow output above"; rc=1; }
+
 echo; echo "== 3e. each ported move carries its source's whole motion entry =="
 # NOT JUST blend_frames, WHICH IS ALL THIS USED TO CHECK. The entry also carries `cancel_frame`
 # (the FAF -- literally the frame data this project exists to reproduce), the intangibility window,

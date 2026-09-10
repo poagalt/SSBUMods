@@ -124,15 +124,63 @@ const WINDOW_FRAMES: i32 = 26;
 // Second and worse, the status End handler cleared the flag -- and End runs at the exact moment
 // the hit lands, wiping the flag before the watcher could act on it. That is why Revenge was
 // purely cosmetic. ACMD frame() calls are script frames, so driving it from there is exact.
+/// How much of a frame passes per game frame during the counter freeze, and for how long.
+///
+/// APPROXIMATE, AND SAID SO. Every counter in the game freezes both fighters for a beat before the
+/// retaliation lands -- playtest: "the native revenge displays some freeze-frames like any other
+/// counter showing the counter has been hit before dealing the damage". Ours dealt the damage
+/// instantly, which reads as the counter not having registered.
+///
+/// The exact length is Incineroar's C++. `special_lw_hit_stop_mul` is 1.5, but that multiplies the
+/// ATTACKER's hitlag rather than naming a freeze, and with no-reaction armor on there may be no
+/// hitlag to multiply. So this is a plain freeze at a plausible counter length, logged when it
+/// fires so the next playtest can say "shorter" or "longer" against a number instead of a feeling.
+const FREEZE_SLOW_MUL: u8 = 8;
+const FREEZE_FRAMES: i32 = 14;
+
 pub unsafe fn open_window(boma: *mut BattleObjectModuleAccessor) {
     let e = entry_of(boma);
     WINDOW_OPEN[e] = true;
     WINDOW_LEFT[e] = WINDOW_FRAMES;
     LAST_DAMAGE[e] = DamageModule::damage(boma, 0);
+    // ARMOR, WHICH IS WHY THE COUNTER SOMETIMES DID NOT COUNTER.
+    //
+    // Playtest: "in certain situations I get a revenge stack but still get normally hit by the
+    // move". Exactly so -- the watcher noticed the damage a frame later and refunded it, but by
+    // then the engine had already put Pikachu into a damage status and sent him flying. The boost
+    // banked; the counter did not happen.
+    //
+    // Incineroar takes no knockback when Revenge triggers, and the engine has the mechanism for
+    // that directly: DAMAGE_NO_REACTION_MODE_ALWAYS for the length of the window. It is the same
+    // no-reaction machinery as Little Mac's f-smash armor, reached from Rust instead of from a
+    // `damage!` macro. With it on, the hit lands, deals no reaction, and the watcher gets a clean
+    // frame to refund the damage and retaliate in.
+    DamageModule::set_no_reaction_mode_status(
+        boma,
+        smash::app::DamageNoReactionMode { _address: *DAMAGE_NO_REACTION_MODE_ALWAYS as u8 },
+        0.0,
+        0.0,
+        0,
+    );
+    crate::telemetry::probe::event(format!(
+        "[rat] REVENGE p{e} window OPEN for {WINDOW_FRAMES}f, armor on; {}",
+        crate::telemetry::probe::ctx(boma)
+    ));
 }
 
 pub unsafe fn close_window(boma: *mut BattleObjectModuleAccessor) {
-    WINDOW_OPEN[entry_of(boma)] = false;
+    let e = entry_of(boma);
+    if WINDOW_OPEN[e] {
+        crate::telemetry::probe::event(format!(
+            "[rat] REVENGE p{e} window CLOSE, armor off; {}",
+            crate::telemetry::probe::ctx(boma)
+        ));
+    }
+    WINDOW_OPEN[e] = false;
+    // Leaving this on past the window would armor Pikachu through everything, which is a far
+    // worse bug than the one it fixes. Reset unconditionally, including on the paths that close
+    // the window without the ACMD reaching its frame-28 call.
+    DamageModule::reset_no_reaction_mode_status(boma);
 }
 
 // Phase within FIGHTER_STATUS_KIND_SPECIAL_LW. Pikachu has no SPECIAL_LW_HIT status kind and
@@ -346,6 +394,35 @@ pub unsafe extern "C" fn pikachu_revenge_frame(fighter: &mut L2CFighterCommon) {
         WINDOW_OPEN[entry] = false;
         PHASE[entry] = PHASE_COUNTER;
         LAST_DAMAGE[entry] = DamageModule::damage(boma, 0);
+
+        // THE FREEZE, which the retaliation had none of. Playtest: "the damage revenge deals
+        // after getting hit is being done immediately on hit while the native revenge displays
+        // some freeze-frames like any other counter".
+        //
+        // ON PIKACHU ONLY, DELIBERATELY. A counter pauses both fighters, but the attacker is
+        // already in their own hitlag from the hit they just landed, so freezing our side is the
+        // half that is missing. Freezing theirs as well needs an entry id turned into a battle
+        // object id, and the conversion is not something this codebase can verify offline --
+        // guessing it would be a null dereference in a fighter's boma, which is precisely the
+        // class of bug that froze the cargo throw.
+        //
+        // The attacker's entry is logged anyway, so if the one-sided freeze reads wrong the next
+        // round starts with the number already in hand.
+        let attacker_entry =
+            WorkModule::get_int(boma, *FIGHTER_INSTANCE_WORK_ID_INT_SUCCEED_ATTACKER_ENTRY_ID);
+        SlowModule::set_whole(boma, FREEZE_SLOW_MUL, FREEZE_FRAMES);
+
+        // The armor came on with the window; it must come off with the counter or Pikachu keeps
+        // it for the whole retaliation.
+        DamageModule::reset_no_reaction_mode_status(boma);
+
+        crate::telemetry::probe::event(format!(
+            "[rat] REVENGE p{entry} COUNTERED {taken:.1}% -> rate {:.2}, freeze {FREEZE_FRAMES}f \
+             at 1/{FREEZE_SLOW_MUL} speed (attacker entry {attacker_entry}); {}",
+            RATE[entry],
+            crate::telemetry::probe::ctx(boma)
+        ));
+
         StatusModule::change_status_request_from_script(
             boma, *FIGHTER_STATUS_KIND_SPECIAL_LW, false
         );

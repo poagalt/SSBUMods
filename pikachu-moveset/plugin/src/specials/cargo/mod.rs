@@ -142,9 +142,11 @@ unsafe fn cargo_direction(boma: *mut BattleObjectModuleAccessor) -> Option<&'sta
 }
 
 pub unsafe extern "C" fn pikachu_cargo_frame(fighter: &mut L2CFighterCommon) {
+    use crate::telemetry::probe;
     let boma = fighter.module_accessor;
     let entry = entry_of(boma);
     let motion = MotionModule::motion_kind(boma);
+    let status = StatusModule::status_kind(boma);
 
     // The cargo grab is DK's throw_f. Once its motion finishes, the victim is still caught
     // (ATTACK_ABS of CATCH kind, not THROW kind), so this is the moment the carry begins.
@@ -152,6 +154,11 @@ pub unsafe extern "C" fn pikachu_cargo_frame(fighter: &mut L2CFighterCommon) {
         CARRYING[entry] = true;
         CARRY_FRAMES[entry] = 0;
         VICTIM[entry] = CatchModule::capture_object_id(boma, false) as u32;
+        probe::event(format!(
+            "[rat] CARGO p{entry} grab landed, victim={:#x}; {}",
+            VICTIM[entry],
+            probe::ctx(boma)
+        ));
         // DK's frame-16 SHOULDER_WAIT flag is what his C++ turns into this. Requesting it here is
         // the same handoff, minus the C++.
         tell_victim(entry, *FIGHTER_STATUS_KIND_SHOULDERED_DONKEY_START);
@@ -163,9 +170,41 @@ pub unsafe extern "C" fn pikachu_cargo_frame(fighter: &mut L2CFighterCommon) {
     }
     CARRY_FRAMES[entry] += 1;
 
+    // THE FREEZE WAS HERE: WE TOUCHED THE MOTION WHILE THE ENGINE STILL OWNED IT.
+    //
+    // The crash report is a Data Abort on a null pointer inside
+    // `MotionModule::change_motion`, reached from a smashline line callback -- ours. The
+    // telemetry's last line is `CATCH_PULL -> THROW`, so Pikachu was still inside the engine's
+    // own THROW status, which is running throw_f and owns the fighter's motion for its duration.
+    // Changing motion out from under it is what died.
+    //
+    // Two things let that happen, and both are fixed:
+    //
+    //   1. `check_button_on` is HELD, not pressed. The grab button was still down from the grab
+    //      itself, so with any stick direction the throw committed on the FIRST carry frame --
+    //      inside THROW. The whip module already uses `check_button_trigger` for exactly this
+    //      reason; this module never got the same treatment.
+    //   2. Nothing checked the status before changing motion.
+    //
+    // So the carry now waits for the engine to leave THROW before it touches anything. The
+    // handoff to the victim still happens immediately -- that is a status request on THEM, not a
+    // motion change on us, and it is what puts Mario on the shoulder.
+    if status == *FIGHTER_STATUS_KIND_THROW || status == *FIGHTER_STATUS_KIND_CATCH_ATTACK {
+        if CARRY_FRAMES[entry] == 2 {
+            tell_victim(entry, *FIGHTER_STATUS_KIND_SHOULDERED_DONKEY);
+            probe::event(format!(
+                "[rat] CARGO p{entry} shoulder handoff sent, waiting for THROW to end; {}",
+                probe::ctx(boma)
+            ));
+        }
+        return;
+    }
+
     // SHOULDERED_DONKEY_START is a transition; the hold itself is SHOULDERED_DONKEY. Requesting it
     // once, a frame later, lets their own status code settle onto the shoulder.
-    if CARRY_FRAMES[entry] == 2 {
+    // Belt to the braces above: if the engine left THROW before frame 2, the handoff still has to
+    // go out. Requesting the same status twice is harmless -- it is already their current one.
+    if CARRY_FRAMES[entry] <= 3 {
         tell_victim(entry, *FIGHTER_STATUS_KIND_SHOULDERED_DONKEY);
     }
 
@@ -174,7 +213,7 @@ pub unsafe extern "C" fn pikachu_cargo_frame(fighter: &mut L2CFighterCommon) {
     // calling it every frame would restart the animation every frame.
     if let Some(pose) = carry_pose(boma) {
         if MotionModule::motion_kind(boma) != smash::hash40(pose) {
-            MotionModule::change_motion(boma, Hash40::new(pose), 0.0, 1.0, false, 0.0, false, false);
+            probe::change_motion(boma, pose, "CARGO pose");
         }
     }
     suppress_carry_actions(boma);
@@ -183,6 +222,11 @@ pub unsafe extern "C" fn pikachu_cargo_frame(fighter: &mut L2CFighterCommon) {
     // is_catch is not consulted after the handoff: the victim is in a shouldered status now, not
     // an ordinary capture, so it reads false and used to end the carry immediately.
     if CARRY_FRAMES[entry] > 2 && !victim_still_held(entry) {
+        probe::event(format!(
+            "[rat] CARGO p{entry} victim lost after {}f, carry ends; {}",
+            CARRY_FRAMES[entry],
+            probe::ctx(boma)
+        ));
         CARRYING[entry] = false;
         CARRY_FRAMES[entry] = 0;
         return;
@@ -191,8 +235,14 @@ pub unsafe extern "C" fn pikachu_cargo_frame(fighter: &mut L2CFighterCommon) {
     // A direction plus the attack or special button commits to a throw. Changing motion is enough
     // to run that motion's game script, so no additional status kinds are needed -- the same
     // reason Revenge and Alolan Whip get by with one status each.
-    let pressed = ControlModule::check_button_on(boma, *CONTROL_PAD_BUTTON_ATTACK)
-        || ControlModule::check_button_on(boma, *CONTROL_PAD_BUTTON_SPECIAL);
+    //
+    // TRIGGER, NOT ON. `check_button_on` is true while the button is HELD, and the grab button is
+    // still down at the moment the grab lands -- so the throw committed on the first carry frame,
+    // before Mario had finished being lifted, and did it from inside the engine's THROW status.
+    // That is what froze the game. ../specials uses check_button_trigger for the whip's
+    // follow-ups and always did; this module simply never got the same treatment.
+    let pressed = ControlModule::check_button_trigger(boma, *CONTROL_PAD_BUTTON_ATTACK)
+        || ControlModule::check_button_trigger(boma, *CONTROL_PAD_BUTTON_SPECIAL);
     if pressed {
         if let Some(m) = cargo_direction(boma) {
             throw_cargo(boma, entry, m);
@@ -211,7 +261,13 @@ pub unsafe extern "C" fn pikachu_cargo_frame(fighter: &mut L2CFighterCommon) {
 /// ATTACK_ABS(THROW) that launches the victim; SHOULDERED_DONKEY_THROWN is what puts them in the
 /// matching thrown_f_donkey_* animation on the way out.
 unsafe fn throw_cargo(boma: *mut BattleObjectModuleAccessor, entry: usize, motion: &str) {
-    MotionModule::change_motion(boma, Hash40::new(motion), 0.0, 1.0, false, 0.0, false, false);
+    use crate::telemetry::probe;
+    probe::event(format!(
+        "[rat] CARGO p{entry} throw '{motion}' after {}f held; {}",
+        CARRY_FRAMES[entry],
+        probe::ctx(boma)
+    ));
+    probe::change_motion(boma, motion, "CARGO throw");
     tell_victim(entry, *FIGHTER_STATUS_KIND_SHOULDERED_DONKEY_THROWN);
     CARRYING[entry] = false;
     CARRY_FRAMES[entry] = 0;

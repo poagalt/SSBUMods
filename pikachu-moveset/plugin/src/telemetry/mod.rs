@@ -30,6 +30,7 @@ use {
 pub mod sink;
 mod motions;
 pub mod selftest;
+pub mod probe;
 
 pub const ENABLED: bool = true;
 
@@ -153,10 +154,21 @@ unsafe extern "C" fn pikachu_telemetry(fighter: &mut L2CFighterCommon) {
     // frame you actually become actionable, which is the number that decides whether our
     // patched FAF is being honoured or whether the animation's length is governing instead.
     if status != LAST_STATUS[entry] {
-        rat!(
+        // FLUSHED IMMEDIATELY, AND WITH NAMES. Two lessons from the round that found the cargo
+        // freeze, both of which cost time rather than being merely untidy:
+        //
+        // The buffer threw the crash away. Telemetry flushed every 120 frames, so a hard freeze
+        // lost up to two seconds -- precisely the frames between entering the throw and dying in
+        // it. Status changes are rare (a handful a second at most), so paying a file write for
+        // each one is free, and it guarantees the last thing the fighter did survives a freeze.
+        //
+        // And `status 3 -> 477` needed a lookup table that lived in someone's head. It now reads
+        // `DASH(0x3) -> SPECIAL_S(0x1dd)`, and the moveset's own kinds resolve by name too, so
+        // seeing RAT_SPECIAL_S_SHOULDER in the log is direct evidence the grab connected.
+        probe::event(format!(
             "[rat] p{} status {} -> {} on frame {:.0} of {:#012x} (anim end {:.0})",
-            entry, LAST_STATUS[entry], status, frame, motion, end
-        );
+            entry, probe::st(LAST_STATUS[entry]), probe::st(status), frame, motion, end
+        ));
         LAST_STATUS[entry] = status;
     }
 
