@@ -3,4 +3,4 @@
 // The commit this plugin was built from, logged on the first line of every session so a playtest
 // can be tied to the code that produced it. "+dirty" means the tree had uncommitted changes to
 // pikachu-moveset/ or tools/ at build time, which is normal mid-round and worth knowing.
-pub const BUILD: &str = "e2ec6ad+dirty built 2026-09-10T23:17:39Z";
+pub const BUILD: &str = "2b90665 built 2026-09-10T23:19:55Z";

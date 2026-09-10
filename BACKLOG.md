@@ -32,14 +32,53 @@ own output, not from memory.
 | Attributes | `fighter_param.prcxml` carries 23, `fighter_param_motion.prcxml` 14, both UTF-8. |
 | Deploys | 86 files, every one verified by size on the console, truncated uploads repaired. |
 
-### The one thing that has not happened
+### Playtest round 1 (build e2ec6ad): it loads, and five things were wrong
 
-**Nothing from v0.23 onward has been played.** Every claim above is either static analysis or a
-console-side file check. The moves have not been seen to work. That is the single highest-value
-action available and it needs a controller, not more tooling.
+Pikachu loads. `motions 77/77 resolved`, `status_kind_count=0x1f7`, no crash on entry -- so the
+architecture holds and the zero-byte animation really was the load-crash cause.
 
-`tools/deploy.sh` reports DEPLOY OK against the current build, so the card is ready. One training
-mode load with Pikachu now produces a written report -- see the next section.
+Five reports, four root-caused from the log and the crash report, all fixed:
+
+| Report | Cause | State |
+| --- | --- | --- |
+| Up-B turns Pikachu invisible | Synthesised entries kept the TEMPLATE's `scripts`, so `special_hi_open` named `expression_specialairhi1` -- Pikachu's own Quick Attack script, which calls `set_whole(false)`. 38 of 77 entries affected. | Fixed in synth.rs, gated by check 3k |
+| Cargo throw froze the game | `check_button_on` is HELD, so the still-down grab button committed a throw on the first carry frame -- inside the engine's THROW status, which owns the motion. Null deref in `change_motion`. | Fixed: trigger not held, and the carry waits for THROW to end |
+| Revenge banks a stack but the hit still lands | Refunding the damage a frame later does nothing about the reaction already in flight. | Fixed: `DAMAGE_NO_REACTION_MODE_ALWAYS` armor for the window |
+| Revenge deals its damage with no freeze | Never implemented. | Fixed: 14 frames at 1/8 speed, length approximate and logged |
+| Whiffed whip runs the escape animation | Waited for `is_end` on a 117-frame animation, then played 44 more. Incineroar's own entry says a whiff costs 64. | Fixed: exits at the FAF, read at runtime |
+
+Still open from that round: **the Alolan Whip does not grab.** Not fixed, instrumented. The log
+shows `RAT_SPECIAL_S_SHOULDER` never appears, and only `CatchModule::is_catch` was consulted. It
+now acts on `is_catch`, `GrabModule::is_grab` or a valid capture id, and logs all of those plus
+the grab collision's actual radius and the nearest opponent's distance every frame the window is
+open -- which separates "the ACMD never ran" from "nobody was in range" from "it connected and we
+asked the wrong question".
+
+Two measurements worth keeping from that log:
+
+- **`PostureModule::scale` reads 1.0, not 0.96.** It is a runtime multiplier, not the fighter
+  `scale` param, so it does not settle the bone-radius question in section 3 -- but it does mean
+  the self-test's "expected 0.96" note is comparing against the wrong thing.
+- The up-B rises 74.98 world units and its status chain is exactly right, which is how the
+  invisibility was traced to the motion entry rather than to the move.
+
+### What the next round needs
+
+The card holds the current build and `tools/deploy.sh` reports DEPLOY OK. One training-mode load,
+then:
+
+```bash
+bash tools/analyze.sh
+```
+
+That pulls and resolves the telemetry, checks the log's BUILD stamp against HEAD before anything
+else (a playtest of the wrong build is worse than no playtest), summarises the self-test, prints
+every move's probe lines, and mirrors any new crash report with its full return-address chain.
+
+**Worth doing in that session, in this order:** side-B next to an opponent (the whip probes only
+log while the catch window is open), a cargo grab and each of the four throws, an up-B, a Revenge
+against something slow, and a run-in Revenge plus a rising one so `moved x` and `peak` answer the
+momentum question in section 4.
 
 ---
 
@@ -47,14 +86,11 @@ mode load with Pikachu now produces a written report -- see the next section.
 
 ### 1. Neutral B / Ptooie -- the last unported slot
 
-Blocked on one question: does a cloned `spikeball` article load? The experiment is two launches:
-
-1. clone OFF, card repaired -- does Pikachu load? *(the current build; this is also the playtest)*
-2. clone ON -- does Pikachu load?
-
-Both previous clone crashes had a zero-byte animation on the card at the same time, which is at
-least as good an explanation and is confirmed to have been present, so the clone is no longer the
-leading suspect. Full reasoning in `pikachu-moveset/plugin/src/articles/mod.rs`.
+STEP 1 IS ANSWERED. Playtest round 1 loaded cleanly with the clone off and the card repaired, so
+the zero-byte animation really was the load-crash cause and the article clone is no longer even
+the leading suspect -- both crashes it was blamed for had a truncated `.nuanmb` present at the
+same time. What is left is step 2: flip `CLONE_ENABLED`, rebuild, deploy, load once. Two minutes,
+and it decides which of the two Ptooie routes to build. Full reasoning in `pikachu-moveset/plugin/src/articles/mod.rs`.
 
 If the clone works, the remaining Ptooie work is scoped and small on the ball's side -- its six
 weapon ACMDs are one hitbox each (14 damage, angle 55, KBG 80, BKB 50, size 5.0; 18 damage on
