@@ -1,11 +1,11 @@
-chrom     Attack11    attack11    c00attack11    0.96  jab (Chrom)
-elight    AttackDash  attackdash  c00attackdash  1.112 dash attack (Mythra)
-elight    AttackS3    attacks3    c01attacks3s   1.112 f-tilt (Mythra)
-falco     AttackHi3   attackhi3   c02attackhi3   1.05  u-tilt (Falco)
-littlemac AttackS4    attacks4    c03attacks4s   1.11  f-smash (Little Mac)
-fox       AttackHi4   attackhi4   c04attackhi4   1.08  u-smash (Fox)
-palutena  AttackAirN  attackairn  c05attackairn  0.95  n-air (Palutena)
-demon     AttackAirF  attackairf  c05attackairf  1.007 f-air (Kazuya)
-cloud     AttackAirB  attackairb  c05attackairb  1.03  b-air (Cloud)
-kamui     AttackAirHi attackairhi c05attackairhi 0.99  u-air (Corrin)
-krool     AttackAirLw attackairlw c05attackairlw 1.15  d-air (K. Rool)
+chrom     Attack11    attack11    c00attack11    0.96  normals  jab_chrom
+elight    AttackDash  attackdash  c00attackdash  1.112 normals  dash_attack_mythra
+elight    AttackS3    attacks3    c01attacks3s   1.112 normals  ftilt_mythra
+falco     AttackHi3   attackhi3   c02attackhi3   1.05  normals  utilt_falco
+littlemac AttackS4    attacks4    c03attacks4s   1.11  smashes  fsmash_little_mac
+fox       AttackHi4   attackhi4   c04attackhi4   1.08  smashes  usmash_fox
+palutena  AttackAirN  attackairn  c05attackairn  0.95  aerials  nair_palutena
+demon     AttackAirF  attackairf  c05attackairf  1.007 aerials  fair_kazuya
+cloud     AttackAirB  attackairb  c05attackairb  1.03  aerials  bair_cloud
+kamui     AttackAirHi attackairhi c05attackairhi 0.99  aerials  uair_corrin
+krool     AttackAirLw attackairlw c05attackairlw 1.15  aerials  dair_k_rool

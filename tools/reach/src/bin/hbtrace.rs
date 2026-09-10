@@ -71,24 +71,11 @@ struct Sample {
     ok: bool,
 }
 
-fn main() {
-    let a: Vec<String> = std::env::args().skip(1).collect();
-    if a.len() < 5 {
-        eprintln!("usage: hbtrace <acmd.txt> <game_fn> <fighter> <anim_stem> <scale> [--json]");
-        std::process::exit(2);
-    }
-    let (path, want, fighter, stem) = (&a[0], &a[1], &a[2], &a[3]);
-    let sscale: f32 = a[4].parse().unwrap();
-    let as_json = a.iter().any(|x| x == "--json");
-
-    let (sn, sp, sb) = load_skel(&format!("work/fk/{fighter}_skel.json"));
-    // The SHIPPED skeleton, not the vanilla one: tools/add-bones.sh grafts on Sword1 and Stick,
-    // and measuring against vanilla would report those hitboxes as unmeasurable.
-    let (pn, pp, pb) = load_skel("work/fk/pikachu_shipped_skel.json");
-    let anim = load_anim(&format!("work/fk/{fighter}_{stem}.json"));
-
-    // Walk the ACMD, keeping a live hitbox set and the animation frame each game frame maps to.
-    let text = std::fs::read_to_string(path).unwrap();
+// Walks an ACMD script and returns, for each game frame, the animation frame it maps to and the
+// hitboxes live on it. Pulled out so the reference and our own generated script can both be
+// walked: the mod scales `top`-anchored offsets (tools/reach/src/bin/topscale.rs), so measuring
+// our side against the vanilla script would check the input rather than what we ship.
+fn walk(text: &str, want: &str) -> Vec<(f32, f32, Vec<Hitbox>)> {
     let mut infn = false;
     let mut frame = 1.0f32;
     let mut rate = 1.0f32; // FT_MOTION_RATE: animation frames advanced per game frame
@@ -140,36 +127,75 @@ fn main() {
                 .trim_start_matches("Hash40::new(\"")
                 .trim_end_matches("\")")
                 .to_string();
-            live.insert(
-                id,
-                Hitbox {
-                    id,
-                    bone,
-                    size: fnum(args, 9),
-                    off: [fnum(args, 10), fnum(args, 11), fnum(args, 12)],
-                },
-            );
+            live.insert(id, Hitbox { id, bone, size: fnum(args, 9),
+                                     off: [fnum(args, 10), fnum(args, 11), fnum(args, 12)] });
         }
     }
+    timeline
+}
+
+fn main() {
+    let a: Vec<String> = std::env::args().skip(1).collect();
+    if a.len() < 5 {
+        eprintln!("usage: hbtrace <acmd.txt> <game_fn> <fighter> <anim_stem> <scale> [--json] \\");
+        eprintln!("                [--ours-acmd <path> --ours-fn <name>]");
+        std::process::exit(2);
+    }
+    let (path, want, fighter, stem) = (&a[0], &a[1], &a[2], &a[3]);
+    let sscale: f32 = a[4].parse().unwrap();
+    let as_json = a.iter().any(|x| x == "--json");
+
+    let (sn, sp, sb) = load_skel(&format!("work/fk/{fighter}_skel.json"));
+    // The SHIPPED skeleton, not the vanilla one: tools/add-bones.sh grafts on Sword1 and Stick,
+    // and measuring against vanilla would report those hitboxes as unmeasurable.
+    let (pn, pp, pb) = load_skel("work/fk/pikachu_shipped_skel.json");
+    let anim = load_anim(&format!("work/fk/{fighter}_{stem}.json"));
+    // OURS is evaluated against the animation we actually ship, which tools/anim-dropin.sh may
+    // have scale-compensated. Measuring both sides against the pristine source animation would
+    // report the uncorrected error and hide whether the compensation worked.
+    let ours_anim = match std::fs::metadata(format!("work/fk/shipped_{stem}.json")) {
+        Ok(_) => load_anim(&format!("work/fk/shipped_{stem}.json")),
+        Err(_) => anim.clone(),
+    };
+
+    let timeline = walk(&std::fs::read_to_string(path).unwrap(), want);
+
+    // Our own generated script, when given. Joined on (game frame, hitbox id).
+    let ours_tl = match (a.iter().position(|x| x == "--ours-acmd"), a.iter().position(|x| x == "--ours-fn")) {
+        (Some(i), Some(j)) => {
+            let t = std::fs::read_to_string(&a[i + 1]).unwrap_or_default();
+            let tl = walk(&t, &a[j + 1]);
+            if tl.is_empty() {
+                eprintln!("  ! --ours-acmd matched no hitboxes for fn {} -- check the name", a[j + 1]);
+                std::process::exit(4);
+            }
+            Some(tl)
+        }
+        _ => None,
+    };
+    let ours_at = |gf: f32, id: u32| -> Option<Hitbox> {
+        let tl = ours_tl.as_ref()?;
+        tl.iter().find(|(f, _, _)| (*f - gf).abs() < 1e-3)
+            .and_then(|(_, _, hs)| hs.iter().find(|h| h.id == id).cloned())
+    };
 
     // Evaluate both skeletons on every active frame.
     let mut out: Vec<Sample> = vec![];
     for (gf, af, hbs) in &timeline {
         for h in hbs {
             let ai = af.max(0.0) as usize;
+            // Our hitbox may carry a different offset than the reference's (topscale), so take
+            // ours from our own script where available and fall back to the reference otherwise.
+            let ho = ours_at(*gf, h.id).unwrap_or_else(|| h.clone());
             // `top` is the fighter's origin rather than a skeleton bone, so its transform is the
             // identity on both fighters. Such a hitbox still deviates by the scale ratio, so it
             // is measured rather than skipped as an absent bone.
-            let (sw, ow) = if h.bone == "top" {
-                (Some(ID), Some(ID))
-            } else {
-                (bone_world(&sn, &sp, &sb, &anim, &h.bone, ai),
-                 bone_world(&pn, &pp, &pb, &anim, &h.bone, ai))
-            };
+            let sw = if h.bone == "top" { Some(ID) } else { bone_world(&sn, &sp, &sb, &anim, &h.bone, ai) };
+            let ow = if ho.bone == "top" { Some(ID) } else { bone_world(&pn, &pp, &pb, &ours_anim, &ho.bone, ai) };
             match (sw, ow) {
                 (Some(sw), Some(ow)) => {
                     let mut r = transform_point(h.off, sw);
-                    let mut o = transform_point(h.off, ow);
+                    let mut o = transform_point(ho.off, ow);
                     for i in 0..3 {
                         r[i] *= sscale;
                         o[i] *= PIKACHU_SCALE;
@@ -186,9 +212,9 @@ fn main() {
 
     if as_json {
         let hits: Vec<String> = out.iter().map(|s| format!(
-            "{{\"f\":{},\"id\":{},\"bone\":\"{}\",\"size\":{:.3},\"ok\":{},\
+            "{{\"f\":{},\"id\":{},\"bone\":\"{}\",\"size\":{:.3},\"size_ours\":{:.3},\"ok\":{},\
              \"ref\":[{:.3},{:.3},{:.3}],\"ours\":[{:.3},{:.3},{:.3}],\"dev\":{:.3}}}",
-            s.gf, s.id, s.bone, s.size, s.ok,
+            s.gf, s.id, s.bone, s.size, s.size / sscale * PIKACHU_SCALE, s.ok,
             s.reference[0], s.reference[1], s.reference[2], s.ours[0], s.ours[1], s.ours[2],
             if s.ok { s.dev } else { -1.0 })).collect();
         println!("{{\"move\":\"{want}\",\"fighter\":\"{fighter}\",\"scale\":{sscale},\"hits\":[{}]}}", hits.join(","));

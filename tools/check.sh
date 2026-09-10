@@ -38,6 +38,9 @@ else
   echo "  --  no vl.prc shipped"
 fi
 
+echo; echo "== 3c. ported hitboxes land where the source character's do =="
+bash "$ROOT/tools/check-hitboxes.sh" || rc=1
+
 echo; echo "== 4. prcxml is UTF-16 with BOM =="
 P="$ROOT/pikachu-moveset/mod/fighter/common/param/fighter_param.prcxml"
 if [ "$(xxd -l 2 -p "$P")" = "fffe" ]; then echo "  ok  BOM present"; else echo "  FAIL no BOM"; rc=1; fi
