@@ -144,3 +144,22 @@ and Tier 1 remains script-first.
 - [ ] Console extraction session: Chrom's `fighter/chrom/model/sword/c00/` **and Pikachu's
       vanilla `fighter/pikachu/model/body/c00/`**. The Pikachu body model is the real forcing
       item — no download substitutes for it.
+
+---
+
+## Added after the API research
+
+- [ ] **Read George's actual source** — `github.com/LilyLavender/ssbuGeorgeMoveset`. The whole
+      reference-recipe was reverse-engineered from the binary; the source is public and makes
+      that unnecessary. Verify `reference-recipe.md` against it.
+- [ ] **Evaluate `WuBoytH/SSBU-Dumped-Scripts` as the primary parity source.** It is the vanilla
+      ACMD for every fighter, article and item — the actual script, not a hitbox table. Likely
+      better than rubendal for armor and intangibility windows, which was the one gap in the
+      Round 3 plan. Falls inside the already-approved "public datamined data" decision.
+- [ ] Pull episode 39 (`ssbu-mod-workshop/episode39`) as the sword template and episode 46
+      (`ArticleCloningGuide.md`) as the article-clone template.
+- [ ] Fetch `ParamLabels.csv` **and** `articles/Labels.txt` from `ultimate-research/param-labels`.
+
+**Risk downgraded:** `ModelModule::set_scale` and `set_joint_scale` are confirmed to exist in the
+`lua_bind` surface. Runtime scaling still has no worked example in a shipped mod, but it is no
+longer speculative — only unproven.
