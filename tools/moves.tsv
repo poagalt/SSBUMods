@@ -1,11 +1,22 @@
-chrom     Attack11    attack11    c00attack11    0.96  normals  jab_chrom
-elight    AttackDash  attackdash  c00attackdash  1.112 normals  dash_attack_mythra
-elight    AttackS3    attacks3    c01attacks3s   1.112 normals  ftilt_mythra
-falco     AttackHi3   attackhi3   c02attackhi3   1.05  normals  utilt_falco
-littlemac AttackS4    attacks4    c03attacks4s   1.11  smashes  fsmash_little_mac
-fox       AttackHi4   attackhi4   c04attackhi4   1.08  smashes  usmash_fox
-palutena  AttackAirN  attackairn  c05attackairn  0.95  aerials  nair_palutena
-demon     AttackAirF  attackairf  c05attackairf  1.007 aerials  fair_kazuya
-cloud     AttackAirB  attackairb  c05attackairb  1.03  aerials  bair_cloud
-kamui     AttackAirHi attackairhi c05attackairhi 0.99  aerials  uair_corrin
-krool     AttackAirLw attackairlw c05attackairlw 1.15  aerials  dair_k_rool
+# source | acmd file | acmd fn | animation stem | plugin module | label
+# Scale comes from tools/scales.tsv (generated from the game's fighter_param.prc), never from here.
+chrom     Attack11    attack11    c00attack11    normals   jab_chrom
+elight    AttackDash  attackdash  c00attackdash  normals   dash_attack_mythra
+elight    AttackS3    attacks3    c01attacks3s   normals   ftilt_mythra
+falco     AttackHi3   attackhi3   c02attackhi3   normals   utilt_falco
+robot     AttackLw3   attacklw3   c02attacklw3   normals   dtilt_rob
+littlemac AttackS4    attacks4    c03attacks4s   smashes   fsmash_little_mac
+fox       AttackHi4   attackhi4   c04attackhi4   smashes   usmash_fox
+gamewatch AttackLw4   attacklw4   c04attacklw4   smashes   dsmash_gw
+palutena  AttackAirN  attackairn  c05attackairn  aerials   nair_palutena
+demon     AttackAirF  attackairf  c05attackairf  aerials   fair_kazuya
+cloud     AttackAirB  attackairb  c05attackairb  aerials   bair_cloud
+kamui     AttackAirHi attackairhi c05attackairhi aerials   uair_corrin
+krool     AttackAirLw attackairlw c05attackairlw aerials   dair_k_rool
+demon     CatchAttack catchattack e00catchattack throws    pummel_kazuya
+gaogaen   ThrowB      throwb      e01throwb      throws    bthrow_incineroar
+mewtwo    ThrowHi     throwhi     e01throwhi     throws    uthrow_mewtwo
+koopa     DownAttackU downattacku f03downattacku defensive getup_up_bowser
+koopa     DownAttackD downattackd f04downattackd defensive getup_down_bowser
+koopa     SlipAttack  slipattack  g03slipattack  defensive trip_bowser
+ganon     CliffAttack cliffattack g02cliffattack defensive ledge_ganon

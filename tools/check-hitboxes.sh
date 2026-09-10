@@ -15,6 +15,9 @@ while IFS= read -r line; do
     if echo "$line" | grep -q "no FK skeleton"; then
         echo "FAIL: $name is unmeasurable (no FK skeleton extracted)"; fail=1; continue
     fi
+    if echo "$line" | grep -q "nothing to measure"; then
+        continue
+    fi
     if echo "$line" | grep -q "NOT MEASURED"; then
         echo "FAIL: $name $(echo "$line" | sed 's/.*NOT MEASURED/NOT MEASURED/')"; fail=1; continue
     fi

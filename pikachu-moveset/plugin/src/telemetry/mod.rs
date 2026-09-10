@@ -30,6 +30,17 @@ static mut LAST_MOTION: [u64; 8] = [0; 8];
 static mut LAST_STATUS: [i32; 8] = [-1; 8];
 static mut MOTION_START: [f32; 8] = [0.0; 8];
 static mut START_X: [f32; 8] = [0.0; 8];
+// Vertical travel, and the highest point reached during a motion.
+//
+// A dropped-in animation supplies the SOURCE fighter's `Rot` standing height -- around 11 model
+// units against Pikachu's 5.22 -- so his body is DRAWN about 5.7 world units higher during these
+// moves. Playtest read that as the aerials "carrying pikachu higher/lower depending on the jump
+// height of the character the attack came from". None of the aerial motions has the `move` flag
+// and their Trans tracks are flat, so the animation cannot be moving him; his trajectory should
+// be pure physics. This logs it instead of arguing it: compare peak_y for a short hop with an
+// aerial against a short hop without one.
+static mut START_Y: [f32; 8] = [0.0; 8];
+static mut PEAK_Y: [f32; 8] = [0.0; 8];
 
 static mut DUMPED_PARAMS: [bool; 8] = [false; 8];
 
@@ -77,25 +88,34 @@ unsafe extern "C" fn pikachu_telemetry(fighter: &mut L2CFighterCommon) {
     let end = MotionModule::end_frame(boma);
     let status = StatusModule::status_kind(boma);
     let pos_x = PostureModule::pos_x(boma);
+    let pos_y = PostureModule::pos_y(boma);
 
     if motion != LAST_MOTION[entry] {
         // Report how long the motion we are leaving actually lasted, which is the number that
-        // matters for perceived endlag.
+        // matters for perceived endlag, plus how far it carried him. `peak` is measured against
+        // the height the motion started at, so a short hop's apex is directly comparable with
+        // and without an aerial attack.
         if LAST_MOTION[entry] != 0 {
             println!(
-                "[rat] p{} motion {:#012x} ended after {:.0}f, moved x {:+.2}",
-                entry, LAST_MOTION[entry], MOTION_START[entry], pos_x - START_X[entry]
+                "[rat] p{} motion {:#012x} ended after {:.0}f, moved x {:+.2} y {:+.2} peak {:+.2}",
+                entry, LAST_MOTION[entry], MOTION_START[entry],
+                pos_x - START_X[entry], pos_y - START_Y[entry], PEAK_Y[entry] - START_Y[entry]
             );
         }
         println!(
-            "[rat] p{} motion {:#012x} start  end={:.0}  status={}",
-            entry, motion, end, status
+            "[rat] p{} motion {:#012x} start  end={:.0}  status={}  y={:.2}",
+            entry, motion, end, status, pos_y
         );
         LAST_MOTION[entry] = motion;
         MOTION_START[entry] = 0.0;
         START_X[entry] = pos_x;
+        START_Y[entry] = pos_y;
+        PEAK_Y[entry] = pos_y;
     } else {
         MOTION_START[entry] = frame;
+        if pos_y > PEAK_Y[entry] {
+            PEAK_Y[entry] = pos_y;
+        }
     }
 
     // Status changes carry the motion frame they happened on. Leaving an attack status is the

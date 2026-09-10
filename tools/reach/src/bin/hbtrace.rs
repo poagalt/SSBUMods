@@ -165,8 +165,13 @@ fn main() {
         (Some(i), Some(j)) => {
             let t = std::fs::read_to_string(&a[i + 1]).unwrap_or_default();
             let tl = walk(&t, &a[j + 1]);
-            if tl.is_empty() {
-                eprintln!("  ! --ours-acmd matched no hitboxes for fn {} -- check the name", a[j + 1]);
+            // Empty is only a problem when the reference has hitboxes and we do not. Some ported
+            // moves legitimately have none -- Mewtwo's u-throw does its damage through a throw
+            // collision (ATTACK_ABS), not an ATTACK hitbox -- and failing those as a broken
+            // function name would be a false alarm.
+            if tl.is_empty() && !timeline.is_empty() {
+                eprintln!("  ! --ours-acmd has no hitboxes for fn {} but the reference has {} -- check the name",
+                          a[j + 1], timeline.len());
                 std::process::exit(4);
             }
             Some(tl)
@@ -235,6 +240,13 @@ fn main() {
         // as a perfect result when it actually means nothing was measured at all. Say so loudly.
         let v: Vec<&Sample> = out.iter().filter(|s| s.ok).collect();
         let skipped = out.len() - v.len();
+        // A move whose source script has no ATTACK hitboxes at all is not a failure: Mewtwo's
+        // u-throw does its damage through a throw collision (ATTACK_ABS). Distinguish that from
+        // "the hitboxes exist but a bone is missing", which is a real unverified move.
+        if out.is_empty() {
+            println!("\n  no ATTACK hitboxes in the source script (throw or catch collision only) -- nothing to measure");
+            return;
+        }
         if v.is_empty() {
             let bones: Vec<&str> = out.iter().map(|s| s.bone.as_str()).collect::<std::collections::BTreeSet<_>>().into_iter().collect();
             println!("\n  NOT MEASURED: all {} samples skipped -- bone(s) {} absent from Pikachu",
