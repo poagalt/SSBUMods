@@ -108,7 +108,7 @@ fn main() {
         // motion -- so it is literally how a move feels coming in, and it had never been copied.
         // Measured across all 48 ported motions, exactly one disagreed: Palutena's catch_dash
         // blends over 3 frames and ours snapped in over 0. One instance, but the whole class is
-        // fixed by copying the field, and tools/motion-patch/src/bin/blend.rs now runs in check.sh
+        // fixed by copying the field, and tools/motion-patch/src/bin/mlparity.rs now runs in check.sh
         // so it cannot drift back.
         d.blend_frames = s.blend_frames;
         let f = |e: &Option<motion_lib::mlist::Extra>| match e {

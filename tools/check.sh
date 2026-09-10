@@ -161,7 +161,7 @@ elif [ "$want" != "$have" ]; then
 else
   # Every name it will ask the console about must be a name we actually put in motion_list.bin,
   # or an UNRESOLVED line on hardware would be the check's own bug rather than a real failure.
-  # Step 3e already proves that: blend.exe reports "not comparable (we do not ship it)" per motion
+  # Step 3e already proves that: mlparity.exe reports "not comparable (we do not ship it)" per motion
   # and came back with none.
   echo "  ok  motions.rs matches ported-motions.txt ($(echo "$have" | wc -l | tr -d ' ') motions)"
 fi
@@ -184,15 +184,20 @@ if ! "$VAR" "$ROOT/extracted" "$M" 2>/dev/null | grep -q '^0 source motion'; the
   echo "  FAIL a ported move has a variant on the source fighter that this moveset does not have"; rc=1
 fi
 
-echo; echo "== 3e. each ported move blends in on its source's timing =="
-# blend_frames is how many frames the engine cross-fades from the previous pose INTO the motion, so
-# it is literally how a move feels coming in -- the "seamless transition" requirement in numbers.
-# motion-patch had never copied it, and Palutena's catch_dash was snapping in over 0 frames instead
-# of 3. The tool itself used to report a clean pass when handed no motions; it now exits 2 on that.
+echo; echo "== 3e. each ported move carries its source's whole motion entry =="
+# NOT JUST blend_frames, WHICH IS ALL THIS USED TO CHECK. The entry also carries `cancel_frame`
+# (the FAF -- literally the frame data this project exists to reproduce), the intangibility window,
+# `no_stop_intp` and the animation flag set. motion-patch patches all of them and nothing verified
+# any of them; measured against vanilla the FAF patch alone moves 20 of the 46 comparable entries,
+# by as much as 11 frames.
+#
+# blend_frames is the "seamless transition" requirement in numbers, and it was worth finding on its
+# own: Palutena's catch_dash was snapping in over 0 frames instead of 3.
 MOTIONS=$(grep -vE '^\s*#|^\s*$' "$ROOT/tools/ported-motions.txt" | tr '\n' ' ')
-"$ROOT/tools/motion-patch/target/release/blend.exe" "$ROOT/extracted" "$M" $MOTIONS 2>/dev/null | tail -1
-"$ROOT/tools/motion-patch/target/release/blend.exe" "$ROOT/extracted" "$M" $MOTIONS >/dev/null 2>&1 \
-  || { echo "  FAIL a ported move blends on Pikachu's timing rather than its source's"; rc=1; }
+MLP="$ROOT/tools/motion-patch/target/release/mlparity.exe"
+"$MLP" "$ROOT/extracted" "$M" $MOTIONS 2>/dev/null | tail -1
+"$MLP" "$ROOT/extracted" "$M" $MOTIONS >/dev/null 2>&1 \
+  || { echo "  FAIL a ported move's motion entry does not match its source's"; rc=1; }
 
 echo; echo "== 3c. ported hitboxes land where the source character's do =="
 bash "$ROOT/tools/check-hitboxes.sh" || rc=1

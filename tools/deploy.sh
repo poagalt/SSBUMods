@@ -115,9 +115,17 @@ FORCE_ALL=0
 [ "${1:-}" = "--all" ] && FORCE_ALL=1
 declare -A PREV=()
 if [ "$FORCE_ALL" = "0" ] && [ -f "$MANIFEST" ]; then
-    # Two fields: "<size>:<mtime>\t<path>". The signature is stored as one opaque string so the
+    # Two fields: "<size>:<sha1>\t<path>". The signature is stored as one opaque string so the
     # reader and the writer cannot disagree about how many columns there are -- which they briefly
     # did, and the effect was a manifest that silently loaded nothing and skipped no files.
+    #
+    # IT USED TO BE size:mtime, AND THAT MADE EVERY DEPLOY UPLOAD EVERYTHING. tools/anim-dropin.sh
+    # regenerates all 74 animations on every build, so their mtimes always change even when the
+    # bytes do not -- and the mod tree is only 6.4 MB, so hashing the whole thing costs 0.1s.
+    # Uploading 80-odd files instead of the two that changed is not just slow: sys-ftpd truncates
+    # roughly one upload in eighty to zero bytes, so the pointless re-uploads were the main source
+    # of the corruption the repair pass exists to fix. Three consecutive deploys each found exactly
+    # one zero-byte .nuanmb; content hashing removes most of that exposure.
     while IFS=$'\t' read -r msig mpath; do
         [ -n "${mpath:-}" ] && PREV["$mpath"]="$msig"
     done < "$MANIFEST"
@@ -132,9 +140,18 @@ skipped=0
 # exactly that way: motion_list.bin verified as 45284 remote against 45412 local right after a
 # rebuild landed mid-deploy. The verifier found it, which is what it is for -- but the manifest
 # must not be able to lie in the first place.
+#
+# Hashed in ONE batch rather than per file. A `sha1sum` process per file is 86 process spawns on
+# Windows, which is slower than reading the 6.4 MB.
+declare -A HASH=()
+while read -r h p; do
+    HASH["$p"]="$h"
+done < <(sha1sum "${FILES[@]}" 2>/dev/null | sed 's/^\([0-9a-f]*\)  */\1 /')
 declare -A SENT=()
 for f in "${FILES[@]}"; do
-    sig="$(stat -c%s "$f"):$(stat -c%Y "$f")"
+    # Size stays in the signature alongside the hash. It is what the console is verified against,
+    # so keeping both means a manifest entry can be read against a remote SIZE query directly.
+    sig="$(stat -c%s "$f"):${HASH[$f]:-nohash}"
     SENT["$f"]="$sig"
     if [ "${PREV[$f]:-}" = "$sig" ]; then
         skipped=$((skipped+1))

@@ -1,7 +1,7 @@
 # Every motion entry this moveset replaces, as <source fighter>:<motion>.
 #
 # ONE LIST, because it was three. tools/build.sh's dropin pre-flight had its own copy inline,
-# tools/motion-patch/src/bin/blend.rs took its motions as command-line arguments (and reported a
+# tools/motion-patch/src/bin/mlparity.rs (then blend.rs) took its motions as command-line arguments
 # clean pass when given none), and tools/motion-patch/src/main.rs has MAP. Three lists that must
 # agree and nothing checking that they did -- which is how `throw_f` sat outside the pre-flight
 # while its animation was wrong, and how the blend audit ran on zero motions for as long as it
