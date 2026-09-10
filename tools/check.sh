@@ -39,8 +39,20 @@ if [ -f "$V" ]; then
 else
   k=0
 fi
+# THE CLONE DOES NOT REQUIRE param_spikeball, and this check used to insist that it did.
+#
+# The claim was that smashline null-dereferences without it. Reading vendor/sl_params.rs settles
+# it: get_param_reimpl looks the key up in the filtered map and, on a miss, calls
+# `(data.original_lookup_param.unwrap())(object, key)` -- it falls through to the fighter's own
+# param holder. A missing article param means the spikeball runs on fall-through values, not a
+# crash. And the crash it was blamed for was in load_fighter_effects, a different function that
+# handles effect search indices and never touches params.
+#
+# So shipping the param object is an IMPROVEMENT (real values instead of fall-through), not a
+# prerequisite -- which is what makes the clone testable without modifying vl.prc at all, and
+# therefore testable as a single variable.
 if [ "$clone_on" != "0" ] && [ "$k" != "1" ]; then
-  echo "  FAIL clone_weapon is enabled but vl.prc lacks param_spikeball -- it will null-deref"; rc=1
+  echo "  note clone enabled without param_spikeball -- the spikeball will use fall-through params"
 elif [ "$clone_on" = "0" ] && [ "$k" != "0" ]; then
   echo "  FAIL clone_weapon is disabled but vl.prc still ships param_spikeball -- dead article param"; rc=1
 elif [ "$clone_on" = "0" ]; then

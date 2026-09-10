@@ -57,7 +57,31 @@ use smashline::*;
 // While this is false, Pikachu must keep his vanilla vl.prc. `param_spikeball` would declare a
 // 21st article param with no weapon behind it, and Training Modpack's save state walks article
 // indices calling get_article and remove_exist_object_id.
-pub const CLONE_ENABLED: bool = false;
+// ENABLED, as a deliberate single-variable experiment.
+//
+// Everything else about this build is unchanged: Piranha Plant's neutral-B ACMDs are still NOT
+// ported, so Pikachu's neutral-B is still Thunder Jolt and no move behaves differently. The only
+// observable is whether Pikachu LOADS. That makes the answer unambiguous either way, and if it
+// loads, nothing about a playtest of the rest is compromised.
+//
+// WHY IT IS WORTH THE ONE RESTART THIS COSTS. `use_original_code: true` makes smashline load
+// Piranha Plant's fighter module and run the spikeball's OWN code (see get_weapon_code_dependency
+// in vendor/sl_create_agent.rs) -- so a working clone gives the ball's entire real behaviour,
+// exactly: the arc, the juggling, the damage, all of it. Without it, Ptooie means hand-writing a
+// projectile's whole lifecycle onto one of Pikachu's own articles, which also looks wrong. The two
+// paths differ by an order of magnitude in both effort and fidelity, so which one to build is worth
+// settling before building either.
+//
+// NO vl.prc IS SHIPPED WITH THIS. The old belief was that the clone requires param_spikeball in
+// the host's vl.prc or smashline null-dereferences. vendor/sl_params.rs says otherwise:
+// get_param_reimpl falls through to `original_lookup_param` on a miss. So the ball runs on
+// fall-through params rather than crashing, and leaving vl.prc alone keeps this experiment to one
+// variable -- which matters, because a modified vl.prc was the other suspect for the v0.24 load
+// crash and conflating them again would waste the test.
+//
+// IF PIKACHU FAILS TO LOAD: set this back to false, rebuild, redeploy. That is a one-line revert
+// and roughly a minute now that deploys skip unchanged files.
+pub const CLONE_ENABLED: bool = true;
 
 pub const FIGHTER_PIKACHU_GENERATE_ARTICLE_SPIKEBALL: i32 = 0x6;
 
