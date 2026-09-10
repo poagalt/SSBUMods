@@ -64,6 +64,16 @@ echo; echo "== 4. fighter_param.prcxml parses and carries Pikachu's attributes =
   jump_y=50.51 mini_jump_y=17.34 jump_aerial_y=50.51 jump_initial_y=27.7805 \
   air_speed_x_stable=1.332 air_speed_y_stable=1.63 dive_speed_y=3.097 air_accel_y=0.13 \n  landing_attack_air_frame_n=12 landing_attack_air_frame_f=10 landing_attack_air_frame_b=8 \n  landing_attack_air_frame_hi=9 landing_attack_air_frame_lw=14 || rc=1
 
+echo; echo "== 4b. fighter_param_motion.prcxml carries Fox's dodge windows =="
+"$ROOT/tools/prc-tool/target/release/prcxmlcheck.exe" \
+  "$ROOT/pikachu-moveset/mod/fighter/common/param/fighter_param_motion.prcxml" 7 \
+  --table fighter_param_motion_table \
+  escape_air_cancel_frame=40 escape_air_stiff_frame=38 escape_air_slide_stiff_frame=63 \
+  escape_air_slide_d_stiff_frame=54 escape_air_slide_u_stiff_frame=75 escape_attack_frame=19 \
+  escape_b_cancel_frame=33 escape_b_hit_normal_frame=11 escape_f_cancel_frame=27 \
+  escape_f_hit_normal_frame=9 escape_f_penalty_hit_normal_frame=5 escape_n_cancel_frame=24 \
+  escape_n_hit_normal_frame=12 escape_n_penalty_hit_normal_frame=10 || rc=1
+
 echo; echo "== 5. character select rename is present and correctly encoded =="
 bash "$ROOT/tools/check-name.sh" || rc=1
 

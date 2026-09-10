@@ -6,7 +6,11 @@
 // parsed and was silently dropped: no error, no conflict report, and every attribute stayed
 // vanilla on hardware. A check that inspects encoding cannot catch that; one that parses can.
 //
-// usage: prcxmlcheck <file.prcxml> <index> <hash=value>...
+// usage: prcxmlcheck <file.prcxml> <index> <hash=value>... [--table <name>]
+//
+// --table defaults to fighter_param_table. fighter_param_motion.prcxml uses
+// fighter_param_motion_table, and hardcoding the name meant this gate could not cover the dodge
+// params at all.
 use prc::{ParamKind, ParamStruct};
 use prc::hash40::hash40;
 use std::io::BufReader;
@@ -15,6 +19,19 @@ fn main() {
     let mut a = std::env::args().skip(1);
     let path = a.next().expect("prcxml path");
     let want_index: usize = a.next().expect("index").parse().expect("index must be a number");
+    let rest: Vec<String> = a.collect();
+    let table_name = rest.iter().position(|x| x == "--table")
+        .and_then(|i| rest.get(i + 1).cloned())
+        .unwrap_or_else(|| "fighter_param_table".to_string());
+    let specs: Vec<String> = {
+        let mut v = vec![];
+        let mut it = rest.iter();
+        while let Some(x) = it.next() {
+            if x == "--table" { it.next(); continue }
+            v.push(x.clone());
+        }
+        v
+    };
 
     let bytes = std::fs::read(&path).expect("read");
     if bytes.starts_with(&[0xff, 0xfe]) || bytes.starts_with(&[0xfe, 0xff]) {
@@ -32,11 +49,11 @@ fn main() {
         Err(e) => { println!("FAIL {path}: does not parse as prcxml: {e:?}"); std::process::exit(1) }
     };
 
-    let Some((_, table)) = root.0.iter().find(|(k, _)| *k == hash40("fighter_param_table")) else {
-        println!("FAIL {path}: no fighter_param_table"); std::process::exit(1)
+    let Some((_, table)) = root.0.iter().find(|(k, _)| *k == hash40(&table_name)) else {
+        println!("FAIL {path}: no {table_name}"); std::process::exit(1)
     };
     let ParamKind::List(list) = table else {
-        println!("FAIL {path}: fighter_param_table is not a list"); std::process::exit(1)
+        println!("FAIL {path}: {table_name} is not a list"); std::process::exit(1)
     };
     let Some(ParamKind::Struct(s)) = list.0.get(want_index) else {
         println!("FAIL {path}: index {want_index} is not a struct -- the patch targets the wrong slot");
@@ -45,7 +62,7 @@ fn main() {
 
     let mut bad = 0;
     let mut n = 0;
-    for spec in a {
+    for spec in specs {
         let Some((k, v)) = spec.split_once('=') else { continue };
         let want: f32 = v.parse().expect("value");
         n += 1;

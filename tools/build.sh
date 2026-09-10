@@ -29,6 +29,9 @@ export PATH="/c/Users/poaga/.cargo/bin:$PATH:/c/Users/poaga/w64devkit/bin"
 echo "== 0. read every fighter's scale param out of the game =="
 bash "$ROOT/tools/gen-scales.sh"
 
+echo; echo "== 0a. generate the dodge frame windows =="
+bash "$ROOT/tools/gen-motion-params.sh"
+
 echo; echo "== 0b. generate the character select rename =="
 bash "$ROOT/tools/gen-name.sh"
 

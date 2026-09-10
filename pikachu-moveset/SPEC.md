@@ -50,7 +50,8 @@ Status: **in design (grilling)**. Nothing below is settled until the open questi
 | B-throw | Incineroar | |
 | U-throw | Mewtwo | |
 | D-throw | Pikachu | unchanged |
-| Get-up attack | TBD | "best in the game" — under research |
+| Get-up attack | Bowser | face-up, face-down and trip attack; chosen after research |
+| Ledge attack | Ganondorf | |
 | Spot dodge / roll / air dodge | Fox | |
 
 ## Attributes
@@ -68,7 +69,7 @@ Status: **in design (grilling)**. Nothing below is settled until the open questi
 
 ## Explicitly out of scope / unassigned
 
-Ledge attack, taunts, victory animations, voice/SFX, CSS name & portraits.
+Taunts, victory animations, voice/SFX, portraits. The CSS name and the ledge attack are done.
 Not yet decided whether these stay vanilla Pikachu.
 
 ## Hard constraint

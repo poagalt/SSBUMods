@@ -761,3 +761,49 @@ with Smash running, then rebuild. That unblocks:
 tools/build.sh used to prepend w64devkit to PATH, which shadows grep, awk, iconv, od, xxd and tr
 with minimal builds -- its grep returns 0 for any pattern containing "/". Any check using those
 utilities could behave differently inside the build than outside. w64devkit now goes last.
+
+## Corrections at v0.18
+
+**The jab "flow regression" I recorded was wrong.** I wrote that Chrom's jab chains into jab 2 and
+that porting it faithfully therefore left a jab which could neither repeat nor chain. Chrom has no
+jab 2: `dump.exe extracted chrom attack_1` returns `attack_11` and nothing else, and the round-3
+extraction confirmed it by failing to find c00attack12/13/100 in the archive at all. His jab is a
+single slash, so our port matches him exactly and there is nothing to add. The claim came from
+noticing he does not set `FIGHTER_STATUS_ATTACK_FLAG_ENABLE_RESTART` (Pikachu does) and inferring a
+follow-up that does not exist.
+
+**Animation filenames really are universal per motion.** Round 3 seemed to contradict it -- nine
+requests came back Missing -- but that was me guessing prefixes (`h00speciallw`) instead of reading
+them. Read from each source's own motion_list they are `d03speciallw*` and `d02specialhi*`, and
+Pikachu's `special_lw` is `d03speciallw.nuanmb`: the same name as Incineroar's. The rule holds; I
+just have to look the names up rather than pattern-match them.
+
+**Palutena's e01throwf and e01throwlw were extracted unnecessarily.** The brief puts f-throw on
+DK's cargo carry and leaves d-throw as vanilla Pikachu, so neither is needed. Harmless, but they
+are in extracted/ unused.
+
+**The George mod does not solve the up-B animations.** It ships no .nuanmb, no config.json and no
+motion_list at all -- its Game & Watch up-B is script-only over Diddy's animations, exactly as ours
+is over Pikachu's. So that gap is unsolved by the reference too, and the four G&W animations
+(now extracted) would need the new-file recipe plus a motion_list repoint. Not attempted while
+untestable: Pikachu's up-B is a teleport and G&W's is a parachute, so a wrong animation there
+breaks the move rather than merely looking off.
+
+### Closed at v0.18
+- **Dodge frame windows.** Open since v0.2. They live in fighter_param_motion.prc, not
+  fighter_param.prc. Diffing Pikachu's whole 132-param row against Fox's showed all FOURTEEN
+  escape_* params differ, not the one or two expected: airdodge cancel 55 -> 40, airdodge stiffness
+  50 -> 38, slide stiffness 84 -> 63 / 69 -> 54 / 109 -> 75, and the roll cancel and
+  hit-normal frames each 1 to 3 frames apart. All now read from Fox and gated.
+- **A verified inventory.** tools/inventory.sh reports, per slot, whether the script, effect
+  override, animation and frame data are each actually present, checked against the shipped files
+  rather than asserted. 25 of 25 ported slots are complete.
+
+### Deliberately not taken from Fox
+The same row diff showed the capture and grab offsets other fighters use to hold Pikachu
+(ganon_special_*, pikmin_catch_*, ryu_final_*, butterflynet_*, snake_capture_*, wiifit_capture_*,
+rockman_capture_*, gaogaen_rope_*, captain_special_hi_*, cloud_final_*, pickel_thrown_*) differ
+too. Those describe where Pikachu's BODY sits inside someone else's move, so they stay his. Same
+for the walk/run/item animation frame markers, `flip`, `motion_share`, `capture_motion_height`,
+`cliff_hang_check_length` and `stop_ceil_speed_y_threshold` -- character-wide traits outside the
+brief, which ADR 0001 excludes by decision.
