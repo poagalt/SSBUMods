@@ -404,3 +404,43 @@ anticipated. Options:
    faithful for f-smash specifically, and it moves the hurtbox too, which is how the real move
    trades range for commitment.
 4. Do the appendage work first so exact reach has something drawn behind it.
+
+## Reach applied: option 3 for f-smash, option 1 elsewhere
+
+**`tools/reach/src/bin/reanchor.rs`** re-anchored **34 hitboxes** from limb bones to `top`, at the
+world position they occupy during the *source* fighter's animation, scaled by
+`source_scale / 0.96`. Limb-anchored hitboxes went 39 → 5; the remaining 5 are Little Mac's
+f-smash across its three angles, which keep `armr` deliberately.
+
+Representative corrections:
+
+| move | bone | was (bone-local) | now (top-relative) |
+|---|---|---|---|
+| Falco u-tilt 2nd hit | `arml` | (0,0,0) at y≈0.9 on Pikachu | y=20.95 |
+| Falco u-tilt 2nd hit | `arml` | (6.2,0,0) | y=28.90 |
+| Fox u-smash | `kneer` | (0,1,0) | y=19.95 z=4.63 |
+| Corrin u-air | `haver` | (0,8,-1) | y=25.80 z=8.93 |
+| Kazuya f-air | `toel` | (0,0,0) | y=7.44 z=11.19 |
+| Chrom jab | `haver` | (0,0,8.4) | y=21.92 z=3.83 |
+
+**`tools/lunge.sh`** reproduces Little Mac's f-smash lunge with
+`SET_SPEED_EX(agent, 1.8, 0.0, *KINETIC_ENERGY_RESERVE_ATTRIBUTE_MAIN)`. His own ACMD contains no
+speed call at all — the movement is pure animation root motion — so it has to be synthesised.
+1.8 is a **first estimate**: ground friction decays the value, so actual displacement will be
+less than 1.8 × frames.
+
+Telemetry now logs `moved x` per motion, so the lunge can be calibrated against Mac's measured
+17.7 world units by frame 14 rather than guessed at again.
+
+### Confidence, honestly
+
+The vertical corrections are trustworthy — Falco's u-tilt going from y≈0.9 to y≈21 matches the
+observed symptom exactly, and Fox's u-smash and Corrin's u-air land at plausible anti-air heights.
+The **lateral (x) components are less certain**: hitbox offsets are model-space while the kinetic
+API treats x as forward, and Mythra's f-tilt second hit came out at x=−10 to −17 with y near or
+below zero, which looks wrong. If f-tilt's second hit misbehaves, that is the first thing to
+re-examine.
+
+- [ ] Calibrate the f-smash lunge speed from the logged `moved x`.
+- [ ] Re-examine Mythra f-tilt's second-hit x/y.
+- [ ] Appendages next, per the agreed order.

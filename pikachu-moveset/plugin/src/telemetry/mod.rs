@@ -29,6 +29,7 @@ pub const ENABLED: bool = true;
 static mut LAST_MOTION: [u64; 8] = [0; 8];
 static mut LAST_STATUS: [i32; 8] = [-1; 8];
 static mut MOTION_START: [f32; 8] = [0.0; 8];
+static mut START_X: [f32; 8] = [0.0; 8];
 
 unsafe extern "C" fn pikachu_telemetry(fighter: &mut L2CFighterCommon) {
     if !ENABLED {
@@ -44,14 +45,15 @@ unsafe extern "C" fn pikachu_telemetry(fighter: &mut L2CFighterCommon) {
     let frame = MotionModule::frame(boma);
     let end = MotionModule::end_frame(boma);
     let status = StatusModule::status_kind(boma);
+    let pos_x = PostureModule::pos_x(boma);
 
     if motion != LAST_MOTION[entry] {
         // Report how long the motion we are leaving actually lasted, which is the number that
         // matters for perceived endlag.
         if LAST_MOTION[entry] != 0 {
             println!(
-                "[rat] p{} motion {:#012x} ended after {:.0}f",
-                entry, LAST_MOTION[entry], MOTION_START[entry]
+                "[rat] p{} motion {:#012x} ended after {:.0}f, moved x {:+.2}",
+                entry, LAST_MOTION[entry], MOTION_START[entry], pos_x - START_X[entry]
             );
         }
         println!(
@@ -60,6 +62,7 @@ unsafe extern "C" fn pikachu_telemetry(fighter: &mut L2CFighterCommon) {
         );
         LAST_MOTION[entry] = motion;
         MOTION_START[entry] = 0.0;
+        START_X[entry] = pos_x;
     } else {
         MOTION_START[entry] = frame;
     }
