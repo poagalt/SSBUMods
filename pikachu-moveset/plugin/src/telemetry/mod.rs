@@ -31,6 +31,33 @@ static mut LAST_STATUS: [i32; 8] = [-1; 8];
 static mut MOTION_START: [f32; 8] = [0.0; 8];
 static mut START_X: [f32; 8] = [0.0; 8];
 
+static mut DUMPED_PARAMS: [bool; 8] = [false; 8];
+
+// Reads the attribute values the game is actually using, so "are the stat changes working?"
+// becomes a measurement rather than a guess. fighter_param.prcxml edits are invisible otherwise:
+// if ARCropolis fails to apply the patch, everything still runs, just with vanilla numbers.
+unsafe fn dump_params(boma: *mut smash::app::BattleObjectModuleAccessor, entry: usize) {
+    let p = |name: &str| -> f32 { WorkModule::get_param_float(boma, smash::hash40(name), 0) };
+    println!(
+        "[rat] p{} PARAMS weight={:.2} walk={:.3} dash={:.3} run={:.3}",
+        entry, p("weight"), p("walk_speed_max"), p("dash_speed"), p("run_speed_max")
+    );
+    println!(
+        "[rat] p{} PARAMS jump_y={:.2} mini_jump_y={:.2} jump_aerial_y={:.2} jump_initial_y={:.3}",
+        entry, p("jump_y"), p("mini_jump_y"), p("jump_aerial_y"), p("jump_initial_y")
+    );
+    println!(
+        "[rat] p{} PARAMS air_x={:.3} air_y={:.3} dive_y={:.3} grav={:.3} air_acc_mul={:.3} air_acc_add={:.3}",
+        entry, p("air_speed_x_stable"), p("air_speed_y_stable"), p("dive_speed_y"),
+        p("air_accel_y"), p("air_accel_x_mul"), p("air_accel_x_add")
+    );
+    println!(
+        "[rat] p{} EXPECTED weight=135 walk=1.575 dash=2.42 run=2.464 jump_y=50.51 \
+         mini=17.34 aerial=50.51 init=27.781 air_x=1.332 air_y=1.63 dive=3.097 grav=0.13",
+        entry
+    );
+}
+
 unsafe extern "C" fn pikachu_telemetry(fighter: &mut L2CFighterCommon) {
     if !ENABLED {
         return;
@@ -39,6 +66,10 @@ unsafe extern "C" fn pikachu_telemetry(fighter: &mut L2CFighterCommon) {
     let entry = WorkModule::get_int(boma, *FIGHTER_INSTANCE_WORK_ID_INT_ENTRY_ID) as usize;
     if entry >= 8 {
         return;
+    }
+    if !DUMPED_PARAMS[entry] {
+        DUMPED_PARAMS[entry] = true;
+        dump_params(boma, entry);
     }
 
     let motion = MotionModule::motion_kind(boma);
