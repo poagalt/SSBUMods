@@ -20,6 +20,15 @@
 // should still have a physical form -- which is the requirement.
 use smashline::*;
 
+// Whether the article clone is actually installed. Declared rather than inferred: the call below
+// is commented out, and tools/check.sh grepping for the call itself matched the comment and
+// demanded the vl.prc override that the disabled state must NOT ship.
+//
+// While this is false, Pikachu must keep his vanilla vl.prc. `param_spikeball` would declare a
+// 21st article param with no weapon behind it, and Training Modpack's save state walks article
+// indices calling get_article and remove_exist_object_id.
+pub const CLONE_ENABLED: bool = false;
+
 pub const FIGHTER_PIKACHU_GENERATE_ARTICLE_SPIKEBALL: i32 = 0x7;
 
 pub fn install() {

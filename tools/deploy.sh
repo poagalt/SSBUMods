@@ -38,5 +38,28 @@ while read -r f; do
     if [ "$code" = "226" ]; then echo "ok"; else echo "FAILED ($code)"; fail=1; fi
 done < <(find . -type f | sed 's|^\./||' | sort)
 
+# Files the mod used to ship and must no longer be present on the console. Uploading cannot
+# remove anything, so a file dropped from the mod folder would otherwise linger and keep
+# overriding vanilla -- `vl.prc` declared a 21st article param with no weapon behind it.
+# Explicit rather than a diff of the remote tree, so this can never delete something unrelated.
+RETIRED="
+fighter/pikachu/param/vl.prc
+"
+echo
+echo "== retiring files the mod no longer ships =="
+while read -r f; do
+    [ -z "${f// }" ] && continue
+    if [ -f "$MOD/$f" ]; then
+        echo "  SKIP  $f is still shipped -- remove it from RETIRED"; continue
+    fi
+    enc=$(printf '%s' "$f" | sed 's/ /%20/g')
+    printf "  %-56s " "$f"
+    out=$(curl -s --max-time 60 -Q "-DELE /ultimate/mods/Rat of Doom/$f" "$DEST/" 2>&1)
+    case "$out" in
+        *550*) echo "already gone" ;;
+        *)     echo "deleted" ;;
+    esac
+done <<< "$RETIRED"
+
 echo
 [ $fail -eq 0 ] && echo "DEPLOY OK" || { echo "DEPLOY HAD FAILURES"; exit 1; }

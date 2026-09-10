@@ -95,3 +95,49 @@ sword silently stops rendering — `set_mesh_visibility` on a mesh that is not i
 is a no-op, so nothing breaks, the blade just will not appear.
 
 The stale `ultimate/arcropolis/conflicts.json` was deleted so ARCropolis regenerates it cleanly.
+
+## v0.9–v0.11 — the source fighters' own animations
+
+This is the first version that **replaces Pikachu's animation files**. Eleven `.nuanmb` files are
+now shipped in `fighter/pikachu/motion/body/c00/`, each being the source fighter's own animation
+for that move, scale-compensated (see ADR 0003 and `tools/anim-dropin.sh`). SSBU names an
+animation the same on every fighter, so these are plain same-path replacements.
+
+| file | source | move |
+|---|---|---|
+| `c00attack11.nuanmb`    | Chrom       | jab |
+| `c00attackdash.nuanmb`  | Mythra      | dash attack |
+| `c01attacks3s.nuanmb`   | Mythra      | f-tilt |
+| `c02attackhi3.nuanmb`   | Falco       | u-tilt |
+| `c03attacks4s.nuanmb`   | Little Mac  | f-smash |
+| `c04attackhi4.nuanmb`   | Fox         | u-smash |
+| `c05attackairn.nuanmb`  | Palutena    | n-air |
+| `c05attackairf.nuanmb`  | Kazuya      | f-air |
+| `c05attackairb.nuanmb`  | Cloud       | b-air |
+| `c05attackairhi.nuanmb` | Corrin      | u-air |
+| `c05attackairlw.nuanmb` | K. Rool     | d-air |
+
+**If a move animates wrongly or the game hangs entering a match:** delete
+`ultimate/mods/Rat of Doom/fighter/pikachu/motion/body/c00/*.nuanmb`, keeping `motion_list.bin`.
+Pikachu falls back to his own animations. The moves still work and keep their frame data, damage
+and knockback, but limb-anchored hitboxes go back to landing in the wrong place — the defect these
+files exist to fix.
+
+**Pikachu deforms during these moves, and that is expected.** The animation carries the source's
+own bone translations, so he takes on their proportions and his limbs extend to reach the hitboxes.
+
+`model.nusktb` gained two bones in v0.9, `Sword1` and `Stick`, grafted under `HaveR` by
+`tools/add-bones.sh`. Chrom's jab and Palutena's n-air anchor hitboxes to them. Rolling back the
+model directory alone will therefore make those two moves' hitboxes fail to spawn.
+
+**To roll back to v0.8** (re-anchored hitboxes, Pikachu's own animations):
+
+```bash
+git checkout v0.8-pre-nuanmb
+bash tools/build.sh && bash tools/deploy.sh
+```
+
+Note that v0.8 and earlier contain the defects fixed in v0.9–v0.11: hitboxes frozen at one frame
+instead of sweeping, 14 capsule far ends unable to reach the plane fighters stand on, and the
+source fighters' own work-flag ids being set on Pikachu (K. Rool's belly-armor flag is Pikachu's
+`FLAG_PAUSE`).

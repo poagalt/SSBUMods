@@ -590,3 +590,50 @@ Movement measured this session, confirming the earlier root-motion table:
 | f-tilt | +0.00 | should be ~+4 (Mythra moves 3.67) |
 | u-tilt, d-tilt, u-smash, d-smash | +0.00 | correct, no source root motion |
 | dash attack | *not used this session* | over-travels by 18.33 when tested |
+
+## Open after v0.11 (source animations, exact hitboxes)
+
+### Verified done
+- All 11 dropped-in moves measure **0.00 world units** of hitbox error against the source
+  character, across 226 hitbox-frames, gated by `tools/check-hitboxes.sh` at 0.05.
+- Hitboxes sweep along the source's real trajectory again, because they ride the source's bones.
+- `Sword1` and `Stick` grafted on; Chrom's jab and Palutena's n-air no longer lose the sword's
+  bind rotation and the staff's [0,-2.2,0] offset.
+- Source fighters' own article ids and work-flag ids stripped. K. Rool's belly-armor flags were
+  Pikachu's `FLAG_STRANS_1` and `FLAG_PAUSE`; Mythra's sword article id was his electro ball.
+- `vl.prc` override retired while `clone_weapon` is disabled.
+
+### To measure on hardware (telemetry already logs what is needed)
+- **Does the engine scale root motion by the fighter `scale` param?** `anim-dropin.sh` leaves
+  `Trans` untouched because animation data cannot answer this. Little Mac's f-smash Trans runs
+  0 -> 17.77 model units. If the engine scales it, our travel is 17.77 * 0.96 = 17.06 against his
+  17.77 * 1.11 = 19.72, i.e. 14% short, and `Trans` should be scaled by 1.15625 too. Telemetry
+  logs `moved x` per motion -- compare `attack_s4_s` against 19.72.
+- **Kazuya f-air forward push.** Reported as Pikachu's own animation pushing him forward, but
+  neither Pikachu's nor Kazuya's `game_attackairf` contains a movement call and `move` is clear on
+  both motion entries, so it is neither ACMD nor root motion. Read `moved x` for `attack_air_f`.
+- **Do the attribute changes apply?** `dump_params` prints the live values against the expected
+  ones on each fighter's first frame. Grep the log for `[rat] p0 PARAMS` / `EXPECTED`.
+- **Hitbox radius.** `topscale.rs` deliberately does not scale `size`, because whether the engine
+  folds the anchor bone's inherited scale into the radius is not answerable offline. Ours is
+  currently 4-20% small on the scaled moves. If radius does NOT follow bone scale, scale `size`
+  by the same ratio; if it does, bone-anchored radii are already right and only `top`-anchored
+  ones need it.
+
+### Still to do
+- **Training Modpack save-state crash.** Best candidate was the dead `param_spikeball` article
+  param, now removed; the `FLAG_PAUSE` leak is a second candidate, also now fixed. Re-test. If it
+  persists: saving is read-only apart from a `sys_deku_flash` effect on `top` and a walk of
+  article indices calling `get_article` / `remove_exist_object_id`, so the next suspects are the
+  modified model files and the plugin's per-frame telemetry callback. Bisect by removing
+  `librat_of_doom.nro` alone, then the mod folder alone.
+- **Moves still on Pikachu's own animation**, so still subject to the bone-position mismatch:
+  d-tilt (R.O.B.), d-smash (G&W), the angled f-tilt and f-smash variants, all four throws, grab
+  and its variants, pummel, the three Bowser get-up/trip attacks, Ganondorf's ledge attack, and
+  the Fox dodges. Each needs its `.nuanmb` extracted and added to `tools/anim-dropin.sh`, plus a
+  row in `tools/moves.tsv` so the trace covers it. Extraction needs the game running (arc-network).
+- **Ptooie / spikeball.** `clone_weapon` still crashes on fighter load and is disabled. Note that
+  `FIGHTER_PIKACHU_GENERATE_ARTICLE_SPIKEBALL` was set to `0x7`, but Pikachu's vanilla article ids
+  top out at `0x5` (MONSTERBALL) per skyline-smash's tables -- so 0x6 is the next free id and 0x7
+  leaves a gap. Worth trying 0x6 before anything else.
+- Revenge, Alolan Whip, DK cargo throws; sword orientation calibration; rename from "Rat of Doom".
