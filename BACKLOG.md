@@ -807,3 +807,63 @@ too. Those describe where Pikachu's BODY sits inside someone else's move, so the
 for the walk/run/item animation frame markers, `flip`, `motion_share`, `capture_motion_height`,
 `cliff_hang_check_length` and `stop_ceil_speed_y_threshold` -- character-wide traits outside the
 brief, which ADR 0001 excludes by decision.
+
+## Status machines at v0.21
+
+All four remaining brief items were attempted. Three are in; the fourth is gated.
+
+### Revenge (down-B, Incineroar) -- implemented
+Reimplemented, because it cannot be ported: SSBU counters are not in the ACMD dumps. The scripts
+only raise a status work flag (Marth's FLAG_SHIELD frames 6-28, Incineroar's FLAG_STANCE 8-28) and
+the detection is C++. smashline has no cross-fighter status sharing -- its share hooks cover the
+four ACMD categories and nothing else.
+
+Tuning is the game's own, from fighter/gaogaen/param/vl.prc param_special_lw[0], read with a new
+tools/prc-tool prcdump: rate = min(1 + 0.5 + 0.075 * countered, 3.0), so 2.25x off a 10% hit, and
+3.0 is the "stores x3" in the brief. Also found revenge_data, a 17-row power_mul/reaction_mul/
+sub_sec table, which is why the boost drives reaction_mul as well as power_up.
+
+Detection is an on_line(Main) watcher, not the status loop, because being hit moves the fighter
+into a damage status -- the SPECIAL_LW loop stops running at the exact moment the hit lands.
+
+### Alolan Whip (side-B, Incineroar) -- implemented
+Feasible because the victim side is engine-global: CATCH names
+FIGHTER_STATUS_KIND_SWING_GAOGAEN_CATCHED, and that whole family is in the COMMON status list.
+Pikachu already carries `gaogaen_special_s_thrown_big` for being on the receiving end. Tuning from
+param_special_s[0], 50 params.
+
+**The input mapping is interpreted.** Which stick direction picks which of the three follow-ups is
+not in the ACMDs, not in the params, and the code that reads it is C++. Up gives the shoulder toss,
+down the lariat, otherwise the throw -- isolated in `chosen_followup` for a one-place change.
+
+### DK cargo carry (f-throw) -- implemented as a STATIONARY hold
+The grab and all four directional throws work, including the cargo up-throw. The carry locomotion
+does not: DK's own side is eleven fighter-specific statuses (SHOULDER_WAIT, _WALK, _TURN, _JUMP,
+_JUMP_SQUAT, _FALL, _LANDING, _PASS, _END...) which is an alternate movement mode in C++. The
+one-status-with-phases approach does not apply, because the point of cargo carry is keeping normal
+movement while holding.
+
+Release valve: an input-less carry frees itself after 120 frames. A stuck grab would be worse than
+the missing locomotion.
+
+Outstanding: DK's own throw_f animation was not extracted before the game closed, so the cargo
+grab runs his script on Pikachu's animation. One line in paths-round3.txt.
+
+### Ptooie (neutral-B) -- gated, deliberately
+Now `if CLONE_ENABLED` rather than commented out, so the call stays compiled and enabling is one
+line. Article id corrected to 0x6 (Pikachu's own run 0x0-0x5, so the old 0x7 left a gap -- a
+plausible cause of the load crash). Left off because it crashed on fighter LOAD, which blocks
+testing every other move. Piranha Plant's ACMD is deliberately unported: without a working article
+it would spawn nothing and make neutral-B worse than the Thunder Jolt it replaces. The three
+enabling steps are written at the call site.
+
+### Two build bugs these features exposed
+- build.sh ran the PREBUILT tool binaries, so editing synth.rs did nothing until rebuilt by hand.
+  An adopt_anim change silently no-opped and Revenge's stance kept the wrong animation. Tools are
+  now rebuilt as step 0.
+- That rebuild loop then aborted the whole build, because grep exits 1 when it finds nothing and
+  `set -e` treats that as fatal -- and the abort looked like a clean finish.
+- deforeign now also strips macro calls smash-script does not export, with the allowlist read from
+  smash-script's own source so it cannot drift. Incineroar's shoulder toss calls
+  CHECK_FINISH_CAMERA_IF_NOT_HP_MODE, absent from the 112 it provides. Audited: that one macro
+  only, cosmetic, and none of the 21 traced moves reference any unsupported macro.
