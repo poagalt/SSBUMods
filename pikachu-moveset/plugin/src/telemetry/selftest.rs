@@ -36,13 +36,21 @@ pub unsafe fn run(boma: *mut BattleObjectModuleAccessor, entry: usize, status_co
     }
     DONE[entry] = true;
 
-    // The object's own scale, which is the number every hitbox radius and every top-anchored offset
-    // in this mod is corrected against (tools/reach/src/bin/topscale.rs). It is asserted to be 0.96
-    // from fighter_param.prc and has never been read back. `base_scale` and `owner_scale` come along
-    // because if `scale` is ever not 0.96 the next question is immediately which of the three it is.
+    // MEASURED: ALL THREE READ 1.0, AND THAT IS NOT THE 0.96 THE MOD CORRECTS AGAINST.
+    //
+    // This was added believing `PostureModule::scale` was the fighter `scale` param, so it could
+    // confirm the 0.96 that every hitbox radius and top-anchored offset in
+    // tools/reach/src/bin/topscale.rs is scaled by. Round 1 says otherwise: scale, base_scale and
+    // owner_scale are all exactly 1.0 on a normal Pikachu. They are the RUNTIME multiplier -- the
+    // thing Giant and Mini move -- and the `scale` param is applied somewhere this cannot see.
+    //
+    // So this does not settle the bone-radius question in the backlog, and the note printed
+    // alongside says so rather than leaving the next reader to re-derive it. It is still worth
+    // logging: a value other than 1.0 would mean something is rescaling him, which would make
+    // every hitbox measurement in the project wrong at once.
     sink::diag(format!(
         "[rat] SELFTEST p{entry} scale={:.4} base={:.4} owner={:.4} status_kind_count={status_count:#x} \
-         (expected scale 0.96, count >= 0x1f7)",
+         (scale is the RUNTIME multiplier and reads 1.0 -- NOT the 0.96 fighter_param scale; count must be >= 0x1f7)",
         PostureModule::scale(boma),
         PostureModule::base_scale(boma),
         PostureModule::owner_scale(boma),

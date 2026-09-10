@@ -170,38 +170,21 @@ static mut HELD_FOR: [i32; 8] = [0; 8];
 /// Frames since FLAG_THROW_ROPE. -1 while the whip has not happened yet.
 static mut SINCE_THROW: [i32; 8] = [-1; 8];
 
-/// Horizontal distance to the closest other fighter, or -1 when there is nobody to measure.
-///
-/// EXISTS TO ANSWER "WAS ANYONE IN RANGE". A grab that does not connect has three possible
-/// explanations -- the collision was never created, nobody was inside it, or it connected and we
-/// asked the wrong question -- and the log could distinguish none of them. This is the second one.
-///
-/// Walks the fighter entry ids rather than a battle-object list because `FighterManager` gives an
-/// id per entry and every fighter in a match has one. Entries whose object is gone read as null
-/// and are skipped, which also covers the single-player case.
-unsafe fn nearest_opponent_gap(boma: *mut BattleObjectModuleAccessor) -> f32 {
-    let me = WorkModule::get_int(boma, *FIGHTER_INSTANCE_WORK_ID_INT_ENTRY_ID);
-    let my_x = PostureModule::pos_x(boma);
-    let mut best = -1.0f32;
-    for e in 0..8i32 {
-        if e == me {
-            continue;
-        }
-        let id = e as u32;
-        if sv_battle_object::is_null(id) {
-            continue;
-        }
-        let other = sv_battle_object::module_accessor(id);
-        if other.is_null() {
-            continue;
-        }
-        let d = (PostureModule::pos_x(other) - my_x).abs();
-        if best < 0.0 || d < best {
-            best = d;
-        }
-    }
-    best
-}
+// NO nearest_opponent_gap HERE, DELIBERATELY, AND THE REASON IS WORTH KEEPING.
+//
+// A probe measuring the distance to the closest opponent would answer "was anyone in range when
+// the catch box was open", which is a question the log genuinely cannot answer otherwise. It was
+// written, and then removed before shipping: reaching another fighter needs a BATTLE OBJECT id,
+// all we have is an ENTRY id, and treating one as the other is an assumption this codebase
+// declined to make ten lines away in ../speciallw when it wanted to freeze the attacker.
+//
+// Making it twice, in a probe that runs every frame of a move, would be the same class of bug
+// that froze the cargo throw -- a bad pointer handed to an engine function -- and it would be
+// self-inflicted by the diagnostics rather than by the feature.
+//
+// `GrabModule::size` covers most of what it was for anyway: a non-zero radius on frames 18-35
+// proves `macros::CATCH` executed, which separates "the ACMD never ran" from everything else.
+// Range can be read off the two fighters' positions in the log by hand if it ever matters.
 
 unsafe fn entry_of(boma: *mut BattleObjectModuleAccessor) -> usize {
     let e = WorkModule::get_int(boma, *FIGHTER_INSTANCE_WORK_ID_INT_ENTRY_ID) as usize;
@@ -400,17 +383,15 @@ unsafe extern "C" fn pikachu_specials_main_loop(fighter: &mut L2CFighterCommon) 
         // wrong thing", and nothing in the log could answer it.
         //
         // `GrabModule::size` returns the radius of grab collision n, so a non-zero size on frames
-        // 18-35 proves `macros::CATCH` executed. `pos_x` and `center_pos` put it in the world,
-        // which together with the nearest opponent's distance says whether anyone was inside it.
+        // 18-35 is direct proof that `macros::CATCH` executed -- which is the half of the question
+        // that can be answered without reaching into another fighter. See the note above
+        // `entry_of` for why the other half is not measured here.
         let g0 = GrabModule::size(boma, 0);
         let g1 = GrabModule::size(boma, 1);
-        let gx = GrabModule::pos_x(boma);
         probe::frame(format!(
             "[rat] WHIP p{entry} f={mframe:.1} is_catch={is_catch} is_grab={is_grab} \
-             cap={cap:#x} rebound={} grab_size=({g0:.2},{g1:.2}) grab_xflag={gx} \
-             nearest={:.2}; {}",
+             cap={cap:#x} rebound={} grab_size=({g0:.2},{g1:.2}); {}",
             GrabModule::is_rebound(boma),
-            nearest_opponent_gap(boma),
             probe::ctx(boma)
         ));
     }
