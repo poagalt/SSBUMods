@@ -108,7 +108,7 @@ If it isn't in this file, it isn't tracked.
       effects in the main mod. A second build that *does* require the CSK Collection could use
       each move's real visuals (Cloud's sword trail, Mac's punch flash). Separate deliverable,
       not a fix to the main one.
-- [ ] **Trip attack** (49 frames / 5 %, from the sitting state) is a third floor-adjacent move and
+- [x] **Trip attack** — assigned to Bowser, matching the get-up attack. Was a third floor-adjacent move and
       is still unassigned. Get-up is Bowser, ledge is Ganondorf.
 - [ ] Runtime scaling, moved here from Tier 1. **Note: the George mod is not a source for this
       technique** — its plugin imports zero `ModelModule` symbols and does no runtime model

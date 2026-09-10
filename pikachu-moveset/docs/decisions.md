@@ -197,3 +197,16 @@ source effects is tracked as a separate future deliverable.
 
 **Codegen scope** — One JSON parity table drives two generated artifacts: the Rust hitbox scripts
 and the patched `motion_list.yml`.
+
+## Round 5
+
+**Motion rate** — Uncapped. When a source move's length and the driving Pikachu animation
+disagree, `FT_MOTION_RATE` stretches or compresses to fit however far that goes, including
+extreme slowdowns. Frame data is unaffected; this is purely what gets drawn, and it will be
+judged on-console rather than pre-emptively clamped.
+
+**Trip attack** — Bowser, matching the get-up attack. Same source, same reach, for what is
+effectively the same defensive situation.
+
+**Sword asset** — Open. Chrom's Falchion is a sub-mesh of his body model and cannot be isolated
+without Blender, so an in-game substitute is being researched.
