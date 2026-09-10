@@ -128,3 +128,32 @@ empty stub.
 | `vendor/param-labels` | 5.8 MB | `ParamLabels.csv`, `articles/Labels.txt` |
 | `vendor/SSBU-Dumped-Scripts` | 309 MB | Vanilla ACMD under `luas/` |
 | `vendor/ArcExplorer` | 41 MB | GUI fallback; unused, `tools/arc-pull` supersedes it |
+
+## ftpd and Smash are mutually exclusive — fixed
+
+`ftpd-classic` is an *application*, so launching Smash exits it. Observed directly: with the game
+running, ping succeeded and port 43022 (arc-network) was up while port 5000 was down. That meant
+reading the game archive and writing to the SD card could never happen in the same window.
+
+**Fixed by installing `sys-ftpd` 1.0.5** (`cathery/sys-ftpd`) as a background sysmodule:
+
+```
+atmosphere/contents/420000000000000E/exefs.nsp
+atmosphere/contents/420000000000000E/flags/boot2.flag   <- auto-starts at boot
+atmosphere/contents/420000000000000E/toolbox.json
+config/sys-ftpd/config.ini
+```
+
+Port 5000, credentials in `.ftp-credentials.local` (gitignored). The shipped default is
+`anonymous:=0` with *empty* user and password, which locks everyone out — real credentials were
+set instead of enabling anonymous, because an always-on service is a larger exposure than an
+applet launched by hand.
+
+**Takes effect on next boot.** After that, FTP and the running game coexist, and no further
+manual handoffs are needed.
+
+## Installed
+
+`librat_of_doom.nro` (53,248 B) is in the Skyline plugins folder, verified byte-identical after
+upload. It sits alongside George's `plugin.nro`; no conflict, since George registers the `diddy`
+agent and this registers `pikachu`.
