@@ -160,6 +160,10 @@ cd "$MOD"
 mapfile -t FILES < <(find . -type f | sed 's|^./||' | sort)
 echo
 echo "== verifying every file on the card matches what we shipped =="
+# Let sys-ftpd settle first. Verifying the instant a sixty-file upload finishes is measuring a
+# saturated server, and both its LIST and its SIZE answers go unreliable there -- which is how one
+# run produced 64 false "absent" reports.
+sleep 3
 # One listing per DIRECTORY, cached. The first version of this made a request per file -- up to
 # 120 FTP connections -- and the last two timed out and were reported "absent" when they were
 # present with byte-exact sizes. A false alarm in the verifier is as bad as no verifier, since it
@@ -232,6 +236,13 @@ if [ "$bad" -gt 0 ] && [ "$VERIFY_ONLY" = "0" ]; then
         enc=$(printf '%s' "$f" | sed 's/ /%20/g')
         ok=0
         for attempt in 1 2 3; do
+            # BACK OFF BETWEEN ATTEMPTS. The cause of a failed upload here is a saturated
+            # sys-ftpd -- it has just taken sixty files while the game is running -- and retrying
+            # immediately three times hammers the thing that is already struggling. Observed
+            # directly: two files failed all three attempts, and both succeeded on a single manual
+            # retry a moment later. One of them had in fact landed correctly and the SIZE query
+            # itself returned "absent", so under load nothing it says is reliable.
+            [ "$attempt" -gt 1 ] && sleep $(( (attempt - 1) * 4 ))
             printf "  %-52s try %d " "$f" "$attempt"
             code=$(curl -s "${CURL_AUTH[@]}" --max-time 300 --ftp-create-dirs -T "$f" "$DEST/$enc" -w "%{http_code}")
             # Confirm with a targeted SIZE, not the upload's return code and not a directory
