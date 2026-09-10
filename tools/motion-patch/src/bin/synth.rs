@@ -53,6 +53,9 @@ fn main() {
         let mut m = tpl;
         m.extra = s.extra.clone();
         m.flags = s.flags;
+        // Take the source fighter's game_script too. Without this the new entry keeps the
+        // template's script name and any ACMD we register against the source name is dead.
+        m.game_script = s.game_script;
         let f = match &m.extra {
             Some(x) => format!("faf {:>3} xlu {}-{}", x.cancel_frame, x.xlu_start, x.xlu_end),
             None => "none".into(),
