@@ -16,6 +16,7 @@ mod aerials;
 mod throws;
 mod defensive;
 mod landings;
+mod dodges;
 mod telemetry;
 mod specials;
 mod sword;
@@ -29,6 +30,7 @@ pub fn main() {
     throws::install();
     defensive::install();
     landings::install();
+    dodges::install();
     telemetry::install();
     specials::install();
     sword::install();

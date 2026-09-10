@@ -86,6 +86,16 @@ trip attack (Bowser)|koopa|SlipAttack|slipattack
 ledge attack (Ganondorf)|ganon|CliffAttack|cliffattack
 "
 
+DODGES="
+# The dodge MOTIONS were already retimed to Fox's windows via motion_list. These are the
+# ACMD scripts that go with them -- Fox defines game_escapef, game_escapeair and
+# game_escapeairslide, and without porting them Pikachu's own versions still run.
+# Fox has no game_escape or game_escapeb, and Pikachu's are empty, so there is nothing to null.
+air dodge (Fox)|fox|EscapeAir|escapeair
+air dodge directional (Fox)|fox|EscapeAirSlide|escapeairslide
+forward roll (Fox)|fox|EscapeF|escapef
+"
+
 emit_module() {
     local modname="$1" spec="$2"
     local file="$OUT/$modname/mod.rs"
@@ -145,3 +155,4 @@ emit_module aerials   "$AERIALS"
 emit_module throws    "$THROWS"
 emit_module defensive "$DEFENSIVE"
 emit_module landings  "$LANDINGS"
+emit_module dodges    "$DODGES"

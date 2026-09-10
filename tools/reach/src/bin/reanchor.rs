@@ -21,27 +21,30 @@ use std::collections::HashMap;
 
 const PIKACHU_SCALE: f32 = 0.96;
 
-// generated fn -> (source fighter, animation stem, source scale)
-const MAP: &[(&str, &str, &str, f32)] = &[
-    ("pikachu_game_attack11",    "chrom",     "c00attack11",    0.96),
-    ("pikachu_game_attackdash",  "elight",    "c00attackdash",  1.112),
-    ("pikachu_game_attacks3",    "elight",    "c01attacks3s",   1.112),
-    ("pikachu_game_attackhi3",   "falco",     "c02attackhi3",   1.05),
-    ("pikachu_game_attackhi4",   "fox",       "c04attackhi4",   1.08),
-    ("pikachu_game_attackairn",  "palutena",  "c05attackairn",  0.95),
-    ("pikachu_game_attackairf",  "demon",     "c05attackairf",  1.007),
-    ("pikachu_game_attackairhi", "kamui",     "c05attackairhi", 0.99),
+// generated fn -> (source fighter, animation stem, source `scale` param, height ratio)
+//
+// The height ratio is Pikachu's bind-pose head height divided by the source's, measured with
+// tools/reach against an empty animation. Pikachu is 40-60% the height of these fighters, which
+// is why a straight absolute transplant left a dead zone: Fox's re-anchored u-smash hitboxes sat
+// at y=17-24 while Pikachu's head is at y=7.2, so nothing near him was covered and the move
+// played as "too small". Palutena's n-air failed the same way, forming a shell above him.
+const MAP: &[(&str, &str, &str, f32, f32)] = &[
+    ("pikachu_game_attack11",    "chrom",     "c00attack11",    0.96,  0.412),
+    ("pikachu_game_attackdash",  "elight",    "c00attackdash",  1.112, 0.481),
+    ("pikachu_game_attacks3",    "elight",    "c01attacks3s",   1.112, 0.481),
+    ("pikachu_game_attackhi3",   "falco",     "c02attackhi3",   1.05,  0.520),
+    ("pikachu_game_attackhi4",   "fox",       "c04attackhi4",   1.08,  0.609),
+    ("pikachu_game_attackairn",  "palutena",  "c05attackairn",  0.95,  0.412),
+    ("pikachu_game_attackairf",  "demon",     "c05attackairf",  1.007, 0.403),
+    ("pikachu_game_attackairhi", "kamui",     "c05attackairhi", 0.99,  0.443),
 ];
 
-// Only genuine limbs. `haver`/`havel` are the ITEM-HOLD bones: for a ported move they stand in
-// for a weapon Pikachu does not have, and absolute reach is the wrong model there. Palutena's
-// n-air proved it -- her staff hitboxes ring HER body, so transplanting them absolutely put them
-// in a shell above a much smaller Pikachu and the move lost its range. Falco's u-tilt, anchored
-// to a real limb, improved by the same change. Weapon-anchored moves are fixed by the appendage
-// work instead.
+// Item-hold bones are back in. Excluding them was a workaround for the dead-zone problem, not a
+// fix: with capsule hitboxes the near end sits where a Pikachu-sized version of the move would
+// hit, so weapon-anchored moves get their body coverage back AND keep the source's reach.
 const LIMBS: &[&str] = &[
     "armr", "arml", "kneer", "kneel", "toel", "toer",
-    "shoulderl", "shoulderr", "handr", "handl",
+    "shoulderl", "shoulderr", "handr", "handl", "haver", "havel",
 ];
 
 fn nth_arg(args: &str, n: usize) -> Option<&str> {
@@ -107,7 +110,7 @@ fn main() {
             let bone = bone_arg.trim_start_matches("Hash40::new(\"").trim_end_matches("\")").to_string();
             if !LIMBS.contains(&bone.as_str()) { out.push_str(line); out.push('\n'); continue; }
 
-            let (_, fighter, anim, sscale) = *spec;
+            let (_, fighter, anim, sscale, hratio) = *spec;
             let key = format!("{fighter}/{anim}");
             let e = cache.entry(key).or_insert_with(|| {
                 let (n, p, b) = load_skel(&format!("{fk_dir}/{fighter}_skel.json"));
@@ -127,23 +130,33 @@ fn main() {
 
             let ratio = sscale / PIKACHU_SCALE;
             let w = transform_point([ox, oy, oz], bw);
-            let (nx, ny, nz) = (w[0] * ratio, w[1] * ratio, w[2] * ratio);
+            // Far end: the source's true position, so maximum reach is exact.
+            let (fx, fy, fz) = (w[0] * ratio, w[1] * ratio, w[2] * ratio);
+            // Near end: the same position scaled to Pikachu's proportions -- where a
+            // Pikachu-sized version of this move would hit. The capsule between the two covers
+            // his body AND the source's reach, instead of only a point far away from him.
+            let (nx, ny, nz) = (fx * hratio, fy * hratio, fz * hratio);
             let nsize = size * ratio;
 
             let mut newline = line.to_string();
             newline = newline.replace(&format!("Hash40::new(\"{bone}\")"), "Hash40::new(\"top\")");
-            // replace the size,x,y,z run in place
-            let old_run = format!("{}, {}, {}, {}", fmt(size), fmt(ox), fmt(oy), fmt(oz));
-            let new_run = format!("{}, {}, {}, {}", fmt(nsize), fmt(nx), fmt(ny), fmt(nz));
+            // size,x,y,z then the three stretch args, which become Some(..) to form a capsule
+            let old_run = format!("{}, {}, {}, {}, None, None, None", fmt(size), fmt(ox), fmt(oy), fmt(oz));
+            let new_run = format!(
+                "{}, {}, {}, {}, Some({}), Some({}), Some({})",
+                fmt(nsize), fmt(nx), fmt(ny), fmt(nz), fmt(fx), fmt(fy), fmt(fz)
+            );
             if newline.contains(&old_run) {
                 newline = newline.replacen(&old_run, &new_run, 1);
                 changed += 1;
                 println!(
-                    "  {cur_fn:<30} f{:<4} {bone:<10} ({:.1},{:.1},{:.1}) -> top ({:.2},{:.2},{:.2}) size {:.1}->{:.2}",
-                    frame, ox, oy, oz, nx, ny, nz, size, nsize
+                    "  {cur_fn:<28} f{:<4} {bone:<8} capsule y {:.1}->{:.1}  z {:.1}->{:.1}  size {:.2}",
+                    frame, ny, fy, nz, fz, nsize
                 );
             } else {
-                eprintln!("  ! {cur_fn}: could not locate '{old_run}', left alone");
+                // Already a stretched hitbox in the source: both endpoints would need
+                // transforming, which is not handled yet. Left alone rather than half-done.
+                eprintln!("  ! {cur_fn} f{frame}: {bone} hitbox is already stretched, left alone");
             }
             out.push_str(&newline);
             out.push('\n');

@@ -481,3 +481,75 @@ by hand in the wrong order produces silently wrong output.
 
 - [ ] Calibrate lunge speed (3.0 estimate) against the ~11.6 world units Mac covers f8-f14.
 - [ ] Verify Fox u-smash and Kazuya f-air, which were re-anchored but not yet reported on.
+
+## Capsule hitboxes: the unified fix for "too small" / "strange"
+
+Playtest: Fox u-smash "too small", Palutena n-air "strange, different from before", Kazuya f-air
+unclear, **f-smash travels correctly** (lunge confirmed at +10.89 to +19.44 against Mac's real
+17.7-23.8).
+
+Measured cause. Bind-pose head heights, via `tools/reach` against an empty animation:
+
+| fighter | head y | pikachu/source |
+|---|---|---|
+| **Pikachu** | **7.20** | — |
+| Fox | 11.84 | 0.609 |
+| Falco | 13.87 | 0.520 |
+| Little Mac | 14.62 | 0.493 |
+| Mythra | 14.98 | 0.481 |
+| Corrin | 16.25 | 0.443 |
+| Palutena / Chrom | 17.48 / 17.50 | 0.412 |
+| Kazuya | 17.87 | 0.403 |
+
+Pikachu is **40-60% the height** of every source fighter. A straight absolute transplant put
+Fox's u-smash hitboxes at y=17-24 while Pikachu's head is at 7.2 — a ~10-unit dead zone in which
+nothing near him was covered. That is "too small". Palutena's n-air failed identically, forming a
+shell above him.
+
+**Fix: capsule hitboxes**, using the game's own stretched-hitbox feature — the
+`Some(x2), Some(y2), Some(z2)` arguments to `ATTACK`, which ROB's d-tilt already uses. Each
+re-anchored hitbox now runs from the position scaled to Pikachu's proportions (where a
+Pikachu-sized version of the move would hit) out to the source's absolute position (exact reach).
+Body coverage and true range at once.
+
+This also **retires the limb-vs-item-hold split**. Excluding `haver` was a workaround for the
+dead zone, not a fix; with capsules the weapon-anchored moves get their near coverage back too.
+Re-anchored count is 34 again, now all as capsules, and none had to be skipped.
+
+## Vacuum: what vanilla Pikachu behaviour still leaks
+
+`tools/motion-patch/src/bin/leaks.rs` resolves the `game_script` each patched motion names and
+checks whether the plugin overrides it. **The first version reported a false clean of zero
+leaks** — it resolved hashes in reverse, and the label dictionaries contain motion names but not
+`game_*` ACMD names, so everything looked unresolvable and was skipped. Fixed to hash forward.
+
+Real result: 13 leaks, narrowed to 10 after porting Fox's dodge scripts, and of those:
+
+- `attack_s4_hold`, `attack_hi4_hold`, `attack_lw4_hold` — **not real.** No source fighter has a
+  `game_` charge script and Pikachu's contains zero commands.
+- `catch_wait`, `catch_pull`, `catch_cut` — no source script either.
+- `escape`, `escape_b` — Fox has no `game_escape`/`game_escapeb`; Pikachu's are empty.
+- `throw_f`, `throw_lw` — **intended.** DK cargo is unimplemented and d-throw is deliberately
+  Pikachu's.
+
+**Ported as a result:** Fox's `game_escapeair`, `game_escapeairslide` and `game_escapef`, which do
+exist and were being shadowed by Pikachu's. 37/37 registrations now reachable.
+
+### Root motion leakage, measured
+
+| slot | source | pikachu | leak |
+|---|---|---|---|
+| dash attack (Mythra) | 29.70 | 48.02 | **+18.33 — travels too far** |
+| f-smash (Little Mac) | 21.45 | 0 | −21.45, now covered by the lunge |
+| f-tilt (Mythra) | 3.67 | 0 | −3.67 |
+| u-tilt (Falco) | 0 | 0.50 | +0.50 |
+| jab, u-smash, n-air, aerials | ~0 | ~0 | none |
+
+The `move` flag in `motion_list` controls whether animation root motion applies, and we copy the
+source's flag onto Pikachu's animation. It is `true` on dash attack, both f-tilts, u-tilt, d-tilt,
+b-air, dash grab, b-throw, ledge attack and both rolls — so Pikachu's own root motion is live on
+those.
+
+- [ ] **Dash attack over-travels by 18.33 units.** Fix is to clear `move` and drive the 29.7 via
+      script, as done for f-smash. Not yet applied.
+- [ ] f-tilt is missing 3.67 units of forward motion (minor).
