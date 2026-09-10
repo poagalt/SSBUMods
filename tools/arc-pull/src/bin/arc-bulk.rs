@@ -16,7 +16,22 @@
 // cannot fetch the wrong bytes -- it can only mis-file them, and the extension check catches that.
 //
 // usage:
-//   arc-bulk <ip:port> <outdir> [--prefix P]... [--ext E]... [--dry-run] [--skip-existing]
+//   arc-bulk <ip:port | path/to/data.arc> <outdir> [filters...] [--dry-run] [--skip-existing]
+//
+// A LOCAL data.arc IS ~100x FASTER AND THIS IS WORTH UNDERSTANDING, because the obvious
+// conclusion -- "use a faster transfer tool" -- is wrong.
+//
+// arc_network's protocol (vendor/network_reader_lib.rs) is one byte of opcode followed by one
+// seek or one read, synchronously, per request. And read_file_data calls get_file_reader() fresh
+// per file, seeks (which invalidates the BufReader), then streams the zstd decode -- so a single
+// 33 KB file is a seek round trip plus however many reads the decoder asks for. Measured against
+// the running game: 2.5 files/sec, about 110 KB/s. That is latency, not bandwidth, so a faster
+// link or a different FTP client changes nothing; the request count is the cost.
+//
+// The fix is to stop going through the protocol. nxdumptool can dump rom:/data.arc -- the single
+// ~16 GB file arc_network is reading from -- as ONE sequential stream, after which this tool takes
+// a filesystem path and every extraction is local and instant, forever, with no console involved.
+// That also makes the whole archive available rather than a chosen subset.
 //
 //   --prefix         keep paths starting with P. Repeatable, ANY match keeps.
 //   --contains S     keep only paths containing S. Repeatable, ANY match keeps -- so
@@ -45,6 +60,7 @@
 // because an error occurred"), with the second connection failing 10053 (aborted locally) and the
 // third 10061 (nothing listening). Not proven to be the cause, but the correlation is strong
 // enough to work by: ONE invocation, doing all the filtering it needs, rather than several.
+use arc_pull::block_reader::BlockReader;
 use smash_arc::{ArcFile, ArcLookup, Hash40, Region};
 use std::io::Write;
 
@@ -90,8 +106,17 @@ fn main() {
         .expect("no Hashes.txt found -- looked in vendor/ and ../../vendor/");
     Hash40::set_global_labels_file(&labels).expect("failed to load hash labels");
 
-    eprintln!("connecting to {addr} ...");
-    let arc = ArcFile::open_over_network(addr.as_str()).expect("failed to open arc over network");
+    // A path to a real file means work locally and never touch the console; anything else is
+    // treated as host:port. The local path is ~100x faster and is the end state -- see the header.
+    let local = std::path::Path::new(&addr).is_file();
+    let arc = if local {
+        eprintln!("opening local {addr} ...");
+        ArcFile::open(&addr).expect("failed to open local data.arc")
+    } else {
+        eprintln!("connecting to {addr} (block-cached client) ...");
+        let reader = BlockReader::new(addr.as_str()).expect("failed to connect to arc_network");
+        ArcFile::from_reader(reader).expect("failed to parse arc over network")
+    };
     eprintln!(
         "arc opened. filters: {} prefix, {} contains, {} ext",
         prefixes.len(), contains.len(), exts.len()
@@ -99,7 +124,7 @@ fn main() {
 
     // Pass 1: decide the work and price it. Sizes come from the file table, so this costs one
     // table read regardless of how much would be downloaded.
-    let mut work: Vec<(Hash40, String, u64)> = Vec::new();
+    let mut work: Vec<(Hash40, String, u64, u64)> = Vec::new();
     let (mut unnamed, mut total) = (0u64, 0u64);
     let mut shown = 0usize;
 
@@ -138,10 +163,23 @@ fn main() {
             .get_file_data_from_hash(hash, Region::UsEnglish)
             .map(|d| d.decomp_size as u64)
             .unwrap_or(0);
-        work.push((hash, path, size));
+        // Where the bytes actually live, so the fetch can run in archive order. Same arithmetic
+        // smash_arc's read_file_data uses. Sorting by this turns scattered reads into a single
+        // forward sweep, which is what makes the block cache hit instead of thrash.
+        let offset = arc
+            .get_file_info_from_hash(hash)
+            .map(|info| {
+                let fd = arc.get_file_data(info, Region::UsEnglish);
+                arc.get_folder_offset(info, Region::UsEnglish)
+                    + arc.get_file_section_offset()
+                    + ((fd.offset_in_folder as u64) << 2)
+            })
+            .unwrap_or(u64::MAX);
+        work.push((hash, path, size, offset));
     }
+    work.sort_by_key(|(_, _, _, off)| *off);
 
-    let bytes: u64 = work.iter().map(|(_, _, s)| s).sum();
+    let bytes: u64 = work.iter().map(|(_, _, s, _)| s).sum();
     eprintln!();
     eprintln!("{total} paths in the arc, {unnamed} with unresolvable components");
     eprintln!(
@@ -157,7 +195,7 @@ fn main() {
     // Pass 2: fetch. Progress goes to stderr on one rewritten line; the per-file log goes to
     // stdout so a long run can be redirected and grepped for FAIL afterwards.
     let (mut ok, mut skipped, mut failed, mut got) = (0u64, 0u64, 0u64, 0u64);
-    for (n, (hash, path, size)) in work.iter().enumerate() {
+    for (n, (hash, path, size, _)) in work.iter().enumerate() {
         let dest = std::path::Path::new(&outdir).join(path);
         if skip_existing {
             if let Ok(md) = std::fs::metadata(&dest) {
