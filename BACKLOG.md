@@ -24,7 +24,9 @@ own output, not from memory.
 | Hitbox radii | Every one exact, top- and bone-anchored, under the hypothesis in `topscale.rs`. |
 | Animations | 74 shipped, 72 scale-compensated; 31 synthesised motion_list entries. |
 | Animation coverage | 0 gaps in both directions: no replaced move plays a Pikachu animation, and no source variant in a ported family is unreproduced. |
-| Blend timing | 77 of 77 motions blend on their source's timing. |
+| Damage and knockback | 38 moves, 3146 non-geometric macro arguments, every one identical to the source's -- including `ATTACK_ABS`, where the four cargo throws keep theirs. |
+| Motion entries | 77 motions, 385 fields: blend, FAF, intangibility window, `no_stop_intp` and the flag set all match the source. |
+| Hand-written specials | 83 source params across four objects: 25 used with their values checked against the game's prc, 58 declared `NOT MODELLED` with a reason, 0 unaccounted. |
 | ACMD reachability | 71 of 71 registered scripts reachable from a motion entry. |
 | Status kinds | 7 new kinds at 0x1F0-0x1F6, starting exactly at Pikachu's own NUM of 0x1F0; RAT_STATUS_KIND_NUM is 0x1F7. Verified loading on hardware. |
 | Attributes | `fighter_param.prcxml` carries 23, `fighter_param_motion.prcxml` 14, both UTF-8. |
@@ -87,6 +89,9 @@ everything these need. Read `<sd>/rat-telemetry.log` over FTP afterwards with
   motion entries, so it is neither ACMD nor root motion. Read `moved x` for `attack_air_f`.
 - **Training Modpack save-state crash.** The dead `param_spikeball` article param and the
   `FLAG_PAUSE` leak, its two best candidates, are both fixed. Re-test.
+- **Does Revenge keep any momentum?** `moved x` on `special_lw_start` after running into it, and
+  `peak` on `special_air_lw_start` after rising into it. Incineroar keeps 60% and 70%; this port
+  stops dead. See section 4.
 
 ### 3. Bone-anchored hitbox radii -- a decision that can be falsified in one look
 
@@ -95,7 +100,44 @@ the reasoning written out there. Training Modpack's hitbox visualisation settles
 Pikachu's f-smash beside Little Mac's own and compare each fist bubble against its owner. Both
 states are verified to build clean and it is a one-line flip.
 
-### 4. Still genuinely open
+### 4. Source behaviour the hand-written specials do not reproduce
+
+`tools/check-srcparams.sh` enumerates all of it and the modules carry a `NOT MODELLED:` line for
+each with the reasoning. In rough order of what a player would notice:
+
+- **Revenge hard-stops on entry.** Incineroar keeps 60% of his horizontal speed and 70% of his
+  vertical (`special_lw_start_x_mul`, `special_air_lw_speed_y_mul`); this port uses
+  `GROUND_STOP` / `AIR_STOP`, so a running or rising Revenge plants where his drifts. None of his
+  four Revenge ACMDs contains a speed call, so both are applied by his C++ and the param names are
+  all there is to go on. **A playtest settles it** -- telemetry logs `moved x` and `peak` per
+  motion, so run into a grounded Revenge and rise into an air one, then do the same with
+  Incineroar.
+- **No re-grab protection on Alolan Whip.** `special_s_invalid_capture_frame` is 60. This is the
+  one absence that is a balance problem rather than a fidelity one.
+- **Revenge does not build from shield damage.** `special_lw_revenge_shield_damage_mul` is 0.2.
+- **The carry does not speed Pikachu up.** DK walks 1.1x faster while carrying
+  (`param_lifting_walk`), and the API is a 1:1 match -- `sv_kinetic_energy::mul_x_accel_mul`,
+  `mul_x_accel_add`, `mul_x_speed_max`. Not done because they multiply IN PLACE and the carry
+  spans status changes: once at carry start is wiped by the first WAIT -> WALK, every frame
+  compounds to 1.1^n. Needs a per-status-change hook, in the one module whose failure mode is a
+  stuck grab.
+- **The whip's bands are read as lines, not capsules.** Each is really `x1,y1 -> x2,y2` with a
+  radius on `top`; this module reads only x1. It holds while `drive_victim` moves the victim along
+  x only, and stops holding the moment the airborne whip lets them separate vertically.
+- **The up-B's `stick_mul` (30) and `limit_y_mul` (0.5) are unmodelled.** Both are read by Game &
+  Watch's C++, and the community reference port this module derives from does not model them
+  either. The observable is how much horizontal control the rise has -- compare against Game &
+  Watch directly before writing code for it.
+- Smaller: `special_air_s_catch_speed_y_max` (0.05, vertical drift cap while holding in the air),
+  `special_lw_hit_stop_mul` (1.5x hitlag on the counter hit), the lariat's 1x-2x motion rate, and
+  reduced air control after the whip.
+- Presentation, deferred with the rest of the visual layer: both KO cinematics, Revenge's emissive
+  glow scaling and voice pitch.
+
+**Not a gap:** three of the whip's four air params are identical to their grounded twins, so the
+air whip sharing `START_SPEED_MUL` is correct rather than a shortcut.
+
+### 5. Still genuinely open
 
 - **Soft-platform carry.** DK's cargo carry does not use `_PASS`, so carrying an opponent through
   a soft platform behaves as Pikachu's own movement does rather than as DK's.
@@ -109,7 +151,7 @@ states are verified to build clean and it is a one-line flip.
 - **Rename.** "Rat of Doom" is a placeholder. The CSS rename ships and is verified as UTF-16LE
   with all five labels.
 
-### 5. Deferred by design
+### 6. Deferred by design
 
 The whole visual layer beyond animations: taunts, victory animations and theme, voice clips and
 SFX, portraits and stock icons, the boxing-ring title. Per-source appendages beyond Chrom's
@@ -674,6 +716,10 @@ Movement measured this session, confirming the earlier root-motion table:
 ### Still to do
 - **Training Modpack save-state crash.** Best candidate was the dead `param_spikeball` article
   param, now removed; the `FLAG_PAUSE` leak is a second candidate, also now fixed. Re-test. If it
+
+- **Does Revenge keep any momentum?** `moved x` on `special_lw_start` after running into it, and
+  `peak` on `special_air_lw_start` after rising into it. Incineroar keeps 60% and 70%; this port
+  stops dead. See section 4.
   persists: saving is read-only apart from a `sys_deku_flash` effect on `top` and a walk of
   article indices calling `get_article` / `remove_exist_object_id`, so the next suspects are the
   modified model files and the plugin's per-frame telemetry callback. Bisect by removing
@@ -709,6 +755,10 @@ Movement measured this session, confirming the earlier root-motion table:
 ### Blocked on the user
 - **Training Modpack save-state crash.** Decoded: `Os { code: 3586 }` is FS module 2 description
   7, `ResultFsTargetLocked` -- `save_states.toml` is locked open by another handle while
+
+- **Does Revenge keep any momentum?** `moved x` on `special_lw_start` after running into it, and
+  `peak` on `special_air_lw_start` after rising into it. Incineroar keeps 60% and 70%; this port
+  stops dead. See section 4.
   Training Modpack rewrites it. Every mod-side cause was eliminated: our plugin does no file I/O
   (Skyline has no SD log dir), no FTP server is resident during gameplay (the one answering is
   hand-launched ftpd, which exits on game launch), and saving is otherwise read-only apart from a
