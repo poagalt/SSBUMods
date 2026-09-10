@@ -684,3 +684,29 @@ Movement measured this session, confirming the earlier root-motion table:
 - Sword orientation calibration; rename from "Rat of Doom".
 - Dodge timing params (`escape_*_cancel_frame`, `escape_air_slide_speed`) still unshipped --
   `fighter_param_motion.prcxml` was never written. The dodge ACMDs and motion timings are in.
+
+## Jab facing left: investigated, nothing found wrong (2026-09-10)
+
+Reported as "jab doesn't work correctly when done to the left, it seems the hitbox still faces
+right". Everything checked is exactly Chrom's:
+
+- The ACMD is byte-identical to `lua2cpp_chrom/chrom/Attack11.txt`, all three hitboxes on
+  `ATTACK_LR_CHECK_F` (top z=7.0, sword1 z=1.7 and z=8.4).
+- Every bone in the `Sword1` chain -- Trans, Rot, Hip, Waist, Bust, ClavicleC, ClavicleR,
+  ShoulderR, ArmR, HandR, HaveR, Sword1 -- is driven by the dropped-in animation, so no Pikachu
+  bind offset leaks into the chain.
+- The visible Falchion is fine. `Sword` (mesh) and `Sword1` (hitbox) have byte-identical bind
+  transforms, and Chrom's `Sword1` track is a single constant frame, so both ride `HaveR`
+  rigidly and cannot diverge.
+- `Rot`'s rotation is the identity in every dropped-in animation, so nothing fights the engine's
+  facing flip.
+- Chrom's jab has no root motion at all (`Trans` z range 0.00) despite carrying the `move` flag.
+
+The report almost certainly came from the partial deploy. Files upload in sorted order and the
+run was cut off after 48 of 60, so `motion_list.bin` -- which sorts after every `cXX`/`eXX`/`fXX`/
+`gXX` animation -- was among the twelve that never arrived. The console was running the new
+animations against a stale motion_list. The card is now verified clean at 48/48.
+
+**Needs one re-test before spending more on it.** If it survives a verified deploy, the next thing
+to look at is Pikachu's jab status machinery rather than the move data: his `attack_11` loops back
+to itself, whereas Chrom's transitions to `attack_12`, which Pikachu does not have.
