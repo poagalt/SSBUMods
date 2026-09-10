@@ -5,7 +5,9 @@
             "fighter/pikachu/model/body/c00/met_chrom_001_nor.nutexb",
             "fighter/pikachu/model/body/c00/met_chrom_001_prm.nutexb",
             "fighter/pikachu/motion/body/c00/c03attacks4hi.nuanmb",
-            "fighter/pikachu/motion/body/c00/c03attacks4lw.nuanmb"
+            "fighter/pikachu/motion/body/c00/c03attacks4lw.nuanmb",
+            "fighter/pikachu/motion/body/c00/d03speciallwstart.nuanmb",
+            "fighter/pikachu/motion/body/c00/d03speciallwturn.nuanmb"
         ]
     },
     "share-to-added": {

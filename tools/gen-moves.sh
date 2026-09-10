@@ -91,6 +91,15 @@ trip attack (Bowser)|koopa|SlipAttack|slipattack
 ledge attack (Ganondorf)|ganon|CliffAttack|cliffattack
 "
 
+SPECIALS="
+# Incineroar Revenge. The counter WINDOW is not in these scripts -- they only raise
+# FIGHTER_GAOGAEN_STATUS_SPECIAL_LW_FLAG_STANCE_START/END, which deforeign strips because those
+# ids collide with Pikachu's own flags. The frame numbers are read off them (8 and 28) and the
+# window is implemented in src/specials/speciallw/mod.rs instead.
+Revenge stance (Incineroar)|gaogaen|SpecialLwStart|speciallwstart
+Revenge counter (Incineroar)|gaogaen|SpecialLw|speciallw
+"
+
 DODGES="
 # The dodge MOTIONS were already retimed to Fox's windows via motion_list. These are the
 # ACMD scripts that go with them -- Fox defines game_escapef, game_escapeair and
@@ -182,3 +191,4 @@ emit_module throws    "$THROWS"
 emit_module defensive "$DEFENSIVE"
 emit_module landings  "$LANDINGS"
 emit_module dodges    "$DODGES"
+emit_module specials_acmd "$SPECIALS"

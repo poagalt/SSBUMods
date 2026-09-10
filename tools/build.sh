@@ -25,14 +25,24 @@ ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 # is first on PATH is worse than no check. cargo-skyline only needs w64devkit for the linker,
 # which it still finds when appended (verified with a forced relink).
 export PATH="/c/Users/poaga/.cargo/bin:$PATH:/c/Users/poaga/w64devkit/bin"
+# The codegen tools are rebuilt FIRST. build.sh used to run the prebuilt binaries, so editing a
+# tool's source had no effect until someone remembered to cargo build it by hand -- an adopt_anim
+# change in synth.rs silently did nothing and Revenge's stance kept playing the wrong animation.
+echo "== 0. rebuild the codegen tools =="
+for c in tools/reach tools/motion-patch tools/prc-tool; do
+  # `|| true` because grep exits 1 when it finds nothing, and under `set -e` that aborted the
+  # whole build before it reached step 1 -- silently, since the abort looked like a clean finish.
+  (cd "$ROOT/$c" && cargo build --release --bins 2>&1 | grep -E "^error" -A 6 | head -12) || true
+done
+echo "  tools up to date"
 
-echo "== 0. read every fighter's scale param out of the game =="
+echo; echo "== 0a. read every fighter's scale param out of the game =="
 bash "$ROOT/tools/gen-scales.sh"
 
-echo; echo "== 0a. generate the dodge frame windows =="
+echo; echo "== 0b. generate the dodge frame windows =="
 bash "$ROOT/tools/gen-motion-params.sh"
 
-echo; echo "== 0b. generate the character select rename =="
+echo; echo "== 0c. generate the character select rename =="
 bash "$ROOT/tools/gen-name.sh"
 
 echo; echo "== 1. generate move scripts from vanilla ACMD (verbatim, original bone anchors) =="

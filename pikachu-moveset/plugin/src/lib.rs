@@ -17,6 +17,9 @@ mod throws;
 mod defensive;
 mod landings;
 mod dodges;
+// Generated ACMDs for ported specials -- currently Incineroar Revenge. Separate from the
+// hand-written status machines in src/specials/.
+mod specials_acmd;
 mod telemetry;
 mod specials;
 mod sword;
@@ -33,6 +36,7 @@ pub fn main() {
     dodges::install();
     telemetry::install();
     specials::install();
+    specials_acmd::install();
     sword::install();
     articles::install();
 }

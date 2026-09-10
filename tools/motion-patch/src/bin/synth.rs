@@ -25,8 +25,8 @@ const SYNTH: &[(&str, &str, &str, &str, bool)] = &[
     ("special_hi_open",  "special_air_hi1",      "gamewatch", "special_hi_open",  false),
     ("special_hi_close", "special_air_hi_end",   "gamewatch", "special_hi_close", false),
     // Incineroar Revenge
-    ("special_lw_start", "special_lw",           "gaogaen",   "special_lw_start", false),
-    ("special_lw_turn",  "special_lw",           "gaogaen",   "special_lw_turn",  false),
+    ("special_lw_start", "special_lw",           "gaogaen",   "special_lw_start", true),
+    ("special_lw_turn",  "special_lw",           "gaogaen",   "special_lw_turn",  true),
     // Little Mac angled f-smash -- Pikachu has only attack_s4_s, so these adopt Mac's own
     // angled animations rather than playing his straight swing.
     ("attack_s4_hi",     "attack_s4_s",          "littlemac", "attack_s4_hi",     true),

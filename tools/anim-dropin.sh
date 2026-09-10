@@ -99,6 +99,9 @@ koopa     | g03slipattack.nuanmb      | -    | trip attack
 ganon     | g02cliffattack.nuanmb     | -    | ledge attack
 fox       | b02escapeair.nuanmb       | -    | air dodge (and directional, which shares it)
 fox       | b02escapef.nuanmb         | -    | forward roll
+gaogaen   | d03speciallw.nuanmb       | -    | Revenge counter attack (same name as Pikachu's Thunder)
+gaogaen   | d03speciallwstart.nuanmb  | -    | Revenge stance (new file: config.json new-dir-files)
+gaogaen   | d03speciallwturn.nuanmb   | -    | Revenge stance, turning (new file)
 "
 
 n=0; miss=0; scaled=0; neutralised=0
