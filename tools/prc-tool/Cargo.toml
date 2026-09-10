@@ -1,0 +1,8 @@
+[package]
+name = "prc-tool"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]
+prc-rs = "1.6"
+hash40 = "1"

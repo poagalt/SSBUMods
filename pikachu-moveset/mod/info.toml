@@ -1,0 +1,29 @@
+display_name = "Rat of Doom"
+authors = "poagalt"
+version = "v0.2"
+description = """
+A custom moveset over Pikachu.
+
+Jab: Chrom
+Dash / Ftilt: Mythra
+Utilt: Falco
+Dtilt: ROB
+Fsmash: Little Mac (super armor)
+Usmash: Fox
+Dsmash: Game & Watch
+Nair / Grab: Palutena
+Fair / Pummel: Kazuya
+Bair: Cloud
+Uair: Corrin
+Dair: King K. Rool
+Bthrow: Incineroar
+Uthrow: Mewtwo
+Getup / Trip attack: Bowser
+Ledge attack: Ganondorf
+
+Weight: Bowser | Walk: Marth | Initial dash: ZSS | Run: Little Mac
+Air speed + accel: Jigglypuff | Fall speed: Joker | Jumps: Falco
+
+Requires ARCropolis and the Smashline plugin.
+"""
+category = "Fighter"

@@ -102,7 +102,9 @@ emit_module() {
                 infn = ($5 ~ "^" want "\\(")
             }
             infn { print }
-        ' "$src" | sed "s/^unsafe extern \"C\" fn game_$fname(/unsafe extern \"C\" fn pikachu_game_$fname(/" >> "$file"
+        ' "$src" \
+            | sed "s/^unsafe extern \"C\" fn game_$fname(/unsafe extern \"C\" fn pikachu_game_$fname(/" \
+            | sed -f "$ROOT/tools/bone-remap.sed" >> "$file"
         echo "" >> "$file"
         installs="$installs        .game_acmd(\"game_$fname\", pikachu_game_$fname, Default)\n"
     done <<< "$spec"
