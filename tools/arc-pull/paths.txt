@@ -1,0 +1,26 @@
+# Pikachu vanilla body model
+fighter/pikachu/model/body/c00/model.numdlb
+fighter/pikachu/model/body/c00/model.numshb
+fighter/pikachu/model/body/c00/model.numatb
+fighter/pikachu/model/body/c00/model.nusktb
+fighter/pikachu/model/body/c00/model.numshexb
+fighter/pikachu/model/body/c00/model.nuhlpb
+fighter/pikachu/model/body/c00/model.adjb
+fighter/pikachu/model/body/c00/model.xmb
+fighter/pikachu/model/body/c00/model.nusrcmdlb
+# Motion + params
+fighter/pikachu/motion/body/c00/motion_list.bin
+fighter/pikachu/param/vl.prc
+fighter/common/param/fighter_param.prc
+# Chrom sword article
+fighter/chrom/model/sword/c00/model.numdlb
+fighter/chrom/model/sword/c00/model.numshb
+fighter/chrom/model/sword/c00/model.numatb
+fighter/chrom/model/sword/c00/model.nusktb
+fighter/chrom/model/sword/c00/model.nuhlpb
+fighter/chrom/model/sword/c00/model.numshexb
+fighter/chrom/model/sword/c00/model.xmb
+fighter/chrom/model/sword/c00/model.nusrcmdlb
+fighter/chrom/model/sword/c00/met_chrom_001_col.nutexb
+fighter/chrom/model/sword/c00/met_chrom_001_nor.nutexb
+fighter/chrom/model/sword/c00/met_chrom_001_prm.nutexb

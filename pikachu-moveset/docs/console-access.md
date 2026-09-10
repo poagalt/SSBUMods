@@ -80,3 +80,51 @@ From GitHub, no console needed:
 - [ ] `WuBoytH/SSBU-Dumped-Scripts` → vanilla ACMD for the source fighters
 - [ ] `LilyLavender/ssbu-mod-workshop` → episode 39 (sword), episode 46 (article cloning)
 - [ ] `LilyLavender/ssbuGeorgeMoveset` → the reference mod's real source
+
+## Extraction — done
+
+`arc-network` loaded and served on TCP 43022. Its source is a thin wrapper: it opens
+`rom:/data.arc` and exposes it through `network_reader`, a seek/read RPC. **`smash-arc` already
+speaks that protocol** via `ArcFile::open_over_network`, so no protocol work was needed — see
+`tools/arc-pull`, a ~30-line Rust client built against `smash-arc 0.6` with the `rust-zstd`
+backend (the pure-Rust zstd feature; the crate refuses to build without a backend selected).
+
+**23 of 23 files extracted, zero failures**, into `extracted/` (gitignored — these are Nintendo
+assets and must not be redistributed; ship `share-to-vanilla` references instead).
+
+| File | Bytes |
+|---|---|
+| `fighter/pikachu/model/body/c00/model.numshb` | 1,033,384 |
+| `…/model.adjb` | 168,824 |
+| `…/model.nusktb` | 21,800 |
+| `…/model.numatb` | 10,444 |
+| `…/model.numshexb` | 4,192 |
+| `…/model.numdlb` / `.nusrcmdlb` | 3,218 each |
+| `…/model.nuhlpb` | 2,124 |
+| `…/model.xmb` | 1,312 |
+| `fighter/pikachu/motion/body/c00/motion_list.bin` | 43,428 |
+| `fighter/pikachu/param/vl.prc` | 6,385 |
+| `fighter/common/param/fighter_param.prc` | 176,604 |
+| `fighter/chrom/model/sword/c00/` (9 files + 3 textures) | 1,078,294 total |
+
+### Two results worth keeping
+
+**The Ken Sugimori skeleton assumption was wrong.** Its `model.nusktb` is the same *length* as
+vanilla (21,800 B) but a different hash — `5324967…` vs vanilla `4cc9491…`. Restyle mods do
+touch the skeleton, presumably transform tweaks with the bone list unchanged. Use the extracted
+vanilla file, not the mod's.
+
+**Chrom's sword is exactly as predicted.** `model.nusktb` is 664 bytes with two bones,
+`HaveR` → `Sword`, and `model.numdlb` holds a single mesh object, `fal_RShape`. That matches the
+research prediction bone-for-bone and byte-for-byte, and `model.nuhlpb` is the familiar 88-byte
+empty stub.
+
+## Local sources
+
+| Path | Size | Contents |
+|---|---|---|
+| `vendor/ssbuGeorgeMoveset` | 268 KB | The reference mod's real source — `src/{normals,aerials,smashes,specials}/` |
+| `vendor/ssbu-mod-workshop/episode39` | — | `config.json` + `mod.rs`, the sword template |
+| `vendor/param-labels` | 5.8 MB | `ParamLabels.csv`, `articles/Labels.txt` |
+| `vendor/SSBU-Dumped-Scripts` | 309 MB | Vanilla ACMD under `luas/` |
+| `vendor/ArcExplorer` | 41 MB | GUI fallback; unused, `tools/arc-pull` supersedes it |
