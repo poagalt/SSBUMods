@@ -149,7 +149,17 @@ unsafe extern "C" fn pikachu_specialhi_exec(fighter: &mut L2CFighterCommon) -> L
         let stick_x = raw_x.abs();
 
         if stick_min <= stick_x {
-            let angle = if raw_x >= 0.0 { stick_mul } else { -stick_mul };
+            // SIGN IS INVERTED FROM THE OBVIOUS READING, and two independent things say so.
+            //
+            // The decompiled `exec.c` compares the stick against 0.0 and NEGATES on the branch
+            // where the comparison succeeds -- so pushing right yields -30 and pushing left
+            // yields +30. Playtest saw the same thing from the outside: "the angle goes in the
+            // opposite direction as the direction the player pushed on the stick", against a
+            // build that used `if raw_x >= 0.0 { +30 }`.
+            //
+            // Ghidra lost the comparison operator itself, so the decomp alone would leave this
+            // 50/50. The report settles which way round it goes.
+            let angle = if raw_x >= 0.0 { -stick_mul } else { stick_mul };
             PostureModule::set_rot(boma, &Vector3f { x: angle, y: 0.0, z: 0.0 }, 0);
             PostureModule::set_stick_lr(boma, 0.0);
             PostureModule::update_rot_y_lr(boma);
@@ -170,17 +180,34 @@ unsafe extern "C" fn pikachu_specialhi_exec(fighter: &mut L2CFighterCommon) -> L
 }
 
 unsafe extern "C" fn pikachu_specialhi_end(fighter: &mut L2CFighterCommon) -> L2CValue {
+    let boma = fighter.module_accessor;
     if fighter.global_table[0xb] == *FIGHTER_STATUS_KIND_LANDING_FALL_SPECIAL {
         // gamewatch param_special_hi landing_frame = 40
-        WorkModule::set_float(fighter.module_accessor, 40.0, *FIGHTER_INSTANCE_WORK_ID_FLOAT_LANDING_FRAME);
+        WorkModule::set_float(boma, 40.0, *FIGHTER_INSTANCE_WORK_ID_FLOAT_LANDING_FRAME);
     }
-    
+
+    // THE ROTATION MUST BE PUT BACK, AND THIS NEVER DID IT.
+    //
+    // Playtest: "using gnw up b at an angle leaves pikachu standing at a slanted angle after
+    // landing". Exactly so -- `_exec` aims him by rotating the posture and nothing ever undid it,
+    // so the lean survived the move and every state after it.
+    //
+    // Game & Watch's own `SpecialHi_end` clears it unconditionally, before any of its
+    // early-return paths:
+    //
+    //     PostureModule::set_rot(boma, Vector3f(0, 0, 0), 0)
+    //
+    // Unconditional matters. The two early returns below are about landing-lag bookkeeping, and
+    // putting the reset after them -- which is where it would naturally go -- would leave the
+    // lean in place on every path that takes one. That is most of them.
+    PostureModule::set_rot(boma, &Vector3f { x: 0.0, y: 0.0, z: 0.0 }, 0);
+
     if fighter.global_table[0xb] != *FIGHTER_STATUS_KIND_LANDING {
         if fighter.global_table[0xb] != *FIGHTER_STATUS_KIND_LANDING_FALL_SPECIAL {
             return 0.into();
         }
     }
-    
+
     0.into()
 }
 

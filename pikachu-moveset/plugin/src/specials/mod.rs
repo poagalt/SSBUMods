@@ -33,6 +33,7 @@ pub mod speciallw;
 pub mod acmd_speciallw;
 pub mod specials;
 pub mod cargo;
+pub mod shoulder;
 pub mod specialhi;
 pub mod specialhiclose;
 pub mod specialhifall;
@@ -43,6 +44,7 @@ pub fn install() {
     acmd_speciallw::install();
     specials::install();
     cargo::install();
+    shoulder::install();
     specialhi::install();
     specialhiclose::install();
     specialhifall::install();

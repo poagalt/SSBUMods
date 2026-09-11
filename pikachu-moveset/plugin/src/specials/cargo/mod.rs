@@ -214,10 +214,17 @@ pub unsafe extern "C" fn pikachu_cargo_frame(fighter: &mut L2CFighterCommon) {
         CARRY_FRAMES[entry] = 0;
         VICTIM[entry] = CatchModule::capture_object_id(boma, false) as u32;
         probe::event(format!(
-            "[rat] CARGO p{entry} grab landed, victim={:#x}; {}",
+            "[rat] CARGO p{entry} grab landed, victim={:#x} -> handing to SHOULDER_START; {}",
             VICTIM[entry],
             probe::ctx(boma)
         ));
+        // HAND OFF TO REAL STATUSES. Everything below this point in the old design -- poses via
+        // change_motion on top of Pikachu's own WAIT and WALK, throws via change_motion, action
+        // suppression -- is replaced by ../shoulder, because the real Donkey Kong uses eleven
+        // statuses and the motion-swap approach reproduced none of the things that made it work.
+        super::shoulder::begin(fighter, VICTIM[entry]);
+        CARRYING[entry] = false;
+        return;
         // DK's frame-16 SHOULDER_WAIT flag is what his C++ turns into this. Requesting it here is
         // the same handoff, minus the C++.
         tell_victim(entry, *FIGHTER_STATUS_KIND_SHOULDERED_DONKEY_START);

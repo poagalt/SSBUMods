@@ -49,8 +49,57 @@ pub const RAT_STATUS_KIND_SPECIAL_S_THROW: i32 = 0x1F4;
 pub const RAT_STATUS_KIND_SPECIAL_S_END: i32 = 0x1F5;
 pub const RAT_STATUS_KIND_SPECIAL_S_FAILURE: i32 = 0x1F6;
 
+
+// DK's CARGO CARRY, which is eleven real statuses on his side and was a motion swap on ours.
+//
+// THE MOTION-SWAP DESIGN WAS THE BUG, and the trace of the real Donkey Kong says so directly:
+//
+//   CATCH_PULL(0x3a) -> 0x1EA on throw_f
+//   0x1EA -> 0x1EB   on frame 15 of throw_f        SHOULDER_START -> SHOULDER_WAIT
+//   0x1EB <-> 0x1EC  shoulder_wait / shoulder_walk_middle
+//   0x1EB <-> 0x1ED  shoulder_wait / shoulder_turn
+//
+// He is never in WAIT or WALK while carrying. This port kept Pikachu in HIS OWN movement
+// statuses and only overrode the motion, on the reasoning that it would inherit his locomotion
+// for free. What it actually inherited was a status that re-picks its own motion every frame, so
+// the carry pose was overwritten the instant he moved -- playtest: "as soon as pikachu starts
+// moving the carry over shoulder animation ends" -- and a CONTROL kinetic energy that kept
+// accelerating on top of the animation's own root motion, which is the "unbounded speed".
+//
+// The kinetic types come straight from DK's `pre` handlers and are the whole answer to the speed:
+//
+//   SHOULDER_START / WAIT / LANDING   FIGHTER_KINETIC_TYPE_MOTION
+//   SHOULDER_WALK                     FIGHTER_KINETIC_TYPE_MOTION_LOOP
+//   SHOULDER_TURN                     FIGHTER_KINETIC_TYPE_TURN
+//   SHOULDER_FALL                     FIGHTER_KINETIC_TYPE_MOTION_FALL
+//
+// all with GROUND_CORRECT_KIND_GROUND_OTTOTTO (the teeter correction) except TURN (GROUND) and
+// FALL (AIR), and GROUND_CLIFF_CHECK_KIND_NONE throughout. MOTION_LOOP means the ANIMATION moves
+// him -- there is no control energy to run away with.
+pub const RAT_STATUS_KIND_SHOULDER_START: i32 = 0x1F7;
+pub const RAT_STATUS_KIND_SHOULDER_WAIT: i32 = 0x1F8;
+pub const RAT_STATUS_KIND_SHOULDER_WALK: i32 = 0x1F9;
+pub const RAT_STATUS_KIND_SHOULDER_TURN: i32 = 0x1FA;
+pub const RAT_STATUS_KIND_SHOULDER_FALL: i32 = 0x1FB;
+pub const RAT_STATUS_KIND_SHOULDER_LANDING: i32 = 0x1FC;
+
+// The four cargo throws. DK has FIGHTER_DONKEY_STATUS_KIND_THROW_F_F / _B / _HI / _LW as real
+// statuses, which is why changing motion to `throw_f_f` did nothing useful: the ACMD's
+// ATTACK_ABS(THROW) reads FIGHTER_STATUS_THROW_WORK_INT_TARGET_OBJECT, and only a throw STATUS
+// ever fills that in. Playtest: "none of the throws actually work after initiating cargo throw".
+pub const RAT_STATUS_KIND_THROW_F_F: i32 = 0x1FD;
+pub const RAT_STATUS_KIND_THROW_F_B: i32 = 0x1FE;
+pub const RAT_STATUS_KIND_THROW_F_HI: i32 = 0x1FF;
+pub const RAT_STATUS_KIND_THROW_F_LW: i32 = 0x200;
+
+// NOT REPRODUCED, and named so the gap is visible: DK also has SHOULDER_JUMP_SQUAT,
+// _JUMP_SQUAT_B, _JUMP and _PASS -- jumping while carrying, and dropping through a soft platform.
+// Those need Pikachu's own jump params threaded through four more statuses, and the carry is
+// worth having without them; the jump transition is suppressed instead, so the input does
+// nothing rather than doing something wrong.
+
 /// One past the highest id above. Anything new goes here and this moves up.
-pub const RAT_STATUS_KIND_NUM: i32 = 0x1F7;
+pub const RAT_STATUS_KIND_NUM: i32 = 0x201;
 
 // Two things that must stay true, checked at compile time rather than trusted:
 //   * every id above Pikachu's own NUM, so none of them shadows one of his statuses;
@@ -59,7 +108,7 @@ pub const RAT_STATUS_KIND_NUM: i32 = 0x1F7;
 // is a runtime lazy static and cannot be used in a const context.
 const _: () = {
     let first = RAT_STATUS_KIND_SPECIAL_HI_CLOSE;
-    let last = RAT_STATUS_KIND_SPECIAL_S_FAILURE;
+    let last = RAT_STATUS_KIND_THROW_F_LW;
     assert!(first >= 0x1F0);
     assert!(last < RAT_STATUS_KIND_NUM);
 };
