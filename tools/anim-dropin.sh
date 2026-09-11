@@ -31,6 +31,7 @@
 # move the fighter. Measured on hardware -- Little Mac's f-smash travels +20.59 world units
 # against his own 19.72, within 4.4% -- so no correction is applied there.
 set -euo pipefail
+shopt -s extglob
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 SRC="$ROOT/extracted/fighter"
 DST="$ROOT/pikachu-moveset/mod/fighter/pikachu/motion/body/c00"
@@ -43,11 +44,22 @@ mkdir -p "$DST" "$W" "$ROOT/work/fk"
 PIKA_SCALE=$(awk -F'\t' '$1=="pikachu"{print $3}' "$SCALES")
 [ -n "$PIKA_SCALE" ] || { echo "pikachu missing from scales.tsv" >&2; exit 1; }
 
-scale_of() {
-    local s
-    s=$(awk -F'\t' -v f="$1" '$1==f{print $3}' "$SCALES")
-    [ -n "$s" ] || { echo "no scale for fighter '$1' in scales.tsv" >&2; exit 1; }
-    echo "$s"
+# The whole table read once into memory, and the ratio computed once per FIGHTER rather than once
+# per animation. There are 74 animations and about fifteen fighters, and an `awk` for each of
+# those two lookups was 148 process spawns -- roughly nine seconds here, spent re-deriving
+# fifteen numbers.
+declare -A SCALE=() RATIO=()
+while IFS=$'\t' read -r f _ sc _; do
+    [ -n "${f:-}" ] && SCALE["$f"]="$sc"
+done < "$SCALES"
+
+ratio_of() {
+    if [ -z "${RATIO[$1]:-}" ]; then
+        local s="${SCALE[$1]:-}"
+        [ -n "$s" ] || { echo "no scale for fighter '$1' in scales.tsv" >&2; exit 1; }
+        RATIO["$1"]=$(awk -v a="$s" -v b="$PIKA_SCALE" 'BEGIN{printf "%.6f", a/b}')
+    fi
+    printf '%s' "${RATIO[$1]}"
 }
 
 # NEUTRALISED BONES
@@ -137,10 +149,37 @@ donkey    | e01throwfhi.nuanmb        | -    | cargo throw up (new file)
 donkey    | e01throwflw.nuanmb        | -    | cargo throw down (new file)
 "
 
-n=0; miss=0; scaled=0; neutralised=0
+# The script itself is part of every stamp: change the jq filters or the drop-in table and every
+# cached animation must be rebuilt.
+SELFSIG="$(sha1sum "$0" | cut -d" " -f1)"
+
+# EVERY INPUT TO THE CACHE CHECK, GATHERED IN THREE PROCESSES RATHER THAN FIVE PER ANIMATION.
+#
+# A process spawn under Git Bash on Windows costs about sixty milliseconds, so a per-animation
+# `sha1sum`, `stat` and `cat` is 74 x 5 spawns -- twenty-three seconds to decide that nothing
+# needs doing, which is most of what the cache was meant to save. One `sha1sum` over all the
+# sources, one `stat` over all the outputs and one stamp FILE instead of 74 brings that to
+# about a second.
+STAMPFILE="$ROOT/work/anim/.stamps"
+declare -A SRCHASH=() DSTSIZE=() STAMP=() NEWSTAMP=()
+srcs=(); dsts=()
+while IFS='|' read -r f a _ _; do
+    f="${f// }"; a="${a// }"
+    [ -z "$f" ] && continue
+    srcs+=("$SRC/$f/motion/body/c00/$a"); dsts+=("$DST/$a")
+done <<< "$MOVES"
+while read -r h p; do SRCHASH["$p"]="$h"; done < <(sha1sum "${srcs[@]}" 2>/dev/null)
+while read -r sz p; do DSTSIZE["$p"]="$sz"; done < <(stat -c '%s %n' -- "${dsts[@]}" 2>/dev/null)
+if [ -f "$STAMPFILE" ]; then
+    while IFS=$'\t' read -r a v; do [ -n "${a:-}" ] && STAMP["$a"]="$v"; done < "$STAMPFILE"
+fi
+
+n=0; miss=0; scaled=0; neutralised=0; cached=0
 while IFS='|' read -r fighter anim neut label; do
     fighter="${fighter// }"; anim="${anim// }"; neut="${neut// }"
-    label="$(echo "$label" | sed 's/^ *//;s/ *$//')"
+    # Trimmed with bash, not `echo | sed`: two more spawns per animation for a string that is
+    # only ever printed.
+    label="${label##+([[:space:]])}"; label="${label%%+([[:space:]])}"
     [ -z "$fighter" ] && continue
     s="$SRC/$fighter/motion/body/c00/$anim"
     if [ ! -f "$s" ]; then
@@ -148,8 +187,26 @@ while IFS='|' read -r fighter anim neut label; do
         miss=$((miss+1)); continue
     fi
     stem="${anim%.nuanmb}"
-    sscale=$(scale_of "$fighter")
-    ratio=$(awk -v a="$sscale" -v b="$PIKA_SCALE" 'BEGIN{printf "%.6f", a/b}')
+    ratio="${RATIO[$fighter]:-}"; [ -n "$ratio" ] || ratio=$(ratio_of "$fighter")
+
+    # SKIP AN ANIMATION WHOSE INPUTS HAVE NOT MOVED.
+    #
+    # Every one of these is a round trip through ssbh_data_json and two to four jq passes, about
+    # 0.7 seconds each, and there are 74 of them: 53 of build.sh's 74 seconds, on every build,
+    # producing byte-identical output. The deploy manifest already knew this -- it stopped
+    # trusting mtimes precisely BECAUSE this step rewrites all 74 files whose bytes never change.
+    #
+    # The stamp is the content of the source animation plus everything that decides what is done
+    # to it: the ratio, the bone-neutralisation list, and this script itself. Anything that could
+    # change the output changes the stamp, and the output file's own size is recorded so a
+    # deleted or truncated result re-runs rather than being skipped.
+    stamp="${SRCHASH[$s]:-nohash}|$ratio|$neut|$SELFSIG:${DSTSIZE[$DST/$anim]:-absent}"
+    if [ "${ANIM_NOCACHE:-0}" != "1" ] && [ "${STAMP[$anim]:-}" = "$stamp" ] \
+       && [ -n "${DSTSIZE[$DST/$anim]:-}" ]; then
+        NEWSTAMP["$anim"]="$stamp"
+        n=$((n+1)); cached=$((cached+1))
+        continue
+    fi
 
     if awk -v r="$ratio" 'BEGIN{exit !(r > 0.9995 && r < 1.0005)}' && [ "$neut" = "-" ]; then
         cp "$s" "$DST/$anim"
@@ -216,8 +273,14 @@ while IFS='|' read -r fighter anim neut label; do
                "$before" "$after" "$([ "$neut" != "-" ] && echo " +neut $neut")" "$label"
         scaled=$((scaled+1))
     fi
+    # The stamp is recorded against the output SIZE AS JUST WRITTEN, not as it was before.
+    NEWSTAMP["$anim"]="${SRCHASH[$s]:-nohash}|$ratio|$neut|$SELFSIG:$(stat -c%s "$DST/$anim")"
     n=$((n+1))
 done <<< "$MOVES"
 
-echo "anim-dropin: $n shipped ($scaled scale-compensated, $neutralised bones neutralised), $miss missing"
+: > "$STAMPFILE"
+for a in "${!NEWSTAMP[@]}"; do printf "%s	%s
+" "$a" "${NEWSTAMP[$a]}" >> "$STAMPFILE"; done
+
+echo "anim-dropin: $n shipped ($cached unchanged and skipped, $scaled scale-compensated, $neutralised bones neutralised), $miss missing"
 [ "$miss" -eq 0 ] || exit 1

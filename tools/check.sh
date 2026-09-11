@@ -6,6 +6,10 @@ M="$ROOT/pikachu-moveset/mod/fighter/pikachu/motion/body/c00/motion_list.bin"
 T="$ROOT/vendor/ssbh_lib/ssbh_data_json.exe"
 rc=0
 
+# The three checks that cost 50 of this harness's 53 seconds go through tools/cached.sh, which
+# re-runs them only when something they could read has changed. `--all` forces all of them.
+[ "${1:-}" = "--all" ] && export CHECK_NOCACHE=1
+
 echo "== 1. hitbox bones exist on Pikachu =="
 bash "$ROOT/tools/check-bones.sh" || rc=1
 
@@ -226,7 +230,7 @@ echo; echo "== 3j. the hand-written specials use their source fighter's own para
 # carry and the up-B are hand-written, and every number in them was read out of the source's vl.prc
 # once and typed in. This checks they still match, and -- the part that had no answer at all --
 # that every param those objects contain is either used or explicitly declined.
-bash "$ROOT/tools/check-srcparams.sh" || rc=1
+bash "$ROOT/tools/cached.sh" srcparams bash "$ROOT/tools/check-srcparams.sh" || rc=1
 
 echo; echo "== 3i. every ported move carries its source's damage and knockback =="
 # check-hitboxes.sh measures WHERE a hitbox is and HOW BIG. This checks everything else the macro
@@ -234,10 +238,10 @@ echo; echo "== 3i. every ported move carries its source's damage and knockback =
 # ATTACK_ABS, which holds the entire damage and knockback of the four DK cargo throws and has no
 # geometry for the trace to see. "Exact frame data, damage, and range" is the project's own
 # statement of intent, and only `range` had a gate.
-bash "$ROOT/tools/check-acmd-values.sh" || rc=1
+bash "$ROOT/tools/cached.sh" acmdvalues bash "$ROOT/tools/check-acmd-values.sh" || rc=1
 
 echo; echo "== 3c. ported hitboxes land where the source character's do =="
-bash "$ROOT/tools/check-hitboxes.sh" || rc=1
+bash "$ROOT/tools/cached.sh" hitboxes bash "$ROOT/tools/check-hitboxes.sh" || rc=1
 
 echo; echo "== 4. fighter_param.prcxml parses and carries Pikachu's attributes =="
 # Parses the file the way ARCropolis does and asserts the values are present at Pikachu's index.

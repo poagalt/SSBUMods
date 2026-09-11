@@ -73,6 +73,24 @@ if ! (set -o noclobber; echo "$$ $(date +%H:%M:%S)" > "$LOCK") 2>/dev/null; then
 fi
 trap 'rm -f "$LOCK"' EXIT
 
+# SECTION TIMERS, because a deploy that takes over a minute needs to say WHERE. Guessing was
+# wrong twice: the network looked like the cost and is not -- the plugin upload is half a second,
+# a directory listing is half a second, and hashing the whole 6.4 MB mod tree is a tenth. Every
+# real second has been somewhere else.
+T0=$(date +%s%N)
+TLAST=$T0
+mark() {
+    local now; now=$(date +%s%N)
+    printf '  [%5.1fs  +%4.1fs]  %s\n' \
+        "$(( (now - T0) / 1000000 ))e-3" "$(( (now - TLAST) / 1000000 ))e-3" "$1"
+    TLAST=$now
+}
+
+FORCE_ALL=0
+[ "${1:-}" = "--all" ] && FORCE_ALL=1
+# Files this run actually put on the card. The verification pass is scoped to these; see the
+# reasoning where it is used.
+UPLOADED=()
 VERIFY_ONLY=0
 [ "${1:-}" = "--verify-only" ] && VERIFY_ONLY=1
 fail=0
@@ -81,6 +99,7 @@ warn=0
 if [ "$VERIFY_ONLY" = "0" ]; then
   echo "== parity harness =="
   bash "$ROOT/tools/check.sh" || { echo; echo "REFUSING TO DEPLOY - checks failed"; exit 1; }
+  mark "checks"
 fi
 
 echo
@@ -95,6 +114,7 @@ else
 echo "== deploying plugin =="
 printf "  %-56s " "librat_of_doom.nro"
 curl -s "${CURL_AUTH[@]}" --max-time 180 -T "$NRO" "$PLUGINS/librat_of_doom.nro" -w "http=%{http_code} %{size_upload}\n"
+mark "plugin upload"
 
 echo "== deploying mod folder =="
 cd "$MOD"
@@ -111,8 +131,6 @@ mapfile -t FILES < <(find . -type f | sed 's|^\./||' | sort)
 #
 # Pass --all to force a full upload.
 MANIFEST="$ROOT/work/.deploy-manifest"
-FORCE_ALL=0
-[ "${1:-}" = "--all" ] && FORCE_ALL=1
 declare -A PREV=()
 if [ "$FORCE_ALL" = "0" ] && [ -f "$MANIFEST" ]; then
     # Two fields: "<size>:<sha1>\t<path>". The signature is stored as one opaque string so the
@@ -148,16 +166,26 @@ while read -r h p; do
     HASH["$p"]="$h"
 done < <(sha1sum "${FILES[@]}" 2>/dev/null | sed 's/^\([0-9a-f]*\)  */\1 /')
 declare -A SENT=()
+# SIZES IN ONE `stat`, NOT ONE PER FILE. A process spawn under Git Bash on Windows costs tens of
+# milliseconds, and this loop plus the verifier below were spending about ninety seconds of a
+# hundred-second deploy on `stat`, `dirname`, `basename`, `sed` and `awk` -- roughly six hundred
+# spawns. Measured against the network, which is not the problem at all: the plugin upload is
+# 0.5s, a directory listing is 0.5s, and hashing the whole 6.4 MB mod tree is 0.1s.
+declare -A SIZE=()
+while read -r sz name; do
+    SIZE["$name"]="$sz"
+done < <(stat -c '%s %n' -- "${FILES[@]}" 2>/dev/null)
 for f in "${FILES[@]}"; do
     # Size stays in the signature alongside the hash. It is what the console is verified against,
     # so keeping both means a manifest entry can be read against a remote SIZE query directly.
-    sig="$(stat -c%s "$f"):${HASH[$f]:-nohash}"
+    sig="${SIZE[$f]:-0}:${HASH[$f]:-nohash}"
     SENT["$f"]="$sig"
     if [ "${PREV[$f]:-}" = "$sig" ]; then
         skipped=$((skipped+1))
         continue
     fi
-    enc=$(printf '%s' "$f" | sed 's/ /%20/g')
+    UPLOADED+=("$f")
+    enc="${f// /%20}"
     printf "  %-56s " "$f"
     code=$(curl -s "${CURL_AUTH[@]}" --max-time 300 --ftp-create-dirs -T "$f" "$DEST/$enc" -w "%{http_code}")
     # A bad code is a WARNING, not a failure. VERIFICATION IS THE AUTHORITY -- which is the whole
@@ -168,8 +196,9 @@ for f in "${FILES[@]}"; do
     # bytes on the card match the bytes here.
     if [ "$code" = "226" ]; then echo "ok"; else echo "warn ($code)"; warn=$((warn+1)); fi
 done
-[ "$skipped" -eq 0 ] || echo "  skipped $skipped unchanged file(s) -- verification below still checks every one"
+[ "$skipped" -eq 0 ] || echo "  skipped $skipped unchanged file(s) -- each was verified on the card when the manifest was written"
 [ "$warn" -eq 0 ] || echo "  $warn upload(s) returned an odd code -- verification below is what counts"
+mark "mod folder"
 
 # Files the mod used to ship and must no longer be present. Uploading cannot remove anything, so
 # a file dropped from the mod folder would otherwise linger and keep overriding vanilla --
@@ -195,16 +224,58 @@ while read -r f; do
         *)     echo "deleted" ;;
     esac
 done <<< "$RETIRED"
+mark "retire"
 fi
 
 cd "$MOD"
-mapfile -t FILES < <(find . -type f | sed 's|^./||' | sort)
+mapfile -t ALLFILES < <(find . -type f | sed 's|^./||' | sort)
+# Sizes again, in one `stat`, because --verify-only skips the upload block that filled them --
+# and an UNDECLARED associative array is silently an indexed one, so `${SIZE[$f]}` then evaluates
+# the filename as arithmetic and dies on the first dot ("config.json: invalid arithmetic
+# operator"). Declaring it on both paths is the fix; re-filling it costs one process.
+declare -A SIZE=()
+while read -r sz name; do
+    SIZE["$name"]="$sz"
+done < <(stat -c '%s %n' -- "${ALLFILES[@]}" 2>/dev/null)
+
+# VERIFY WHAT THIS RUN TOUCHED, NOT THE WHOLE CARD -- AND THAT IS THE SAME ARGUMENT THAT ALREADY
+# JUSTIFIES SKIPPING THE UPLOAD.
+#
+# The manifest is written ONLY after a successful verification, so an entry in it means those
+# exact bytes were confirmed present on the card. Nothing changes the card between deploys except
+# this script. So a file whose local signature still matches its manifest entry, and which this
+# run did not upload, cannot have been broken by this run. Re-checking it is not extra safety; it
+# is extra FTP.
+#
+# AND FTP IS EXACTLY WHAT HURTS. sys-ftpd wedges after a handful of connections in quick
+# succession: measured, the fifth directory listing picks up the connection and never sends data,
+# burning the full timeout, and retries keep hitting the same wall. Twenty-six seconds of a
+# thirty-nine second deploy went there. Not making the request is the only fix that works.
+#
+# `--all` and `--verify-only` both still sweep everything, so the paranoid check is one flag away
+# and the manifest can always be re-earned from scratch.
+if [ "$VERIFY_ONLY" = "1" ] || [ "$FORCE_ALL" = "1" ] || [ "${#UPLOADED[@]}" -eq "${#ALLFILES[@]}" ]; then
+    FILES=("${ALLFILES[@]}")
+    SCOPE="every file on the card"
+else
+    FILES=("${UPLOADED[@]}")
+    SCOPE="the ${#UPLOADED[@]} file(s) this run uploaded (the rest were verified when the manifest was written)"
+fi
 echo
-echo "== verifying every file on the card matches what we shipped =="
+if [ "${#FILES[@]}" -eq 0 ]; then
+    echo "== nothing was uploaded, so there is nothing new to verify =="
+    echo "  ok  all ${#ALLFILES[@]} files unchanged since the last verified deploy"
+    mark "verify"
+    echo
+    echo "DEPLOY OK"
+    exit 0
+fi
+echo "== verifying $SCOPE =="
 # Let sys-ftpd settle first. Verifying the instant a sixty-file upload finishes is measuring a
 # saturated server, and both its LIST and its SIZE answers go unreliable there -- which is how one
 # run produced 64 false "absent" reports.
 sleep 3
+mark "settle"
 # One listing per DIRECTORY, cached. The first version of this made a request per file -- up to
 # 120 FTP connections -- and the last two timed out and were reported "absent" when they were
 # present with byte-exact sizes. A false alarm in the verifier is as bad as no verifier, since it
@@ -212,23 +283,70 @@ sleep 3
 LS="$ROOT/work/deploy-listing"
 rm -rf "$LS"; mkdir -p "$LS"
 bad=0
-for d in $(printf '%s\n' "${FILES[@]}" | xargs -n1 dirname | sort -u); do
-    denc=$(printf '%s' "$d" | sed 's/ /%20/g')
-    safe=$(printf '%s' "$d" | tr '/.' '__')
+# Directory names by string surgery rather than by spawning `dirname` once per file.
+declare -A DIRS=()
+for f in "${FILES[@]}"; do
+    d="${f%/*}"; [ "$d" = "$f" ] && d="."
+    DIRS["$d"]=1
+done
+# ONE CURL PER DIRECTORY, AND NOT ONE CURL FOR ALL OF THEM. Batching the five listings into a
+# single invocation so the FTP control connection would be reused looked like the obvious win and
+# was a 62-SECOND REGRESSION: sys-ftpd does not cope with several LISTs down one control
+# connection, and curl sits waiting after the first. Opened separately they are half a second
+# each. Measured both ways with the section timers above, which is why those are now permanent --
+# every guess about where this script spends its time has been wrong, including that one.
+#
+# A SHORT TIMEOUT AND A RETRY, BECAUSE ONE LISTING IN FIVE JUST HANGS. Measured by running this
+# exact loop by hand several times: four directories answer in 0.4-0.7s and one picks up the
+# connection and never sends the data, burning the whole --max-time and returning curl 28. Which
+# one varies between runs, so it is sys-ftpd stalling a passive data connection, not a bad path.
+#
+# At --max-time 90 that single stall WAS the deploy: 62 of 75 seconds. Eight seconds with two
+# retries costs 2.5s on a good run and about 10s on a stalled one, and the retry has succeeded
+# immediately every time it has been needed.
+for d in "${!DIRS[@]}"; do
+    denc="${d// /%20}"
+    safe="${d//\//_}"; safe="${safe//./_}"
     url="$DEST/"; [ "$d" != "." ] && url="$DEST/$denc/"
-    curl -s "${CURL_AUTH[@]}" --max-time 90 "$url" 2>/dev/null | tr -d '\r' > "$LS/$safe.txt"
-    if [ ! -s "$LS/$safe.txt" ]; then
+    for attempt in 1 2 3; do
+        curl -s "${CURL_AUTH[@]}" --max-time 8 -o "$LS/$safe.txt" "$url" 2>/dev/null
+        [ -s "$LS/$safe.txt" ] && break
+        sleep 1
+    done
+done
+mark "listings"
+for d in "${!DIRS[@]}"; do
+    safe="${d//\//_}"; safe="${safe//./_}"
+    # sys-ftpd sends CRLF; strip it in place rather than piping each listing through `tr`.
+    if [ -s "$LS/$safe.txt" ]; then
+        printf '%s' "$(tr -d '\r' < "$LS/$safe.txt")" > "$LS/$safe.txt.clean" && mv "$LS/$safe.txt.clean" "$LS/$safe.txt"
+    else
         echo "  could not list $d -- cannot verify it"; bad=$((bad+1))
     fi
 done
+
+# EVERY LISTING PARSED ONCE, into one map of "dir/name" -> size. This used to be an `awk` per
+# file over the cached listing, which is 86 more spawns for an answer already sitting in a file
+# we have read.
+#
+# `ls -l` style: perms links owner group size mon day time name. The name is the 9th field
+# onward, so take the LAST field rather than slicing a fixed prefix.
+declare -A REMOTE=()
+for d in "${!DIRS[@]}"; do
+    safe="${d//\//_}"; safe="${safe//./_}"
+    [ -s "$LS/$safe.txt" ] || continue
+    while read -r -a fields; do
+        n="${#fields[@]}"
+        [ "$n" -ge 5 ] || continue
+        name="${fields[$((n-1))]}"
+        [ "$d" = "." ] && REMOTE["$name"]="${fields[4]}" || REMOTE["$d/$name"]="${fields[4]}"
+    done < "$LS/$safe.txt"
+done
+
 BROKEN=()
 for f in "${FILES[@]}"; do
-    want=$(stat -c%s "$f")
-    d=$(dirname "$f"); b=$(basename "$f")
-    safe=$(printf '%s' "$d" | tr '/.' '__')
-    # `ls -l` style: perms links owner group size mon day time name. The name is the 9th field
-    # onward, so compare the last field rather than slicing a fixed prefix.
-    got=$(awk -v n="$b" '$NF == n { print $5; exit }' "$LS/$safe.txt" 2>/dev/null)
+    want="${SIZE[$f]:-$(stat -c%s "$f")}"
+    got="${REMOTE[$f]:-}"
 
     # A DIRECTORY LISTING IS NOT AUTHORITATIVE, and trusting it produced 64 false alarms in one
     # run: files uploaded minutes earlier reported "absent" and the repair pass then re-uploaded
@@ -316,13 +434,21 @@ if [ "$bad" -gt 0 ] && [ "$VERIFY_ONLY" = "0" ]; then
     fi
 fi
 
+mark "verify"
 if [ "$bad" -eq 0 ]; then
-    echo "  ok  all ${#FILES[@]} files verified by size"
+    if [ "${#FILES[@]}" -eq "${#ALLFILES[@]}" ]; then
+        echo "  ok  all ${#ALLFILES[@]} files verified by size"
+    else
+        echo "  ok  ${#FILES[@]} of ${#ALLFILES[@]} file(s) verified by size; the rest were verified when the manifest was written"
+    fi
     # Only now is it safe to record what the card holds. Written after verification so a failed
     # deploy can never teach the next run to skip a file that never landed.
     if [ "$VERIFY_ONLY" = "0" ]; then
         : > "$MANIFEST"
-        for f in "${FILES[@]}"; do
+        # ALL of them, not just the ones verified this run: scoping the verification to what was
+        # uploaded must not scope the RECORD, or every unverified-this-run file would drop out of
+        # the manifest and be re-uploaded next time.
+        for f in "${ALLFILES[@]}"; do
             # SENT[] is what was on disk when this file was uploaded or deliberately skipped, not
             # what is on disk now. A rebuild during the deploy must not be recorded as shipped.
             printf '%s	%s
