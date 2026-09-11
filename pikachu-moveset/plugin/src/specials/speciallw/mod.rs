@@ -693,6 +693,29 @@ unsafe extern "C" fn pikachu_speciallw_end(fighter: &mut L2CFighterCommon) -> L2
 // Runs every frame regardless of status, which is the only place the counter CAN be detected:
 // being hit puts the fighter in a damage status, so the SPECIAL_LW status loop stops running at
 // exactly the moment the hit lands.
+/// Is this one of Revenge's own statuses?
+///
+/// ONE DEFINITION, USED EVERYWHERE, BECAUSE TWO COPIES DESYNCHRONISED IMMEDIATELY.
+///
+/// The retaliation used to re-enter SPECIAL_LW, and moving it to its own SPECIAL_LW_HIT status --
+/// which is what Incineroar does, and what made the fire hitbox exist at all -- broke a SECOND
+/// test that had been written as `status == FIGHTER_STATUS_KIND_SPECIAL_LW` fifty lines away. The
+/// log says it plainly:
+///
+///   REVENGE retaliation status entered, motion 'special_air_lw'; st=513(=0x201)
+///   REVENGE p0 boost 2.07 CONSUMED by a landed attack in 513(=0x201)
+///
+/// `in_counter_attack` went false, so the counter's own fire was treated as an ordinary attack:
+/// it took the stored boost AND spent it. Playtest: "revenge is back to spending the bonus damage
+/// on the fire counter damage" -- the exact symptom a previous round had fixed, reintroduced by a
+/// change that looked unrelated.
+///
+/// This project has hit that shape repeatedly and named it: a parallel list. So there is no second
+/// list. Every "are we in Revenge" question goes through here.
+fn is_revenge_status(status: i32) -> bool {
+    unsafe { status == *FIGHTER_STATUS_KIND_SPECIAL_LW || status == RAT_STATUS_KIND_SPECIAL_LW_HIT }
+}
+
 /// Catch the absorb calls being left armed outside the two statuses that may arm them.
 ///
 /// A SELF-CHECK FOR A WHOLE CLASS OF BUG, not for one instance of it. `open_window` arms three
@@ -711,7 +734,7 @@ unsafe fn watch_absorb_leak(boma: *mut BattleObjectModuleAccessor, entry: usize,
     if !ABSORB_ARMED[entry] {
         return;
     }
-    if status == *FIGHTER_STATUS_KIND_SPECIAL_LW || status == RAT_STATUS_KIND_SPECIAL_LW_HIT {
+    if is_revenge_status(status) {
         return;
     }
     crate::telemetry::sink::crumb(format!(
@@ -811,8 +834,7 @@ pub unsafe extern "C" fn pikachu_revenge_frame(fighter: &mut L2CFighterCommon) {
         // SPECIAL_LW is what "this is the retaliation" means; which of the two motions is playing
         // is a detail of whether Incineroar happened to be in the air, and every time this has
         // been keyed on a motion name it has missed a variant.
-        let in_counter_attack =
-            PHASE[entry] == PHASE_COUNTER && status == *FIGHTER_STATUS_KIND_SPECIAL_LW;
+        let in_counter_attack = PHASE[entry] == PHASE_COUNTER && is_revenge_status(status);
 
         // LOSS CONDITIONS, both Incineroar's own: taking cancel_percent in total while holding a
         // boost destroys it, and so does being thrown.

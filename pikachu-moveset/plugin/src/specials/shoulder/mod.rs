@@ -255,12 +255,10 @@ unsafe extern "C" fn shoulder_start_loop(fighter: &mut L2CFighterCommon) -> L2CV
     hold_victim(boma, entry);
 
     if !still_held(boma, entry) {
-        fighter.change_status(FIGHTER_STATUS_KIND_WAIT.into(), false.into());
-        return 1.into();
+        return carry_change(fighter, entry, *FIGHTER_STATUS_KIND_WAIT, "victim lost -> WAIT");
     }
     if MotionModule::frame(boma) >= SHOULDER_WAIT_FRAME || MotionModule::is_end(boma) {
-        fighter.change_status(RAT_STATUS_KIND_SHOULDER_WAIT.into(), false.into());
-        return 1.into();
+        return carry_change(fighter, entry, RAT_STATUS_KIND_SHOULDER_WAIT, "SHOULDER_WAIT");
     }
     0.into()
 }
@@ -365,8 +363,7 @@ unsafe extern "C" fn shoulder_wait_loop(fighter: &mut L2CFighterCommon) -> L2CVa
             CARRY_FRAMES[entry],
             crate::telemetry::probe::ctx(boma)
         ));
-        fighter.change_status(FIGHTER_STATUS_KIND_WAIT.into(), false.into());
-        return 1.into();
+        return carry_change(fighter, entry, *FIGHTER_STATUS_KIND_WAIT, "victim lost -> WAIT");
     }
     if let Some(next) = requested_throw(fighter) {
         crate::telemetry::probe::event(format!(
@@ -375,13 +372,11 @@ unsafe extern "C" fn shoulder_wait_loop(fighter: &mut L2CFighterCommon) -> L2CVa
             CARRY_FRAMES[entry],
             crate::telemetry::probe::ctx(boma)
         ));
-        fighter.change_status(next.into(), false.into());
-        return 1.into();
+        return carry_change(fighter, entry, next, "requested throw");
     }
     // Airborne -- walked off a ledge.
     if StatusModule::situation_kind(boma) != *SITUATION_KIND_GROUND {
-        fighter.change_status(RAT_STATUS_KIND_SHOULDER_FALL.into(), false.into());
-        return 1.into();
+        return carry_change(fighter, entry, RAT_STATUS_KIND_SHOULDER_FALL, "SHOULDER_FALL");
     }
 
     // DK's ShoulderWait reads `common/turn_stick_x` and `common/walk_stick_x` in that order, and
@@ -391,12 +386,10 @@ unsafe extern "C" fn shoulder_wait_loop(fighter: &mut L2CFighterCommon) -> L2CVa
     let turn_min = WorkModule::get_param_float(boma, smash::hash40(TURN_STICK_X), 0);
     let walk_min = WorkModule::get_param_float(boma, smash::hash40(WALK_STICK_X), 0);
     if stick_x * lr < -turn_min.max(0.1) {
-        fighter.change_status(RAT_STATUS_KIND_SHOULDER_TURN.into(), false.into());
-        return 1.into();
+        return carry_change(fighter, entry, RAT_STATUS_KIND_SHOULDER_TURN, "SHOULDER_TURN");
     }
     if stick_x.abs() > walk_min.max(0.1) {
-        fighter.change_status(RAT_STATUS_KIND_SHOULDER_WALK.into(), false.into());
-        return 1.into();
+        return carry_change(fighter, entry, RAT_STATUS_KIND_SHOULDER_WALK, "SHOULDER_WALK");
     }
     0.into()
 }
@@ -431,26 +424,21 @@ unsafe extern "C" fn shoulder_walk_loop(fighter: &mut L2CFighterCommon) -> L2CVa
     hold_victim(boma, entry);
 
     if !still_held(boma, entry) {
-        fighter.change_status(FIGHTER_STATUS_KIND_WAIT.into(), false.into());
-        return 1.into();
+        return carry_change(fighter, entry, *FIGHTER_STATUS_KIND_WAIT, "victim lost -> WAIT");
     }
     if let Some(next) = requested_throw(fighter) {
-        fighter.change_status(next.into(), false.into());
-        return 1.into();
+        return carry_change(fighter, entry, next, "requested throw");
     }
     if StatusModule::situation_kind(boma) != *SITUATION_KIND_GROUND {
-        fighter.change_status(RAT_STATUS_KIND_SHOULDER_FALL.into(), false.into());
-        return 1.into();
+        return carry_change(fighter, entry, RAT_STATUS_KIND_SHOULDER_FALL, "SHOULDER_FALL");
     }
     let stick_x = ControlModule::get_stick_x(boma);
     let lr = PostureModule::lr(boma);
     if stick_x * lr < -0.1 {
-        fighter.change_status(RAT_STATUS_KIND_SHOULDER_TURN.into(), false.into());
-        return 1.into();
+        return carry_change(fighter, entry, RAT_STATUS_KIND_SHOULDER_TURN, "SHOULDER_TURN");
     }
     if stick_x.abs() <= 0.1 {
-        fighter.change_status(RAT_STATUS_KIND_SHOULDER_WAIT.into(), false.into());
-        return 1.into();
+        return carry_change(fighter, entry, RAT_STATUS_KIND_SHOULDER_WAIT, "SHOULDER_WAIT");
     }
     0.into()
 }
@@ -474,16 +462,14 @@ unsafe extern "C" fn shoulder_turn_loop(fighter: &mut L2CFighterCommon) -> L2CVa
     hold_victim(boma, entry);
 
     if !still_held(boma, entry) {
-        fighter.change_status(FIGHTER_STATUS_KIND_WAIT.into(), false.into());
-        return 1.into();
+        return carry_change(fighter, entry, *FIGHTER_STATUS_KIND_WAIT, "victim lost -> WAIT");
     }
     if MotionModule::is_end(boma) {
         // The turn is what flips him; doing it at the end matches DK, whose animation carries the
         // rotation and whose status only commits it once.
         PostureModule::reverse_lr(boma);
         PostureModule::update_rot_y_lr(boma);
-        fighter.change_status(RAT_STATUS_KIND_SHOULDER_WAIT.into(), false.into());
-        return 1.into();
+        return carry_change(fighter, entry, RAT_STATUS_KIND_SHOULDER_WAIT, "SHOULDER_WAIT");
     }
     0.into()
 }
@@ -507,16 +493,13 @@ unsafe extern "C" fn shoulder_fall_loop(fighter: &mut L2CFighterCommon) -> L2CVa
     hold_victim(boma, entry);
 
     if !still_held(boma, entry) {
-        fighter.change_status(FIGHTER_STATUS_KIND_FALL.into(), false.into());
-        return 1.into();
+        return carry_change(fighter, entry, *FIGHTER_STATUS_KIND_FALL, "victim lost -> FALL");
     }
     if let Some(next) = requested_throw(fighter) {
-        fighter.change_status(next.into(), false.into());
-        return 1.into();
+        return carry_change(fighter, entry, next, "requested throw");
     }
     if StatusModule::situation_kind(boma) == *SITUATION_KIND_GROUND {
-        fighter.change_status(RAT_STATUS_KIND_SHOULDER_LANDING.into(), false.into());
-        return 1.into();
+        return carry_change(fighter, entry, RAT_STATUS_KIND_SHOULDER_LANDING, "SHOULDER_LANDING");
     }
     0.into()
 }
@@ -538,12 +521,10 @@ unsafe extern "C" fn shoulder_landing_loop(fighter: &mut L2CFighterCommon) -> L2
     hold_victim(boma, entry);
 
     if !still_held(boma, entry) {
-        fighter.change_status(FIGHTER_STATUS_KIND_WAIT.into(), false.into());
-        return 1.into();
+        return carry_change(fighter, entry, *FIGHTER_STATUS_KIND_WAIT, "victim lost -> WAIT");
     }
     if MotionModule::is_end(boma) {
-        fighter.change_status(RAT_STATUS_KIND_SHOULDER_WAIT.into(), false.into());
-        return 1.into();
+        return carry_change(fighter, entry, RAT_STATUS_KIND_SHOULDER_WAIT, "SHOULDER_WAIT");
     }
     0.into()
 }
@@ -602,12 +583,12 @@ unsafe fn throw_main(fighter: &mut L2CFighterCommon, motion: &str) -> L2CValue {
 
 unsafe extern "C" fn throw_loop(fighter: &mut L2CFighterCommon) -> L2CValue {
     let boma = fighter.module_accessor;
+    let entry = entry_of(boma);
     if MotionModule::is_end(boma) {
-        VICTIM[entry_of(boma)] = *BATTLE_OBJECT_ID_INVALID as u32;
+        VICTIM[entry] = *BATTLE_OBJECT_ID_INVALID as u32;
         let ground = StatusModule::situation_kind(boma) == *SITUATION_KIND_GROUND;
         let next = if ground { *FIGHTER_STATUS_KIND_WAIT } else { *FIGHTER_STATUS_KIND_FALL };
-        fighter.change_status(next.into(), false.into());
-        return 1.into();
+        return carry_change(fighter, entry, next, "requested throw");
     }
     0.into()
 }
@@ -659,4 +640,23 @@ pub fn install() {
         .status(Pre,  RAT_STATUS_KIND_THROW_F_LW, throw_pre)
         .status(Main, RAT_STATUS_KIND_THROW_F_LW, throw_flw_main)
         .install();
+}
+
+/// Change status, unless this frame has already changed status too many times.
+///
+/// EVERY TRANSITION IN THE CARRY GOES THROUGH HERE. The carry has ten statuses that can reach
+/// each other and a line callback that can re-enter it, and it froze the game with 7965 status
+/// changes in a single frame. The specific cause is fixed in ../cargo, but the shape is available
+/// to any pair of states whose conditions disagree by one frame -- and a freeze is the worst
+/// failure this project can produce: no crash report, no log flush, no input, only a power cycle.
+///
+/// So the budget in `crate::victim` bounds it. Refusing a transition leaves the fighter in the
+/// current status for the rest of the frame, which is always a legal state, and the log says once
+/// that it happened.
+unsafe fn carry_change(fighter: &mut L2CFighterCommon, entry: usize, next: i32, why: &str) -> L2CValue {
+    if !crate::victim::allow_shift(entry, why) {
+        return 0.into();
+    }
+    fighter.change_status(next.into(), false.into());
+    1.into()
 }

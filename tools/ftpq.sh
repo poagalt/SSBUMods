@@ -57,7 +57,16 @@ case "$op" in
   # `get` is not retried here: the caller wants the bytes on stdout and a partial body cannot be
   # detected from inside this function. Callers check the length themselves -- analyze.sh compares
   # against the size query and drops any crash report under a kilobyte.
-  get)  curl -s "${A[@]}" --max-time 120 "$B$path" ;;
+  # 300s, and a retry, because the telemetry log is now MEGABYTES. At FLUSH_FRAMES=8 with a
+  # per-frame probe line a real session is 5 MB, and a 120-second ceiling on that over sys-ftpd
+  # is a truncation waiting to happen -- while the game is running it is worse, because the file
+  # is being appended to as it is read. One retry covers the wedge described in tools/deploy.sh.
+  get)  for a in 1 2; do
+          out=$(curl -s "${A[@]}" --max-time 300 "$B$path"; printf x)
+          out=${out%x}
+          [ -n "$out" ] && { printf "%s" "$out"; break; }
+          sleep 2
+        done ;;
   del)  d=$(dirname "$path"); curl -s "${A[@]}" --max-time 60 -Q "-DELE $path" "$B${d%/}/" ;;
   *) echo "unknown op $op" >&2; exit 2 ;;
 esac

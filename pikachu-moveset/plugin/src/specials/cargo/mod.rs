@@ -59,6 +59,7 @@
 // The failure mode is bounded deliberately. If a throw input never arrives, the carry releases
 // itself after CARRY_TIMEOUT rather than leaving the victim held with no way out -- a stuck grab
 // would be worse than not having the feature, and this cannot be playtested before shipping.
+use super::status::*;
 use {
     smash::{
         lua2cpp::*,
@@ -219,9 +220,57 @@ pub unsafe extern "C" fn pikachu_cargo_frame(fighter: &mut L2CFighterCommon) {
         LAST_CAPTURED[entry] = cap;
     }
 
+    // ALREADY CARRYING? THEN THIS IS NOT A NEW GRAB.
+    //
+    // THIS IS THE FREEZE, AND THE LOG SHOWS IT 7965 TIMES IN ONE FRAME. The trigger below is
+    // `motion == throw_f && is_end`, which is true for exactly as long as throw_f sits at its
+    // last frame -- and SHOULDER_START deliberately KEEPS throw_f, because DK does not change
+    // pose until SHOULDER_WAIT. So every condition stayed true after the handoff:
+    //
+    //   CARGO grab landed -> handing to SHOULDER_START; st=503(=0x1f7) mot=throw_f f=24.0/24
+    //   SHOULDER START entered ... START loop reached, frame 1
+    //   CARGO grab landed -> handing to SHOULDER_START; st=503(=0x1f7) mot=throw_f f=24.0/24
+    //
+    // `st=0x1f7` is SHOULDER_START. It was requesting the status it was already in, whose Main
+    // runs this line hook again, forever, inside one frame. That is the freeze -- and almost
+    // certainly the earlier CRASH too: unbounded re-entry exhausts the stack, which is how
+    // `sub_shift_status_main` came to read a corrupted L2CValue and `blr` to an address with its
+    // low 32 bits gone.
+    //
+    // `CARRYING[entry] = false` immediately after the handoff was the bug: a flag that says "a
+    // carry is in progress", cleared one line after the carry starts. It is now cleared when the
+    // carry actually ENDS, and the status check below makes the guard true even across a state
+    // reset, because the fighter's own status is the fact and the flag is only a cache of it.
+    let in_carry = matches!(
+        status,
+        s if s == RAT_STATUS_KIND_SHOULDER_START
+            || s == RAT_STATUS_KIND_SHOULDER_WAIT
+            || s == RAT_STATUS_KIND_SHOULDER_WALK
+            || s == RAT_STATUS_KIND_SHOULDER_TURN
+            || s == RAT_STATUS_KIND_SHOULDER_FALL
+            || s == RAT_STATUS_KIND_SHOULDER_LANDING
+            || s == RAT_STATUS_KIND_THROW_F_F
+            || s == RAT_STATUS_KIND_THROW_F_B
+            || s == RAT_STATUS_KIND_THROW_F_HI
+            || s == RAT_STATUS_KIND_THROW_F_LW
+    );
+
+    // The carry has ended if the flag says we are in one and the fighter's status says otherwise.
+    // The status is the fact; the flag is a cache, and a cache that cannot be invalidated is how
+    // the previous version got stuck the other way -- a stale `true` would block every future
+    // cargo grab for the rest of the stock.
+    if CARRYING[entry] && !in_carry {
+        probe::event(format!(
+            "[rat] CARGO p{entry} carry ended (status is now {}); ready for another",
+            probe::st(status)
+        ));
+        CARRYING[entry] = false;
+        CARRY_FRAMES[entry] = 0;
+    }
+
     // The cargo grab is DK's throw_f. Once its motion finishes, the victim is still caught
     // (ATTACK_ABS of CATCH kind, not THROW kind), so this is the moment the carry begins.
-    if !CARRYING[entry] && motion == smash::hash40("throw_f") && MotionModule::is_end(boma) {
+    if !in_carry && !CARRYING[entry] && motion == smash::hash40("throw_f") && MotionModule::is_end(boma) {
         CARRYING[entry] = true;
         CARRY_FRAMES[entry] = 0;
         VICTIM[entry] = LAST_CAPTURED[entry];
@@ -256,7 +305,10 @@ pub unsafe extern "C" fn pikachu_cargo_frame(fighter: &mut L2CFighterCommon) {
         // suppression -- is replaced by ../shoulder, because the real Donkey Kong uses eleven
         // statuses and the motion-swap approach reproduced none of the things that made it work.
         super::shoulder::begin(fighter, VICTIM[entry]);
-        CARRYING[entry] = false;
+        // CARRYING STAYS TRUE. It used to be cleared on the next line, which made a flag meaning
+        // "a carry is in progress" false one statement after the carry began -- see the freeze
+        // above. ../shoulder owns the carry from here; this flag is only what stops this hook
+        // starting a second one, and it is cleared where the carry actually ends.
         return;
         // DK's frame-16 SHOULDER_WAIT flag is what his C++ turns into this. Requesting it here is
         // the same handoff, minus the C++.

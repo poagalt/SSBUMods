@@ -97,6 +97,57 @@ pub unsafe fn others(me: u32) -> Vec<(u32, *mut BattleObjectModuleAccessor)> {
 /// is exactly what we want while driving their position ourselves.
 pub const FORBIDDEN_VICTIM_STATUSES: &[i32] = &[0x177, 0x178, 0x179];
 
+/// How many status changes one entry may make in a single game frame before something is wrong.
+///
+/// A HARD STOP ON THE WHOLE CLASS OF FREEZE, not on one instance of it.
+///
+/// The cargo carry froze the game with 7965 status changes inside one frame: a line callback
+/// whose trigger stayed true after the transition it caused, so it requested the status it was
+/// already in, whose Main ran the callback again. Nothing in that loop is unusual -- it is two
+/// ordinary pieces of code, each correct on its own -- and the same shape is available to every
+/// state machine in this moveset. The whip has six statuses that can reach each other, the carry
+/// has ten, and any pair whose conditions disagree by a frame is a freeze.
+///
+/// A freeze is the worst failure mode available: no crash report, no log flush, no input, and the
+/// only recovery is closing the game. So it is converted into a logged bailout. Eight is far more
+/// than any legitimate chain needs -- the longest real one is grab to carry to throw, which is
+/// three -- and far less than a hang.
+pub const MAX_SHIFTS_PER_FRAME: u32 = 8;
+
+static mut SHIFTS: [u32; 8] = [0; 8];
+
+/// Call once per frame, per entry, from a line callback. Resets the budget.
+///
+/// If the budget is being exceeded the frame never ends, so this never runs -- which is exactly
+/// the property that makes the counter a reliable detector rather than a heuristic.
+pub unsafe fn new_frame(entry: usize) {
+    if entry < 8 {
+        SHIFTS[entry] = 0;
+    }
+}
+
+/// Charge one status change against this frame's budget. False means refuse it.
+pub unsafe fn allow_shift(entry: usize, what: &str) -> bool {
+    if entry >= 8 {
+        return true;
+    }
+    SHIFTS[entry] += 1;
+    if SHIFTS[entry] <= MAX_SHIFTS_PER_FRAME {
+        return true;
+    }
+    // Only report the first refusal. If something really is looping, the log should say so once
+    // and not become the new denial of service.
+    if SHIFTS[entry] == MAX_SHIFTS_PER_FRAME + 1 {
+        crate::telemetry::sink::crumb(format!(
+            "[rat] SHIFT STORM p{entry}: more than {MAX_SHIFTS_PER_FRAME} status changes in one \
+             frame, refusing '{what}' and everything after it this frame. Two pieces of code are \
+             disagreeing about which status we should be in -- find them; without this the game \
+             would have frozen."
+        ));
+    }
+    false
+}
+
 /// Request a status on another fighter, refusing the ones that would crash.
 ///
 /// The refusal is logged rather than silent. A port that quietly declines to do something is how

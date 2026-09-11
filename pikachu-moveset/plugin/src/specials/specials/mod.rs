@@ -169,6 +169,13 @@ static mut VICTIM: [u32; 8] = [0; 8];
 static mut HELD_FOR: [i32; 8] = [0; 8];
 /// Frames since FLAG_THROW_ROPE. -1 while the whip has not happened yet.
 static mut SINCE_THROW: [i32; 8] = [-1; 8];
+/// Whether the lunge pull-in hitbox has already been seen to connect this attempt.
+///
+/// `AttackModule::is_attack_occur` is sticky once an attack lands, so it is true for the rest of
+/// the move. Only the EDGE is a signal -- the frame it first goes true is the frame an opponent
+/// was demonstrably inside the region the catch boxes are about to occupy, and the frame before
+/// the pull-ins knockback moves them out of it.
+static mut PULLIN_SEEN: [bool; 8] = [false; 8];
 
 /// Every live fighter that is not us, as `(battle object id, module accessor)`.
 ///
@@ -309,6 +316,7 @@ unsafe fn reset(boma: *mut BattleObjectModuleAccessor) {
     VICTIM[e] = *BATTLE_OBJECT_ID_INVALID as u32;
     HELD_FOR[e] = 0;
     SINCE_THROW[e] = -1;
+    PULLIN_SEEN[e] = false;
 }
 
 /// The cached victim's module accessor, or None if they are gone.
@@ -543,7 +551,34 @@ unsafe extern "C" fn pikachu_specials_main_loop(fighter: &mut L2CFighterCommon) 
     if caught.is_none() && is_catch && cap != *BATTLE_OBJECT_ID_INVALID as u32 {
         caught = Some((cap, "catcher-link"));
     }
-    if caught.is_none() && (18.0..=35.0).contains(&mframe) {
+    // FROM FRAME 15, NOT 18, AND THE LOG SAYS WHY IN ONE LINE PER FRAME.
+    //
+    //   f=17.0 ... pullin_hit=true  them: [0x10000 st=0x2a cap=false fwd=5.0]
+    //   f=18.0 ... pullin_hit=true  them: [0x10000 st=0x2a cap=false fwd=12.8]
+    //   f=19.0 ...                  them: [... fwd=16.1]
+    //
+    // `fwd` is the opponent's distance in front of us. On frame 17 they are 5.0 away -- well
+    // inside CATCH_REACH_Z of 10.94 -- and our pull-in hitbox connects. By frame 18, which is
+    // where this window used to open, they are 12.8 away and outside it, and they keep going.
+    // The ACMD's frame-15 and frame-16 ATTACKs are Incineroar's pull-in, angle 350 with FKB 30,
+    // and on Pikachu they knock the opponent clear of the catch region before the catch boxes
+    // exist. Every frame from 18 to 35 then correctly reports nobody in range, which is why the
+    // whip "grabs sometimes" and mostly does not.
+    //
+    // So the window opens where the ACMD's first hitbox does. Frames 15 to 17 are the lunge
+    // closing the distance and 18 to 35 are the catch boxes; treating the whole span as the
+    // grab's active window is what the move is, and the geometry check still decides.
+    //
+    // THE PULL-IN CONNECTING IS ALSO A SIGNAL IN ITS OWN RIGHT. It means an opponent was in the
+    // same region the catch boxes are about to occupy, which is exactly the question the catch
+    // asks -- and it is true on the frame BEFORE they get launched out of it.
+    // `is_attack_occur` is sticky once it fires, so only the first frame counts.
+    let pullin = AttackModule::is_attack_occur(boma);
+    let pullin_edge = pullin && !PULLIN_SEEN[entry];
+    if (14.0..=40.0).contains(&mframe) {
+        PULLIN_SEEN[entry] = pullin;
+    }
+    if caught.is_none() && ((15.0..=35.0).contains(&mframe) || pullin_edge) {
         if let Some((id, vboma)) = find_victim_in_range(boma) {
             StatusModule::change_status_request_from_script(
                 vboma, *FIGHTER_STATUS_KIND_SWING_GAOGAEN_CATCHED, false

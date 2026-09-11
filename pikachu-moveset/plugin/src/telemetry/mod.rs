@@ -141,6 +141,11 @@ unsafe extern "C" fn pikachu_telemetry(fighter: &mut L2CFighterCommon) {
     // The self-test's second pass, two seconds in. Which motions are missing has come back
     // differently from two loads of the same files, so asking once is not a measurement.
     selftest::tick(boma, entry);
+    // ONE PLACE THAT KNOWS A FRAME HAS PASSED. The per-frame status-change budget in
+    // src/victim.rs is reset here, and only here: if a status cycle is running away the frame
+    // never ends, so this never runs and the counter keeps climbing until it refuses. That is
+    // what makes it a detector rather than a guess.
+    crate::victim::new_frame(entry);
 
     let motion = MotionModule::motion_kind(boma);
     let frame = MotionModule::frame(boma);

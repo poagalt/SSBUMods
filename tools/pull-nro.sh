@@ -7,10 +7,13 @@
 # params and DK's whole carry. What it does not have is the unnamed `FUN_*` helpers, because the
 # dump only emitted functions it could name. Three answers live in them:
 #
-#   FUN_7100000e70   gaogaen  SetStatusScripts delegates here -- every status registration
-#                             except the Final Smash, including whether SPECIAL_LW registers a
-#                             CHECK_DAMAGE line (which is how a counter would natively detect a
-#                             hit)
+#   FUN_7100000e70   gaogaen  ANSWERED. 53 sv_set_status_func calls using four conditions:
+#                             three appearing 16/16/15 times (pre, main, end, one per status) and
+#                             one appearing 6 times. The only gaogaen statuses with a file beyond
+#                             pre/main/main_loop/end are the six SpecialHi* with check_atk.c, so
+#                             the outlier is CHECK_ATTACK on his up-B. SPECIAL_LW registers pre,
+#                             main and end and NOTHING ELSE -- there is no native CHECK_DAMAGE
+#                             line for a counter to hang off. See docs/reading-the-games-code.md.
 #   FUN_710001d4b0   gaogaen  called from SpecialS/main_loop -- the command grab's catch check
 #   FUN_710001ff80   gaogaen  the other half of the same
 #   FUN_7100022520   donkey   called from every Shoulder loop -- the cargo throw input check
