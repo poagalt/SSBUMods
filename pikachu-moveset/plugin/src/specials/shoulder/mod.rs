@@ -204,19 +204,66 @@ unsafe extern "C" fn shoulder_wait_main(fighter: &mut L2CFighterCommon) -> L2CVa
     fighter.sub_shift_status_main(L2CValue::Ptr(shoulder_wait_loop as *const () as _))
 }
 
-/// The throw the current stick position asks for, if any.
+/// The throw the input asks for, if any.
 ///
-/// DK's own input check is `FUN_7100022520`, which the dump does not include, so the mapping is
-/// the documented one: attack or special plus a direction, with no direction meaning forward.
-/// TRIGGER rather than held -- the grab button is still down when the carry begins, and reading
-/// it as held is what committed a throw on the first carry frame and froze the game in round 2.
-unsafe fn requested_throw(boma: *mut BattleObjectModuleAccessor) -> Option<i32> {
+/// DK'S OWN CHECK, READ OUT OF THE BINARY. `FUN_7100022520` is the helper every Shoulder loop
+/// calls, and the public dump omits it because it could not name it. `tools/disasm` resolves the
+/// NRO's PLT against its .dynsym, so it reads plainly now:
+///
+///   LinkModule::get_node_object_id      the fighter on his shoulder
+///   ControlModule::get_clatter_time     on the VICTIM; `<= 0` returns early with no throw
+///   globalTable[0x21] & <four consecutive constants>     cat2, four bits apart
+///   L2CFighterCommon::IsThrowStick
+///   globalTable[0x20] & <an OR of four more>             cat1
+///   five change_status calls, chosen by a hash-indexed lookup
+///
+/// `globalTable[0x20]` is cat1 and `[0x21]` is cat2 -- ShoulderStart/main_loop.c and
+/// SpecialNLoop/main_loop.c in the same dump index them with named CAT1 and CAT2 constants, which
+/// is what fixes the two indices. The four consecutive cat2 constants can only be
+/// FIGHTER_PAD_CMD_CAT2_FLAG_THROW_F, _B, _HI and _LW: adjacent slots in the constant table, and
+/// bits 0x100000, 0x200000, 0x400000, 0x800000 -- the four throw commands, adjacent in the
+/// enumeration too.
+///
+/// SO THE DIRECTION IS THE ENGINE'S, NOT A THRESHOLD OF OURS. This used to compare
+/// `get_stick_x` and `get_stick_y` against 0.5. The cat2 throw commands are the same thing the
+/// game resolves for an ordinary grab, which means smash-stick deflection, the input buffer and
+/// the per-controller deadzones all behave here exactly as they do out of a normal grab -- none
+/// of which a raw stick read reproduces.
+///
+/// The button path survives as the second half of DK's own test, `IsThrowStick` together with a
+/// cat1 button mask, because that is what he does when the command flag has not fired. TRIGGER
+/// rather than held: the grab button is still down when the carry begins, and reading it as held
+/// is what committed a throw on the first carry frame and froze the game in round 2.
+unsafe fn requested_throw(fighter: &mut L2CFighterCommon) -> Option<i32> {
+    let boma = fighter.module_accessor;
+    let cat2 = ControlModule::get_command_flag_cat(boma, 1);
+    if cat2 & *FIGHTER_PAD_CMD_CAT2_FLAG_THROW_HI != 0 {
+        return Some(RAT_STATUS_KIND_THROW_F_HI);
+    }
+    if cat2 & *FIGHTER_PAD_CMD_CAT2_FLAG_THROW_LW != 0 {
+        return Some(RAT_STATUS_KIND_THROW_F_LW);
+    }
+    if cat2 & *FIGHTER_PAD_CMD_CAT2_FLAG_THROW_B != 0 {
+        return Some(RAT_STATUS_KIND_THROW_F_B);
+    }
+    if cat2 & *FIGHTER_PAD_CMD_CAT2_FLAG_THROW_F != 0 {
+        return Some(RAT_STATUS_KIND_THROW_F_F);
+    }
+
     let pressed = ControlModule::check_button_trigger(boma, *CONTROL_PAD_BUTTON_ATTACK)
         || ControlModule::check_button_trigger(boma, *CONTROL_PAD_BUTTON_SPECIAL);
     if !pressed {
         return None;
     }
-    let x = ControlModule::get_stick_x(boma) * PostureModule::lr(boma);
+    // `IsThrowStick` DECIDES THE DIRECTION, IT DOES NOT GATE THE THROW. A cargo attack press with
+    // the stick neutral is a forward throw in the real move, so requiring a deflection here would
+    // remove the most common input in the move. DK's helper reads it alongside the cat1 button
+    // mask for the same reason: to know whether a direction was asked for.
+    let x = if fighter.IsThrowStick().get_bool() {
+        ControlModule::get_stick_x(boma) * PostureModule::lr(boma)
+    } else {
+        0.0
+    };
     let y = ControlModule::get_stick_y(boma);
     if y > 0.5 {
         Some(RAT_STATUS_KIND_THROW_F_HI)
@@ -244,7 +291,7 @@ unsafe extern "C" fn shoulder_wait_loop(fighter: &mut L2CFighterCommon) -> L2CVa
         fighter.change_status(FIGHTER_STATUS_KIND_WAIT.into(), false.into());
         return 1.into();
     }
-    if let Some(next) = requested_throw(boma) {
+    if let Some(next) = requested_throw(fighter) {
         crate::telemetry::probe::event(format!(
             "[rat] SHOULDER p{entry} throw {} after {}f; {}",
             crate::telemetry::probe::st(next),
@@ -310,7 +357,7 @@ unsafe extern "C" fn shoulder_walk_loop(fighter: &mut L2CFighterCommon) -> L2CVa
         fighter.change_status(FIGHTER_STATUS_KIND_WAIT.into(), false.into());
         return 1.into();
     }
-    if let Some(next) = requested_throw(boma) {
+    if let Some(next) = requested_throw(fighter) {
         fighter.change_status(next.into(), false.into());
         return 1.into();
     }
@@ -386,7 +433,7 @@ unsafe extern "C" fn shoulder_fall_loop(fighter: &mut L2CFighterCommon) -> L2CVa
         fighter.change_status(FIGHTER_STATUS_KIND_FALL.into(), false.into());
         return 1.into();
     }
-    if let Some(next) = requested_throw(boma) {
+    if let Some(next) = requested_throw(fighter) {
         fighter.change_status(next.into(), false.into());
         return 1.into();
     }
