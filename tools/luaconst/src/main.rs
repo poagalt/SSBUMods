@@ -101,12 +101,17 @@ fn hash40(s: &[u8]) -> u64 {
     ((s.len() as u64) << 32) | (c ^ 0xFFFF_FFFF) as u64
 }
 
+mod hashdict;
 mod order;
 
 fn main() {
     let a: Vec<String> = std::env::args().skip(1).collect();
     if a.first().map(String::as_str) == Some("--order") {
         order::run(&a[1..]);
+        return;
+    }
+    if a.first().map(String::as_str) == Some("--hashdict") {
+        hashdict::run(&a[1..]);
         return;
     }
     if a.len() < 2 {
