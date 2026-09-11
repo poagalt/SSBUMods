@@ -135,6 +135,10 @@ pub unsafe fn ctx(boma: *mut BattleObjectModuleAccessor) -> String {
 /// Logging the target BEFORE the call makes the last line in the file the answer. The
 /// `end_frame_from_hash` guard is cheap insurance on top: a motion the game cannot resolve is one
 /// the engine may hand a null entry, and refusing is always better than freezing.
+/// Unused since the motion-swap carry was deleted. Kept because it is the only helper that
+/// REFUSES a motion change the game would have rejected and says so, which is worth having the
+/// next time a move needs to set one outside a status main.
+#[allow(dead_code)]
 pub unsafe fn change_motion(boma: *mut BattleObjectModuleAccessor, name: &str, tag: &str) -> bool {
     let h = Hash40::new(name);
     let end = MotionModule::end_frame_from_hash(boma, h);

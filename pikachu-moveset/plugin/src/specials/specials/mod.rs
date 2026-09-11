@@ -100,12 +100,21 @@ const THROUGH_RETURN_SPEED: f32 = 2.8;
 const LARIAT_X: f32 = 24.0;
 /// Near edge, `special_s_lariat_end_offset_x`. Inside this it is too late to start one.
 const LARIAT_END_X: f32 = 10.0;
-/// Frames after the whip before the lariat band is believed. The outbound leg runs at
-/// through_target_speed 11.2, so the victim clears 24 units in about two frames; without this the
-/// band would match on the way out as well as on the way back.
-const RETURN_GUARD_FRAMES: i32 = 3;
 /// `special_s_failure_offset_x` -- the rebound has arrived.
 const FAILURE_X: f32 = 6.0;
+/// How far behind Pikachu the ropes stand.
+///
+/// NOT A PARAM, AND THAT IS WHY IT HAD TO BE DERIVED. Nothing in `param_special_s` gives the
+/// rope distance -- the ropes are an ARTICLE, and their placement lives in the article. SmashWiki
+/// puts them at roughly where the dash started, and `d01specialsstart` carries 34.93 units of
+/// root motion, so that is the distance the lunge covers and the distance back to them.
+///
+/// Two independent readings of the params agree with it, which is what makes it usable rather
+/// than a guess: 34.93 / `through_target_speed` 11.2 is about three frames outbound, and the
+/// LARIAT band at -24 divided by `through_target_return_speed` 2.8 is 8.6 frames -- against
+/// game_specialslariat putting its hitbox out on frame 9. The geometry and the timing were
+/// derived separately and land on the same move.
+const ROPE_DISTANCE: f32 = 34.93;
 
 /// Real frames into game_specialsthrow at which FLAG_THROW_ROPE fires. The ACMD raises it on
 /// script frame 37, and FT_MOTION_RATE runs the script at 0.75 from frame 1 and 0.5 from frame 20
@@ -176,6 +185,8 @@ static mut SINCE_THROW: [i32; 8] = [-1; 8];
 /// was demonstrably inside the region the catch boxes are about to occupy, and the frame before
 /// the pull-ins knockback moves them out of it.
 static mut PULLIN_SEEN: [bool; 8] = [false; 8];
+/// Whether the whipped victim has reached the ropes and turned around.
+static mut RETURNING: [bool; 8] = [false; 8];
 
 /// Every live fighter that is not us, as `(battle object id, module accessor)`.
 ///
@@ -318,6 +329,7 @@ unsafe fn reset(boma: *mut BattleObjectModuleAccessor) {
     HELD_FOR[e] = 0;
     SINCE_THROW[e] = -1;
     PULLIN_SEEN[e] = false;
+    RETURNING[e] = false;
 }
 
 /// The cached victim's module accessor, or None if they are gone.
@@ -351,12 +363,45 @@ unsafe fn drive_victim(boma: *mut BattleObjectModuleAccessor, frames_since: i32)
     }
     let Some(vboma) = victim_boma(entry) else { return };
 
+    // BEHIND HIM, NOT IN FRONT, AND THE PARAMS SAY SO IN EVERY SIGN.
+    //
+    //   special_s_lariat_offset_x1/x2      -24
+    //   special_s_lariat_end_offset_x1/x2  -10
+    //   special_s_failure_offset_x1/x2      -6
+    //
+    // Every detection band is NEGATIVE -- behind Incineroar. The ropes rise up behind him, the
+    // victim is whipped back past him into them, and comes back toward him from behind. This sent
+    // them forward at +lr, which is why playtest saw Mario "flying the wrong direction".
+    //
+    // AND THE TURN IS A DISTANCE, NOT A TIMER. The old version flew outbound for
+    // `through_target_cancel_frame` -- 30 frames at `through_target_speed` 11.2, which is 336
+    // units. The victim was off the stage before the return leg began, so they "never bounce back
+    // for the hit". The ropes are what turns them around, and SmashWiki puts them at roughly
+    // where the dash started; `d01specialsstart` carries 34.93 units of root motion, so that is
+    // the distance. 34.93 / 11.2 is about three frames out, then 2.8 per frame back.
+    //
+    // That also reconciles the lariat window, which had been derived from the numbers separately:
+    // 24 units at return_speed 2.8 is 8.6 frames, and game_specialslariat's hitbox comes out on
+    // frame 9. The band is exactly "a lariat started now connects as they arrive". Two independent
+    // readings of the same params agreeing is the strongest confirmation available here.
+    //
+    // cancel_frame stays as the ceiling it is: if something stops the victim reaching the ropes,
+    // the outbound leg still ends.
     let lr = PostureModule::lr(boma);
-    let outbound = frames_since <= THROUGH_CANCEL_FRAME;
-    let step = if outbound { THROUGH_SPEED } else { -THROUGH_RETURN_SPEED };
+    let gap = (PostureModule::pos_x(vboma) - PostureModule::pos_x(boma)).abs();
+    if !RETURNING[entry] && (gap >= ROPE_DISTANCE || frames_since > THROUGH_CANCEL_FRAME) {
+        RETURNING[entry] = true;
+        crate::telemetry::probe::event(format!(
+            "[rat] WHIP p{entry} hit the ropes at {gap:.1} units after {frames_since}f -- \
+             returning at {THROUGH_RETURN_SPEED}/frame; {}",
+            crate::telemetry::probe::ctx(boma)
+        ));
+    }
+    // Outbound is away from his facing; the return is toward it.
+    let step = if RETURNING[entry] { THROUGH_RETURN_SPEED } else { -THROUGH_SPEED };
 
-    // Their own physics would fight this every frame, so clear it first. The victim is in a
-    // SWING_GAOGAEN status, which is a scripted capture -- they are not meant to be self-propelled.
+    // Their own physics would fight this every frame, so clear it first. This is a scripted
+    // throw -- they are not meant to be self-propelled while it runs.
     KineticModule::clear_speed_all(vboma);
     PostureModule::add_pos(vboma, &Vector3f { x: step * lr, y: 0.0, z: 0.0 });
 }
@@ -808,9 +853,14 @@ unsafe extern "C" fn pikachu_specialsthrow_main_loop(fighter: &mut L2CFighterCom
     drive_victim(boma, SINCE_THROW[entry]);
 
     // THE FOLLOW-UP DECISION, off the three param regions.
+    //
+    // GATED ON HAVING TURNED AROUND, not on a frame count. `RETURN_GUARD_FRAMES` was a guess at
+    // how long the outbound leg lasts, needed because the old driver flew outbound on a timer.
+    // Now that the turn happens when the victim reaches the ropes, "are they coming back" is a
+    // fact -- and the bands at -24 and -10 only mean anything on the return.
     let gap = victim_gap(boma);
     if followup_pressed(boma) {
-        let in_lariat_band = SINCE_THROW[entry] >= RETURN_GUARD_FRAMES
+        let in_lariat_band = RETURNING[entry]
             && gap.map_or(false, |g| g <= LARIAT_X && g >= LARIAT_END_X);
         let next = if in_lariat_band {
             RAT_STATUS_KIND_SPECIAL_S_LARIAT
@@ -821,9 +871,9 @@ unsafe extern "C" fn pikachu_specialsthrow_main_loop(fighter: &mut L2CFighterCom
         return 1.into();
     }
 
-    // No press, and the rebound has arrived. special_s_through_target_cancel_frame gates this so
-    // the check cannot fire while the victim is still being held at zero distance.
-    if SINCE_THROW[entry] > THROUGH_CANCEL_FRAME {
+    // No press, and the rebound has arrived at `special_s_failure_offset_x`. Also gated on the
+    // return, so it cannot fire while the victim is still at zero distance being held.
+    if RETURNING[entry] {
         let arrived = gap.map_or(true, |g| g <= FAILURE_X);
         if arrived || MotionModule::is_end(boma) {
             fighter.change_status(RAT_STATUS_KIND_SPECIAL_S_FAILURE.into(), false.into());

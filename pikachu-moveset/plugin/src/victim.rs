@@ -95,6 +95,10 @@ pub unsafe fn others(me: u32) -> Vec<(u32, *mut BattleObjectModuleAccessor)> {
 /// SWING_GAOGAEN_CATCHED (0x176) is deliberately NOT here: it guards every parent access behind
 /// `LinkModule::is_link`, so with no rope it simply does not constrain the victim's model, which
 /// is exactly what we want while driving their position ourselves.
+/// Unused in code ON PURPOSE: nothing requests these any more, which is the point. The list is
+/// the machine-readable half of ADR 0004 and tools/check-victim.sh asserts nobody goes around it,
+/// so deleting it would delete the rule.
+#[allow(dead_code)]
 pub const FORBIDDEN_VICTIM_STATUSES: &[i32] = &[0x177, 0x178, 0x179];
 
 // ============================================================================================
@@ -180,6 +184,7 @@ pub unsafe fn held(entry: usize) -> Option<(u32, *mut BattleObjectModuleAccessor
 }
 
 /// How long we have held them.
+#[allow(dead_code)]
 pub unsafe fn held_frames(entry: usize) -> i32 {
     if entry >= 8 { 0 } else { HELD_FOR[entry] }
 }
@@ -255,6 +260,9 @@ pub unsafe fn allow_shift(entry: usize, what: &str) -> bool {
 ///
 /// # Safety
 /// `vboma` must be a live accessor, ideally one that came from [`boma`].
+/// Kept for the next port that needs to move a victim: it is the only safe way to do it, and
+/// re-deriving the refusal list at that point is how ADR 0004 gets violated by accident.
+#[allow(dead_code)]
 pub unsafe fn request_status(
     vboma: *mut BattleObjectModuleAccessor,
     status: i32,

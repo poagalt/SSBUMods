@@ -74,7 +74,6 @@ use {
 
 // Incineroar's clatter window is 85 frames and DK's cargo hold is comparable; this is the release
 // valve, not a tuning value.
-const CARRY_TIMEOUT: i32 = 120;
 
 // NOT MODELLED: walk_accel_mul_mul walk_accel_add_mul walk_speed_max_mul
 //
@@ -110,91 +109,11 @@ unsafe fn entry_of(boma: *mut BattleObjectModuleAccessor) -> usize {
     let e = WorkModule::get_int(boma, *FIGHTER_INSTANCE_WORK_ID_INT_ENTRY_ID) as usize;
     if e >= 8 { 0 } else { e }
 }
+// The victim-side helpers that used to live here -- `tell_victim`, `victim_status`,
+// `cargo_direction`, TELL_VICTIM_SHOULDERED, CARRY_TIMEOUT -- went with the motion-swap carry.
+// Their replacements are ../shoulder's `requested_throw` for the input, `crate::victim::held`
+// for ownership, and DK's own SHOULDER statuses for everything else.
 
-/// Ask the carried fighter to change status. Their SHOULDERED_DONKEY statuses are common engine
-/// code, so this is the whole of the victim side -- being held on the shoulder, tracking the
-/// carrier and being launched are all theirs to run.
-/// Whether to push the victim into Donkey Kong's own SHOULDERED statuses.
-///
-/// OFF, AND THIS IS NOW THE LEADING SUSPECT FOR THE FREEZE.
-///
-/// Round 2's fixes -- trigger instead of held, and waiting for the engine's THROW status to end
-/// before touching the motion -- did not change the crash at all. It is byte-identical: a null
-/// dereference inside `MotionModule::change_motion`, reached through
-/// `bind_hash_call_call_line_status` from a smashline line callback. And `librat_of_doom` appears
-/// nowhere in the report: not in a frame, not in the module list.
-///
-/// So the change_motion that dies is probably not ours. The remaining thing this module does that
-/// reaches outside Pikachu is exactly this: it asks the VICTIM to enter SHOULDERED_DONKEY_START
-/// and then SHOULDERED_DONKEY. Those statuses are engine-common, which is why they were believed
-/// safe -- but common only means every fighter HAS them, not that they work with a captor who is
-/// not Donkey Kong. Their status code runs on the victim, through the same
-/// `bind_hash_call_call_line_status` path in the backtrace, and being shouldered is defined
-/// relative to a carrier it then reads. A carrier that is a Pikachu in a THROW status is not
-/// something that code was written for.
-///
-/// With this off the victim simply stays CAUGHT -- DK's `throw_f` catches with an ATTACK_ABS of
-/// CATCH kind rather than THROW kind, so they are held either way. What is lost is their pose:
-/// they hang in the ordinary capture animation instead of sitting on the shoulder. That is a
-/// visible deviation from the native move and it is the deliberate price of not freezing.
-///
-/// THE NEXT LOG DECIDES IT. Every frame of the carry now records what the victim's status
-/// actually is, so "they stay captured" and "they fall out immediately" are distinguishable, and
-/// if the freeze persists with this off then the cause is somewhere this module cannot reach and
-/// the search moves to the engine's own throw handling.
-const TELL_VICTIM_SHOULDERED: bool = false;
-
-unsafe fn tell_victim(entry: usize, status: i32) {
-    use crate::telemetry::probe;
-    let id = VICTIM[entry];
-    if !TELL_VICTIM_SHOULDERED {
-        probe::event(format!(
-            "[rat] CARGO p{entry} NOT requesting status {} on victim {id:#x} \
-             (TELL_VICTIM_SHOULDERED is off -- suspected cause of the freeze)",
-            probe::st(status)
-        ));
-        return;
-    }
-    let Some(vboma) = crate::victim::boma(id) else {
-        probe::event(format!(
-            "[rat] CARGO p{entry} victim id {id:#x} does not resolve to a live accessor, not \n             telling it {}",
-            probe::st(status)
-        ));
-        return;
-    };
-    // FLUSHED BEFORE THE CALL, deliberately. If this is what kills the game, the last line in the
-    // file names it -- which is the whole reason the previous round could not place the crash.
-    probe::event(format!("[rat] CARGO p{entry} -> victim {id:#x} status {}", probe::st(status)));
-    StatusModule::change_status_request_from_script(vboma, status, false);
-    probe::event(format!("[rat] CARGO p{entry} victim status request returned"));
-}
-
-/// What the victim is actually doing, for the carry probe. Returns -1 when unreadable.
-unsafe fn victim_status(entry: usize) -> i32 {
-    match crate::victim::boma(VICTIM[entry]) {
-        Some(vboma) => StatusModule::status_kind(vboma),
-        None => -1,
-    }
-}
-
-// Which cargo throw the stick asks for. Unlike Alolan Whip's follow-up mapping, this one is NOT
-// interpreted: cargo throws map to the four directions exactly as ordinary throws do.
-unsafe fn cargo_direction(boma: *mut BattleObjectModuleAccessor) -> Option<&'static str> {
-    let x = ControlModule::get_stick_x(boma);
-    let y = ControlModule::get_stick_y(boma);
-    let lr = PostureModule::lr(boma);
-    if y > 0.5 {
-        Some("throw_f_hi")
-    } else if y < -0.5 {
-        Some("throw_f_lw")
-    } else if x * lr > 0.5 {
-        Some("throw_f_f")
-    } else if x * lr < -0.5 {
-        Some("throw_f_b")
-    } else {
-        None
-    }
-}
 
 pub unsafe extern "C" fn pikachu_cargo_frame(fighter: &mut L2CFighterCommon) {
     use crate::telemetry::probe;
@@ -310,231 +229,38 @@ pub unsafe extern "C" fn pikachu_cargo_frame(fighter: &mut L2CFighterCommon) {
         // above. ../shoulder owns the carry from here; this flag is only what stops this hook
         // starting a second one, and it is cleared where the carry actually ends.
         return;
-        // DK's frame-16 SHOULDER_WAIT flag is what his C++ turns into this. Requesting it here is
-        // the same handoff, minus the C++.
-        tell_victim(entry, *FIGHTER_STATUS_KIND_SHOULDERED_DONKEY_START);
-        return;
-    }
-
-    if !CARRYING[entry] {
-        return;
-    }
-    CARRY_FRAMES[entry] += 1;
-
-    // THE FREEZE WAS HERE: WE TOUCHED THE MOTION WHILE THE ENGINE STILL OWNED IT.
-    //
-    // The crash report is a Data Abort on a null pointer inside
-    // `MotionModule::change_motion`, reached from a smashline line callback -- ours. The
-    // telemetry's last line is `CATCH_PULL -> THROW`, so Pikachu was still inside the engine's
-    // own THROW status, which is running throw_f and owns the fighter's motion for its duration.
-    // Changing motion out from under it is what died.
-    //
-    // Two things let that happen, and both are fixed:
-    //
-    //   1. `check_button_on` is HELD, not pressed. The grab button was still down from the grab
-    //      itself, so with any stick direction the throw committed on the FIRST carry frame --
-    //      inside THROW. The whip module already uses `check_button_trigger` for exactly this
-    //      reason; this module never got the same treatment.
-    //   2. Nothing checked the status before changing motion.
-    //
-    // So the carry now waits for the engine to leave THROW before it touches anything. The
-    // handoff to the victim still happens immediately -- that is a status request on THEM, not a
-    // motion change on us, and it is what puts Mario on the shoulder.
-    if status == *FIGHTER_STATUS_KIND_THROW || status == *FIGHTER_STATUS_KIND_CATCH_ATTACK {
-        if CARRY_FRAMES[entry] == 2 {
-            tell_victim(entry, *FIGHTER_STATUS_KIND_SHOULDERED_DONKEY);
-            probe::event(format!(
-                "[rat] CARGO p{entry} shoulder handoff sent, waiting for THROW to end; {}",
-                probe::ctx(boma)
-            ));
-        }
-        return;
-    }
-
-    // SHOULDERED_DONKEY_START is a transition; the hold itself is SHOULDERED_DONKEY. Requesting it
-    // once, a frame later, lets their own status code settle onto the shoulder.
-    // Belt to the braces above: if the engine left THROW before frame 2, the handoff still has to
-    // go out. Requesting the same status twice is harmless -- it is already their current one.
-    if CARRY_FRAMES[entry] <= 3 {
-        tell_victim(entry, *FIGHTER_STATUS_KIND_SHOULDERED_DONKEY);
-    }
-
-    // THE CARRY POSE. Pikachu is in his own movement status, so his speeds and jump are his; only
-    // the motion is DK's. change_motion is guarded on the motion actually differing, because
-    // calling it every frame would restart the animation every frame.
-    // EVERY FRAME OF THE CARRY, because the previous two rounds each ended with a freeze whose
-    // surrounding frames were not in the log. Buffered rather than flushed -- the `event` lines
-    // either side anchor it, and a carry is at most 120 frames.
-    probe::frame(format!(
-        "[rat] CARGO p{entry} carry f={} victim={:#x} victim_st={}; {}",
-        CARRY_FRAMES[entry],
-        VICTIM[entry],
-        probe::st(victim_status(entry)),
-        probe::ctx(boma)
-    ));
-
-    if let Some(pose) = carry_pose(boma) {
-        if MotionModule::motion_kind(boma) != smash::hash40(pose) {
-            probe::change_motion(boma, pose, "CARGO pose");
-        }
-    }
-    suppress_carry_actions(boma);
-
-    // Losing the victim for any reason -- they mashed out, we got hit -- ends the carry.
-    // is_catch is not consulted after the handoff: the victim is in a shouldered status now, not
-    // an ordinary capture, so it reads false and used to end the carry immediately.
-    if CARRY_FRAMES[entry] > 2 && !victim_still_held(entry) {
-        probe::event(format!(
-            "[rat] CARGO p{entry} victim lost after {}f, carry ends; {}",
-            CARRY_FRAMES[entry],
-            probe::ctx(boma)
-        ));
-        CARRYING[entry] = false;
-        CARRY_FRAMES[entry] = 0;
-        return;
-    }
-
-    // A direction plus the attack or special button commits to a throw. Changing motion is enough
-    // to run that motion's game script, so no additional status kinds are needed -- the same
-    // reason Revenge and Alolan Whip get by with one status each.
-    //
-    // TRIGGER, NOT ON. `check_button_on` is true while the button is HELD, and the grab button is
-    // still down at the moment the grab lands -- so the throw committed on the first carry frame,
-    // before Mario had finished being lifted, and did it from inside the engine's THROW status.
-    // That is what froze the game. ../specials uses check_button_trigger for the whip's
-    // follow-ups and always did; this module simply never got the same treatment.
-    let pressed = ControlModule::check_button_trigger(boma, *CONTROL_PAD_BUTTON_ATTACK)
-        || ControlModule::check_button_trigger(boma, *CONTROL_PAD_BUTTON_SPECIAL);
-    if pressed {
-        if let Some(m) = cargo_direction(boma) {
-            throw_cargo(boma, entry, m);
-            return;
-        }
-    }
-
-    // Release valve. Without this a carry that never receives an input would hold the victim
-    // indefinitely, which is a worse bug than the missing locomotion.
-    if CARRY_FRAMES[entry] >= CARRY_TIMEOUT {
-        throw_cargo(boma, entry, "throw_f_f");
     }
 }
 
-/// Commit to one of the four cargo throws. The motion's own game script carries the
-/// ATTACK_ABS(THROW) that launches the victim; SHOULDERED_DONKEY_THROWN is what puts them in the
-/// matching thrown_f_donkey_* animation on the way out.
-unsafe fn throw_cargo(boma: *mut BattleObjectModuleAccessor, entry: usize, motion: &str) {
-    use crate::telemetry::probe;
-    probe::event(format!(
-        "[rat] CARGO p{entry} throw '{motion}' after {}f held; {}",
-        CARRY_FRAMES[entry],
-        probe::ctx(boma)
-    ));
-    probe::change_motion(boma, motion, "CARGO throw");
-    tell_victim(entry, *FIGHTER_STATUS_KIND_SHOULDERED_DONKEY_THROWN);
-    CARRYING[entry] = false;
-    CARRY_FRAMES[entry] = 0;
-    VICTIM[entry] = *BATTLE_OBJECT_ID_INVALID as u32;
-}
-
-/// Which of DK's carry poses matches the movement status Pikachu is currently in.
-///
-/// Returns None for a status the carry does not cover, which leaves whatever motion is playing
-/// alone rather than forcing a pose onto a state this has not thought about -- being knocked down
-/// while carrying, for instance, should look like being knocked down.
-///
-/// The three walk speeds map off Pikachu's own walk motion rather than off a speed threshold,
-/// because the engine has already picked slow/middle/fast from his stick input and his
-/// walk_speed_max. Reading its choice keeps the pose in step with the locomotion for free.
-unsafe fn carry_pose(boma: *mut BattleObjectModuleAccessor) -> Option<&'static str> {
-    let status = StatusModule::status_kind(boma);
-    if status == *FIGHTER_STATUS_KIND_WAIT {
-        return Some("shoulder_wait");
-    }
-    if status == *FIGHTER_STATUS_KIND_TURN {
-        return Some("shoulder_turn");
-    }
-    if status == *FIGHTER_STATUS_KIND_JUMP_SQUAT {
-        return Some("shoulder_jump_squat");
-    }
-    if status == *FIGHTER_STATUS_KIND_JUMP {
-        return Some("shoulder_jump");
-    }
-    if status == *FIGHTER_STATUS_KIND_FALL {
-        return Some("shoulder_fall");
-    }
-    if status == *FIGHTER_STATUS_KIND_LANDING {
-        return Some("shoulder_landing");
-    }
-    // WALK and DASH both get a walk pose; DK has no carried dash, and his fast walk is the closest
-    // thing he owns.
-    if status == *FIGHTER_STATUS_KIND_WALK || status == *FIGHTER_STATUS_KIND_DASH {
-        let m = MotionModule::motion_kind(boma);
-        if m == smash::hash40("walk_slow") {
-            return Some("shoulder_walk_slow");
-        }
-        if m == smash::hash40("walk_fast") || status == *FIGHTER_STATUS_KIND_DASH {
-            return Some("shoulder_walk_fast");
-        }
-        return Some("shoulder_walk_middle");
-    }
-    None
-}
-
-/// Takes away the actions a carrier should not have.
-///
-/// Without this, Pikachu is in an ordinary WALK or WAIT and can attack, shield or throw out a
-/// special while holding someone -- and each of those drops the victim in a state nothing is
-/// tracking. DK simply does not have those options while carrying. Disabling the transition groups
-/// is the engine's own mechanism for exactly that, and it lasts one frame, so it is reapplied every
-/// frame the carry is live and never has to be undone when the carry ends.
-unsafe fn suppress_carry_actions(boma: *mut BattleObjectModuleAccessor) {
-    for group in [
-        *FIGHTER_STATUS_TRANSITION_GROUP_CHK_GROUND_ATTACK,
-        *FIGHTER_STATUS_TRANSITION_GROUP_CHK_GROUND_SPECIAL,
-        *FIGHTER_STATUS_TRANSITION_GROUP_CHK_GROUND_GUARD,
-        *FIGHTER_STATUS_TRANSITION_GROUP_CHK_AIR_ATTACK,
-        *FIGHTER_STATUS_TRANSITION_GROUP_CHK_AIR_SPECIAL,
-    ] {
-        WorkModule::unable_transition_term_group(boma, group);
-    }
-    // NO DASHING OR RUNNING WHILE CARRYING, which is the restriction playtest noticed was
-    // missing: "doesn't have the less movement speed limit that cargo throw places on dk".
-    //
-    // Worth being precise about what that limit is, because the param says the opposite of what
-    // it sounds like. `donkey param_lifting_walk` multiplies walk speed and acceleration by 1.1 --
-    // carrying makes him WALK slightly faster, not slower. What he loses is the fast options: DK's
-    // carry is a walk-only mode, with no dash and no run, and that is what makes it feel slow.
-    //
-    // Suppressing the transitions is exactly how the engine expresses that, and unlike the walk
-    // multipliers it does not compound across frames -- these are re-asserted every frame by
-    // design, which is why they are safe here and `mul_x_speed_max` is not.
-    // Dash and run are individual TERMS, not a group -- the only ground groups the engine has are
-    // ATTACK, CATCH, ESCAPE, GUARD, ITEM, JUMP and SPECIAL. So they are forbidden one by one.
-    for term in [
-        *FIGHTER_STATUS_TRANSITION_TERM_ID_CONT_DASH,
-        *FIGHTER_STATUS_TRANSITION_TERM_ID_CONT_TURN_DASH,
-        *FIGHTER_STATUS_TRANSITION_TERM_ID_DASH_TO_RUN,
-        *FIGHTER_STATUS_TRANSITION_TERM_ID_RUN,
-        *FIGHTER_STATUS_TRANSITION_TERM_ID_CONT_TURN_RUN,
-    ] {
-        WorkModule::unable_transition_term(boma, term);
-    }
-}
-
-/// Whether the carried fighter is still in one of the shouldered statuses.
-unsafe fn victim_still_held(entry: usize) -> bool {
-    let Some(vboma) = crate::victim::boma(VICTIM[entry]) else { return false };
-    let s = StatusModule::status_kind(vboma);
-    // WITH TELL_VICTIM_SHOULDERED OFF THEY NEVER REACH A SHOULDERED STATUS, so requiring one
-    // ended the carry on its third frame every time. An ordinary capture counts as held too --
-    // which is what they are in now, and what DK's throw_f leaves them in regardless.
-    s == *FIGHTER_STATUS_KIND_SHOULDERED_DONKEY
-        || s == *FIGHTER_STATUS_KIND_SHOULDERED_DONKEY_START
-        || s == *FIGHTER_STATUS_KIND_CAPTURE_PULLED
-        || s == *FIGHTER_STATUS_KIND_CAPTURE_WAIT
-        || s == *FIGHTER_STATUS_KIND_CAPTURE_CUT
-}
-
+// ============================================================================================
+// DELETED: THE MOTION-SWAP CARRY, ~230 LINES OF IT, AND IT HAD BEEN RUNNING AGAIN.
+// ============================================================================================
+//
+// Everything that used to follow the handoff above -- `carry_pose`, `suppress_carry_actions`,
+// `throw_cargo`, `cargo_direction`, `victim_still_held`, `victim_status`, `tell_victim`,
+// CARRY_TIMEOUT -- was the previous design: keep Pikachu in his own WAIT/WALK and override the
+// MOTION to DK's shoulder pose. ../shoulder replaced it with DK's actual statuses, and the old
+// code was left in place below an unreachable `return`.
+//
+// THEN THE FREEZE FIX MADE IT REACHABLE. `CARRYING[entry] = false` used to sit immediately after
+// the handoff, and clearing it was what stopped this function from falling through to the legacy
+// block on subsequent frames. Removing that line -- correct, it was the freeze -- turned 230
+// lines of superseded code back on, running every frame alongside the statuses that replaced it:
+//
+//   carry_pose + change_motion        overrode the motion the SHOULDER statuses had just set
+//   suppress_carry_actions            almost certainly "pikachu cannot move while cargo throwing"
+//   victim_still_held                 checked the SHOULDERED_DONKEY statuses, which are never
+//                                     entered, so it declared "victim lost after 3f, carry ends"
+//   throw_cargo on a button press     a SECOND throw path, by change_motion, competing with the
+//                                     status-based one
+//   CARRY_TIMEOUT 120                 released the victim after two seconds regardless
+//
+// which is the reported "the opponent escapes very soon after the throw starts, no matter the
+// percent". Percent was never involved.
+//
+// Two implementations of one feature, one of them invisible, is the exact shape ADR 0005 rule 3
+// forbids -- and dead code behind an unreachable statement is the worst version of it, because
+// nothing in a diff shows it coming back to life. So it is gone rather than re-disabled.
 pub fn install() {
     Agent::new("pikachu")
         .on_line(Main, pikachu_cargo_frame)

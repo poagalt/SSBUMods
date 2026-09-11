@@ -309,6 +309,32 @@ unsafe extern "C" fn shoulder_wait_main(fighter: &mut L2CFighterCommon) -> L2CVa
 /// is what committed a throw on the first carry frame and froze the game in round 2.
 unsafe fn requested_throw(fighter: &mut L2CFighterCommon) -> Option<i32> {
     let boma = fighter.module_accessor;
+
+    // THE BUTTON IS THE TRIGGER. THE STICK ONLY CHOOSES THE DIRECTION.
+    //
+    // This had it the other way round: a cat2 throw flag on its own committed a throw. Those
+    // flags fire on a STICK FLICK -- that is what a "throw command" is in the input system -- so
+    // walking while carrying threw the victim. Playtest: "modified pikachu cannot move while
+    // cargo throwing without actually throwing", and the previous log agrees, showing
+    // SHOULDER_WAIT lasting six frames before a THROW_F_LW.
+    //
+    // That contradicted the actual move and it also contradicted DK's own helper, which I had
+    // read too loosely. `FUN_7100022520` computes FOUR cat2 masks and ONE cat1 mask and combines
+    // them -- five constants OR'd into the cat1 mask, then an `operator&` against
+    // globalTable[0x20]. A single `and` against cat1 in the decision means the BUTTON is
+    // mandatory; the four cat2 tests are how the direction is picked once it is pressed. The
+    // cat1 mask being five flags wide is consistent with "any attack input".
+    //
+    // So: no press, no throw. Then the direction comes from the cat2 command flags if the input
+    // system resolved one, and from the raw stick otherwise -- the command flags are better
+    // because they account for smash-stick deflection, buffering and per-controller deadzones,
+    // and the raw read is the fallback for an attack pressed with the stick already held.
+    let pressed = ControlModule::check_button_trigger(boma, *CONTROL_PAD_BUTTON_ATTACK)
+        || ControlModule::check_button_trigger(boma, *CONTROL_PAD_BUTTON_SPECIAL);
+    if !pressed {
+        return None;
+    }
+
     let cat2 = ControlModule::get_command_flag_cat(boma, 1);
     if cat2 & *FIGHTER_PAD_CMD_CAT2_FLAG_THROW_HI != 0 {
         return Some(RAT_STATUS_KIND_THROW_F_HI);
@@ -321,12 +347,6 @@ unsafe fn requested_throw(fighter: &mut L2CFighterCommon) -> Option<i32> {
     }
     if cat2 & *FIGHTER_PAD_CMD_CAT2_FLAG_THROW_F != 0 {
         return Some(RAT_STATUS_KIND_THROW_F_F);
-    }
-
-    let pressed = ControlModule::check_button_trigger(boma, *CONTROL_PAD_BUTTON_ATTACK)
-        || ControlModule::check_button_trigger(boma, *CONTROL_PAD_BUTTON_SPECIAL);
-    if !pressed {
-        return None;
     }
     // `IsThrowStick` DECIDES THE DIRECTION, IT DOES NOT GATE THE THROW. A cargo attack press with
     // the stick neutral is a forward throw in the real move, so requiring a deflection here would
