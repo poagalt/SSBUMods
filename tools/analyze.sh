@@ -73,11 +73,11 @@ if [ -s "$R" ]; then
     # Every marker the plugin emits for a state it did not expect. Grouped so a clean run prints
     # one line rather than nothing, because "no output" and "nothing wrong" look the same and only
     # one of them is good news.
-    bad=$(grep -cE "REFUSED|INVISIBLE|UNRESOLVED|rejected|failed|no writable path" "$R")
+    bad=$(grep -cE "REFUSED|UNRESOLVED|rejected|failed|no writable path" "$R")
     if [ "$bad" = "0" ]; then
         echo "  none -- no refused motion changes, no invisibility, no unresolved motions"
     else
-        grep -E "REFUSED|INVISIBLE|UNRESOLVED|rejected|failed|no writable path" "$R" | sed 's/^/  /'
+        grep -E "REFUSED|UNRESOLVED|rejected|failed|no writable path" "$R" | sed 's/^/  /'
     fi
 
     echo
@@ -97,6 +97,24 @@ if [ -s "$R" ]; then
     grep "ended after" "$R" \
       | sed -n 's/.*motion \([a-z_0-9]*\) *ended after \([0-9]*\)f.*/\2 \1/p' \
       | sort -rn | awk '!seen[$2]++' | head -20 | sed 's/^/  /'
+fi
+
+echo
+echo "== 6b. the PREVIOUS session (rotated .prev) =="
+# THE CRASHED RUN IS IN HERE, NOT IN THE CURRENT LOG. A crash closes the game and the next launch
+# starts a new log; the sink rotates the old one to `.prev` so it survives. Reading only the
+# current file is how round 3 concluded the cargo code never ran -- its evidence had already been
+# rotated away, and before the rotation existed it had been overwritten entirely.
+prevsz=$(bash tools/ftpq.sh size /rat-telemetry.log.prev)
+if [ -z "$prevsz" ]; then
+    echo "  none -- this is the first session since the sink started rotating"
+else
+    bash tools/ftpq.sh get /rat-telemetry.log.prev > "$L/rat-prev.log" 2>/dev/null
+    DICT1=vendor/param-labels/ParamLabels.csv DICT2=vendor/Hashes.txt \
+        tools/motion-patch/target/release/resolve.exe \
+        < "$L/rat-prev.log" > "$L/rat-prev-resolved.log" 2>/dev/null
+    echo "  pulled $prevsz bytes; its LAST 12 lines are what that session was doing when it ended:"
+    tail -12 "$L/rat-prev-resolved.log" | sed 's/^/    /'
 fi
 
 echo

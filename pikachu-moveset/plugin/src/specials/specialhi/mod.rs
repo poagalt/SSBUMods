@@ -175,12 +175,29 @@ unsafe extern "C" fn pikachu_specialhi_visible(fighter: &mut L2CFighterCommon) {
     {
         return;
     }
-    if VisibilityModule::get_whole(boma) == 0 {
+    // IS HE ACTUALLY HIDDEN, OR IS THIS READING THE API WRONG?
+    //
+    // Round 3's log has this firing on the first frame of SPECIAL_HI_OPEN and _CLOSE every time,
+    // and the user did NOT report an invisible up-B that round -- which is two different stories.
+    // Either the synth fix worked and something else still hides him for a frame, or
+    // `get_whole` does not mean what the `== 0` test assumes. It returns u64, not bool, and a
+    // default-state return of 0 would make this fire harmlessly forever while looking like a bug.
+    //
+    // So it records the value BEFORE and AFTER the restore. If after reads 1 and before reads 0,
+    // he was genuinely hidden and something upstream is still doing it. If both read the same,
+    // the test is wrong and this guard is noise that should go.
+    //
+    // The one thing that is NOT the cause: Game & Watch's own up-B expression script hides a mesh
+    // GROUP (`head` -> `head_close`, for the parachute pose) with `set_int64`. It never touches
+    // whole-model visibility, and after the synth fix the entry does not name it anyway.
+    let before = VisibilityModule::get_whole(boma);
+    if before == 0 {
+        VisibilityModule::set_whole(boma, true);
         crate::telemetry::probe::event(format!(
-            "[rat] UPB was INVISIBLE, restoring -- something still calls set_whole(false); {}",
+            "[rat] UPB visibility get_whole was {before}, set true -> now {}; {}",
+            VisibilityModule::get_whole(boma),
             crate::telemetry::probe::ctx(boma)
         ));
-        VisibilityModule::set_whole(boma, true);
     }
 }
 
