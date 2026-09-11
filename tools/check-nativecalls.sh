@@ -75,8 +75,12 @@ while IFS='|' read -r fighter status dir what; do
     fi
     # The port may implement one source status across several of our modules, and the shared
     # scaffolding lives a level up, so the whole specials tree counts as "ours".
+    # COMMENTS STRIPPED FIRST, or the check is gameable by prose. A doc comment that explains why
+    # a call is not made mentions the call by name, and a plain text search then counts it as
+    # made -- which is the exact failure tools/check-srcparams.sh had to solve with an explicit
+    # `NOT MODELLED:` declaration. Writing about a call is not making it.
     ours="$(cat pikachu-moveset/plugin/src/specials/*.rs pikachu-moveset/plugin/src/specials/*/*.rs \
-            pikachu-moveset/plugin/src/*.rs 2>/dev/null)"
+            pikachu-moveset/plugin/src/*.rs 2>/dev/null | grep -v "^[[:space:]]*//")"
     oursfile="$(mktemp)"
     printf '%s' "$ours" > "$oursfile"
 

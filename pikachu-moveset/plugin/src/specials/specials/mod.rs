@@ -102,6 +102,9 @@ const LARIAT_X: f32 = 24.0;
 const LARIAT_END_X: f32 = 10.0;
 /// `special_s_failure_offset_x` -- the rebound has arrived.
 const FAILURE_X: f32 = 6.0;
+/// `special_s_lariat_motion_rate_min` and `special_s_lariat_motion_rate_max`. See `lariat_rate`.
+const LARIAT_RATE_MIN: f32 = 1.0;
+const LARIAT_RATE_MAX: f32 = 2.0;
 /// How far behind Pikachu the ropes stand.
 ///
 /// NOT A PARAM, AND THAT IS WHY IT HAD TO BE DERIVED. Nothing in `param_special_s` gives the
@@ -156,7 +159,6 @@ const THROW_ROPE_FALLBACK_FRAME: i32 = 24;
 //   60 frames during which the victim cannot be grabbed again. Anti-infinite protection, and the
 //   one item on this list whose absence is a balance problem rather than a fidelity one.
 //
-// NOT MODELLED: special_s_lariat_motion_rate_min special_s_lariat_motion_rate_max
 //   The lariat plays between 1x and 2x speed. What selects the rate is Incineroar's C++, not any
 //   ACMD, so the endpoints are known and the input is not.
 //
@@ -1115,10 +1117,57 @@ unsafe extern "C" fn pikachu_specialsshoulder_main(fighter: &mut L2CFighterCommo
     fighter.sub_shift_status_main(L2CValue::Ptr(pikachu_followup_loop as *const () as _))
 }
 
+/// How fast the lariat animation plays, between `special_s_lariat_motion_rate_min` and `_max`.
+///
+/// THE LARIAT HAS TO CATCH A MOVING TARGET, and its animation speed is how it does that. The
+/// source scales the rate by how far the victim still had to travel when the button went in:
+///
+///   push   = WorkModule::get_float(FLOAT_SPECIAL_S_LARIAT_BUTTON_PUSH_POS_X)
+///   hit    = WorkModule::get_float(FLOAT_SPECIAL_S_LARIAT_AREA_HIT_POS_X)
+///   length = WorkModule::get_float(FLOAT_SPECIAL_S_LARIAT_AREA_LENGTH)
+///   t      = |push - hit| / length          (when length > 0)
+///   MotionModule::set_rate(min + (max - min) * t)
+///
+/// Press late, with them nearly on top of him, and it plays at 1x; press at the far edge of the
+/// window and it plays at 2x so the hitbox still arrives in time. Without it the lariat is a fixed
+/// 1x and an early press whiffs.
+///
+/// THOSE THREE WORK FLOATS CANNOT BE READ HERE, which is why this computes the same quantity from
+/// the geometry instead. They are `FIGHTER_GAOGAEN_INSTANCE_WORK_ID_FLOAT_*` at indices 0x50, 0x51
+/// and 0x52, and the COMMON float works end at `FIGHTER_INSTANCE_WORK_ID_FLOAT_TERM` = 0x4C, so
+/// they sit past the end of Pikachu's array -- the same wall the rope flag hits in ADR 0004.
+///
+/// The substitution is exact rather than approximate, because this port already models the band
+/// those floats describe: `special_s_lariat_end_offset_x1` 10 is where the area's hit point is and
+/// `special_s_lariat_offset_x1` 24 is its far edge, so the victim's own distance out IS
+/// `|push - hit|` and the band's width IS `length`.
+unsafe fn lariat_rate(boma: *mut BattleObjectModuleAccessor) -> f32 {
+    let Some(gap) = victim_gap(boma) else { return LARIAT_RATE_MIN };
+    let span = LARIAT_X - LARIAT_END_X;
+    if span <= 0.0 {
+        return LARIAT_RATE_MIN;
+    }
+    let t = ((gap - LARIAT_END_X) / span).clamp(0.0, 1.0);
+    LARIAT_RATE_MIN + (LARIAT_RATE_MAX - LARIAT_RATE_MIN) * t
+}
+
 unsafe extern "C" fn pikachu_specialslariat_main(fighter: &mut L2CFighterCommon) -> L2CValue {
+    let boma = fighter.module_accessor;
+    let rate = lariat_rate(boma);
     MotionModule::change_motion(
-        fighter.module_accessor, Hash40::new(&situated(fighter, "_lariat")), 0.0, 1.0, false, 0.0, false, false
+        boma, Hash40::new(&situated(fighter, "_lariat")), 0.0, 1.0, false, 0.0, false, false
     );
+    // Separately, exactly as the source does it: `change_motion` at 1x and then `set_rate` with
+    // the computed value. Folding it into change_motion's rate argument would be equivalent
+    // today and would stop matching the moment anything else touches the rate.
+    MotionModule::set_rate(boma, rate);
+    crate::telemetry::probe::event(format!(
+        "[rat] WHIP p{} LARIAT at rate {rate:.2} (min {LARIAT_RATE_MIN} max {LARIAT_RATE_MAX}, \
+         victim {} units out); {}",
+        entry_of(boma),
+        victim_gap(boma).map_or(-1.0, |g| g),
+        crate::telemetry::probe::ctx(boma)
+    ));
     hold_still(fighter);
     fighter.sub_shift_status_main(L2CValue::Ptr(pikachu_followup_loop as *const () as _))
 }

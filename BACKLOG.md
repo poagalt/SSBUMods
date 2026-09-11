@@ -1334,3 +1334,83 @@ the wrong order; the sequence is stabilise, confirm, then extend.
 passed many times over — clone OFF, card repaired, Pikachu loads and plays. Step 2 is one flag.
 It is held for one reason only: if the clone does crash on load, nothing at all is testable, and
 three fixes are waiting on a playtest. It goes first in the round after they are confirmed.
+
+---
+
+## Added after the native-call sweep
+
+`tools/check-nativecalls.sh` compares the engine calls each source status makes against the calls
+this port makes, across all 21 ported statuses, and reports 57 unmade ones. It is a reading list
+rather than a failure list -- effects, sound and camera are deferred by design and counted rather
+than listed. What follows is the triage of what is left.
+
+### Fully researched, NOT implemented, and the single reason why
+
+- [ ] **DK's carry CheckDamage — how an attack makes him drop the victim.** Donkey Kong keeps
+      carrying through anything that is not a launcher, and this port has no CheckDamage line on
+      its six carry statuses at all. The logic is decompiled and every constant in it is resolved:
+
+      ```
+      if !LinkModule::is_linked(boma, LINK_NO_CAPTURE)                  -> return false
+      elif damage["owner_object_id_"] == get_node_object_id(LINK_NO_CAPTURE) -> return false
+      else
+          reaction = DamageTransactorImpl::calc_reaction_frame(damage["reaction_max_"])
+          level = reaction <  get_param_float(boma,"battle_object","damage_level1") ? DAMAGE_LEVEL_1
+                : reaction <  ...("damage_level2")                                 ? DAMAGE_LEVEL_2
+                : reaction <  ...("damage_level3")                                 ? DAMAGE_LEVEL_3
+                :                                                                    DAMAGE_LEVEL_FLY
+          if level != DAMAGE_LEVEL_FLY
+              if ItemModule::is_have_item(boma, 0) { ItemModule::drop_item(boma, 90.0, 0.0, 0) }
+              return false
+          else
+              return true
+      ```
+
+      Everything needed is in hand. `damage_level1/2/3` are on the COMMON `battle_object` param
+      object, so they read correctly off Pikachu with no help from src/params.
+      `app::DamageTransactorImpl::calc_reaction_frame(float)` is EXPORTED, at 0x404ec0.
+      `owner_object_id_` and `reaction_max_` came out of main's own strings via
+      `tools/hash40.sh`. smashline supports the line (`StatusLine::CheckDamage`, typed
+      `extern "C" fn(&mut L2CFighterBase, L2CValue) -> L2CValue`), and
+      `lib::L2CValue__index_hash40` reads the table.
+
+      **THE ONE OPEN QUESTION IS THE POLARITY OF THE RETURN VALUE**, and it is not settled by
+      anything available here. `true` is returned only on the launcher path and `false` on every
+      "keep carrying" path, which reads as "true means the damage applies". But the same shape
+      returns `false` when DK is not carrying anyone at all, and "suppress damage whenever you are
+      not carrying" cannot be right. HDR's `MewtwoThrown_check_damage` returns 1 with the comment
+      "bypass release set speed/status", which points the other way again.
+      `FighterStatusUniqProcessSwingGaogaenLariat_check_damage` looked like an oracle -- it returns
+      true before the lariat connects and false after -- but it is a `FighterStatusUniqProcess`
+      helper called from inside a status, not a registered status line, so it does not answer the
+      question about lines.
+
+      Guessing costs either immunity to damage while carrying or an instant drop, both of which
+      are worse than the current absence, so ADR 0005 applies. **To settle it:** find the native
+      caller of the CheckDamage line in `main` and read what it does with the result --
+      `tools/disasm --dataxref` and the `FighterStatusModuleImpl` vtable are the way in -- or
+      register the line on ONE carry status in a build that only logs, and read whether the
+      damage reaction ran.
+
+### Worth doing, and safe
+
+- [ ] **`MotionModule::change_motion_inherit_frame` instead of `change_motion`** where the source
+      uses it. It appears in 10 of the 21 ported statuses and is how the native code changes
+      animation across a SITUATION change without restarting it: `SpecialSThrow_main_loop` calls
+      it with `-1.0` for the frame when the whip goes ground-to-air mid-throw. This port calls
+      `change_motion(..., 0.0, ...)`, which pops back to frame 0.
+- [ ] **The lariat's motion rate.** `special_s_lariat_motion_rate_min` 1 and `_max` 2, applied
+      with `MotionModule::set_rate`; the source scales the lariat's animation speed by how far
+      away the returning victim is. Currently a `NOT MODELLED:` line.
+- [ ] **`GroundModule::is_passable_check` in the carry.** Already tracked under "Still genuinely
+      open" as the soft-platform carry; this is the specific call, and DK's SHOULDER_PASS is the
+      status it feeds.
+
+### Not gaps
+
+- **`BattleObjectManager::is_active_find_battle_object`** in the rope throw. This port validates
+  the victim through `crate::victim::boma`, which additionally requires the accessor to agree
+  about its own id -- a stronger check, not a missing one.
+- **`ArticleModule::*`** in all three up-B statuses and two whip statuses. Those are Game &
+  Watch's parachute and Incineroar's rope, neither of which Pikachu has. Article work, tracked
+  separately.
