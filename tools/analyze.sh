@@ -73,11 +73,19 @@ if [ -s "$R" ]; then
     # Every marker the plugin emits for a state it did not expect. Grouped so a clean run prints
     # one line rather than nothing, because "no output" and "nothing wrong" look the same and only
     # one of them is good news.
-    bad=$(grep -cE "REFUSED|UNRESOLVED|rejected|failed|no writable path" "$R")
+    #
+    # Each marker here is a state the plugin decided was wrong, so the list grows with every
+    # self-check added: TABLE SHORT means the status table did not extend, ABSORB LEAK means
+    # Revenge left engine state armed outside its own status, NO VALID VICTIM means a grab
+    # handoff had nobody to hand over, STILL-UNRESOLVED means a motion was missing two seconds
+    # after load and not merely early.
+    MARKERS="REFUSED|UNRESOLVED|STILL-UNRESOLVED|rejected|failed|no writable path"
+    MARKERS="$MARKERS|TABLE SHORT|ABSORB LEAK|NO VALID VICTIM"
+    bad=$(grep -cE "$MARKERS" "$R")
     if [ "$bad" = "0" ]; then
-        echo "  none -- no refused motion changes, no invisibility, no unresolved motions"
+        echo "  none -- status table extended, no motions missing, no state left armed"
     else
-        grep -E "REFUSED|UNRESOLVED|rejected|failed|no writable path" "$R" | sed 's/^/  /'
+        grep -E "$MARKERS" "$R" | sed 's/^/  /'
     fi
 
     echo

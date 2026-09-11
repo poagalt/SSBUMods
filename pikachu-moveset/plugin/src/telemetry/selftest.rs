@@ -119,6 +119,26 @@ pub unsafe fn run(boma: *mut BattleObjectModuleAccessor, entry: usize, status_co
         PostureModule::owner_scale(boma),
     ));
 
+    // DID THE STATUS TABLE ACTUALLY GROW? Asserted, not printed for a human to compare.
+    //
+    // smashline writes the extended total back to `global_table[0xC]`, so this is the only way to
+    // confirm from inside the running game that the new kinds registered. It used to log the
+    // number next to a note saying what it should be, which is a comparison nobody makes at the
+    // moment it matters -- and if it is ever short, every status past the cut is a transition
+    // into nothing: Pikachu in free fall or frozen, with no other symptom.
+    let want = crate::specials::status::RAT_STATUS_KIND_NUM;
+    if status_count < want {
+        sink::diag(format!(
+            "[rat] SELFTEST p{entry} STATUS TABLE SHORT: the game reports {status_count:#x} kinds \
+             and this build declares up to {want:#x}. Every status at or past {status_count:#x} \
+             is a transition into nothing."
+        ));
+    } else {
+        sink::diag(format!(
+            "[rat] SELFTEST p{entry} status table ok: {status_count:#x} kinds, need {want:#x}"
+        ));
+    }
+
     let (resolved, broken) = broken_now(boma);
 
     sink::diag(format!(

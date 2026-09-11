@@ -276,6 +276,9 @@ bash "$ROOT/tools/check-victim.sh" || rc=1
 echo; echo "== 4c. hand-written code uses no other fighter's constants =="
 bash "$ROOT/tools/check-status.sh" || rc=1
 
+echo; echo "== 4e. every new status is fully registered and actually used =="
+bash "$ROOT/tools/check-statusgraph.sh" || rc=1
+
 echo; echo "== 5. character select rename is present and correctly encoded =="
 bash "$ROOT/tools/check-name.sh" || rc=1
 
