@@ -110,16 +110,75 @@ unsafe fn entry_of(boma: *mut BattleObjectModuleAccessor) -> usize {
 /// Ask the carried fighter to change status. Their SHOULDERED_DONKEY statuses are common engine
 /// code, so this is the whole of the victim side -- being held on the shoulder, tracking the
 /// carrier and being launched are all theirs to run.
+/// Whether to push the victim into Donkey Kong's own SHOULDERED statuses.
+///
+/// OFF, AND THIS IS NOW THE LEADING SUSPECT FOR THE FREEZE.
+///
+/// Round 2's fixes -- trigger instead of held, and waiting for the engine's THROW status to end
+/// before touching the motion -- did not change the crash at all. It is byte-identical: a null
+/// dereference inside `MotionModule::change_motion`, reached through
+/// `bind_hash_call_call_line_status` from a smashline line callback. And `librat_of_doom` appears
+/// nowhere in the report: not in a frame, not in the module list.
+///
+/// So the change_motion that dies is probably not ours. The remaining thing this module does that
+/// reaches outside Pikachu is exactly this: it asks the VICTIM to enter SHOULDERED_DONKEY_START
+/// and then SHOULDERED_DONKEY. Those statuses are engine-common, which is why they were believed
+/// safe -- but common only means every fighter HAS them, not that they work with a captor who is
+/// not Donkey Kong. Their status code runs on the victim, through the same
+/// `bind_hash_call_call_line_status` path in the backtrace, and being shouldered is defined
+/// relative to a carrier it then reads. A carrier that is a Pikachu in a THROW status is not
+/// something that code was written for.
+///
+/// With this off the victim simply stays CAUGHT -- DK's `throw_f` catches with an ATTACK_ABS of
+/// CATCH kind rather than THROW kind, so they are held either way. What is lost is their pose:
+/// they hang in the ordinary capture animation instead of sitting on the shoulder. That is a
+/// visible deviation from the native move and it is the deliberate price of not freezing.
+///
+/// THE NEXT LOG DECIDES IT. Every frame of the carry now records what the victim's status
+/// actually is, so "they stay captured" and "they fall out immediately" are distinguishable, and
+/// if the freeze persists with this off then the cause is somewhere this module cannot reach and
+/// the search moves to the engine's own throw handling.
+const TELL_VICTIM_SHOULDERED: bool = false;
+
 unsafe fn tell_victim(entry: usize, status: i32) {
+    use crate::telemetry::probe;
     let id = VICTIM[entry];
+    if !TELL_VICTIM_SHOULDERED {
+        probe::event(format!(
+            "[rat] CARGO p{entry} NOT requesting status {} on victim {id:#x} \
+             (TELL_VICTIM_SHOULDERED is off -- suspected cause of the freeze)",
+            probe::st(status)
+        ));
+        return;
+    }
     if id == *BATTLE_OBJECT_ID_INVALID as u32 || sv_battle_object::is_null(id) {
+        probe::event(format!("[rat] CARGO p{entry} victim id {id:#x} invalid, not telling it {}",
+                             probe::st(status)));
         return;
     }
     let vboma = sv_battle_object::module_accessor(id);
     if vboma.is_null() {
+        probe::event(format!("[rat] CARGO p{entry} victim {id:#x} has a null boma"));
         return;
     }
+    // FLUSHED BEFORE THE CALL, deliberately. If this is what kills the game, the last line in the
+    // file names it -- which is the whole reason the previous round could not place the crash.
+    probe::event(format!("[rat] CARGO p{entry} -> victim {id:#x} status {}", probe::st(status)));
     StatusModule::change_status_request_from_script(vboma, status, false);
+    probe::event(format!("[rat] CARGO p{entry} victim status request returned"));
+}
+
+/// What the victim is actually doing, for the carry probe. Returns -1 when unreadable.
+unsafe fn victim_status(entry: usize) -> i32 {
+    let id = VICTIM[entry];
+    if id == *BATTLE_OBJECT_ID_INVALID as u32 || sv_battle_object::is_null(id) {
+        return -1;
+    }
+    let vboma = sv_battle_object::module_accessor(id);
+    if vboma.is_null() {
+        return -1;
+    }
+    StatusModule::status_kind(vboma)
 }
 
 // Which cargo throw the stick asks for. Unlike Alolan Whip's follow-up mapping, this one is NOT
@@ -211,6 +270,17 @@ pub unsafe extern "C" fn pikachu_cargo_frame(fighter: &mut L2CFighterCommon) {
     // THE CARRY POSE. Pikachu is in his own movement status, so his speeds and jump are his; only
     // the motion is DK's. change_motion is guarded on the motion actually differing, because
     // calling it every frame would restart the animation every frame.
+    // EVERY FRAME OF THE CARRY, because the previous two rounds each ended with a freeze whose
+    // surrounding frames were not in the log. Buffered rather than flushed -- the `event` lines
+    // either side anchor it, and a carry is at most 120 frames.
+    probe::frame(format!(
+        "[rat] CARGO p{entry} carry f={} victim={:#x} victim_st={}; {}",
+        CARRY_FRAMES[entry],
+        VICTIM[entry],
+        probe::st(victim_status(entry)),
+        probe::ctx(boma)
+    ));
+
     if let Some(pose) = carry_pose(boma) {
         if MotionModule::motion_kind(boma) != smash::hash40(pose) {
             probe::change_motion(boma, pose, "CARGO pose");
@@ -348,8 +418,14 @@ unsafe fn victim_still_held(entry: usize) -> bool {
         return false;
     }
     let s = StatusModule::status_kind(vboma);
+    // WITH TELL_VICTIM_SHOULDERED OFF THEY NEVER REACH A SHOULDERED STATUS, so requiring one
+    // ended the carry on its third frame every time. An ordinary capture counts as held too --
+    // which is what they are in now, and what DK's throw_f leaves them in regardless.
     s == *FIGHTER_STATUS_KIND_SHOULDERED_DONKEY
         || s == *FIGHTER_STATUS_KIND_SHOULDERED_DONKEY_START
+        || s == *FIGHTER_STATUS_KIND_CAPTURE_PULLED
+        || s == *FIGHTER_STATUS_KIND_CAPTURE_WAIT
+        || s == *FIGHTER_STATUS_KIND_CAPTURE_CUT
 }
 
 pub fn install() {

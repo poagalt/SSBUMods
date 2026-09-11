@@ -67,6 +67,8 @@ static mut START_Y: [f32; 8] = [0.0; 8];
 static mut PEAK_Y: [f32; 8] = [0.0; 8];
 
 static mut DUMPED_PARAMS: [bool; 8] = [false; 8];
+/// One IDFORMAT line per player is enough; the answer does not change during a match.
+static mut LOGGED_CAPTURE_ID: [bool; 8] = [false; 8];
 
 // Reads the attribute values the game is actually using, so "are the stat changes working?"
 // becomes a measurement rather than a guess. fighter_param.prcxml edits are invisible otherwise:
@@ -171,6 +173,35 @@ unsafe extern "C" fn pikachu_telemetry(fighter: &mut L2CFighterCommon) {
             entry, probe::st(LAST_STATUS[entry]), probe::st(status), frame, motion, end
         ));
         LAST_STATUS[entry] = status;
+    }
+
+    // LEARNING THE BATTLE-OBJECT ID FORMAT FROM THE GAME, ONCE, DURING A GRAB THAT WORKS.
+    //
+    // Three separate features are blocked on the same missing fact: how to turn an entry id into
+    // the battle object id that `sv_battle_object::module_accessor` wants. Revenge cannot freeze
+    // the attacker, the whip cannot read whether its victim entered SWING_GAOGAEN_CATCHED, and
+    // the cargo carry cannot check what its victim is doing. Each was left undone rather than
+    // guessed, because a bad pointer handed to an engine function is how the cargo throw freezes.
+    //
+    // Pikachu's ORDINARY grab works and the engine fills in the id itself. So: on the first frame
+    // of any catch status, log our own entry id next to the captured object's id. One line, no
+    // pointer dereferenced that the engine did not already hand us, and it settles the format
+    // from real data instead of from a guess. Round 2 already showed the invalid sentinel is
+    // 0x50000000, so the answer is probably 0x50000000 | entry -- this confirms or refutes it.
+    if !LOGGED_CAPTURE_ID[entry]
+        && (status == *FIGHTER_STATUS_KIND_CATCH
+            || status == *FIGHTER_STATUS_KIND_CATCH_WAIT
+            || status == *FIGHTER_STATUS_KIND_CATCH_PULL)
+    {
+        let cap = CatchModule::capture_object_id(boma, false);
+        if cap != *BATTLE_OBJECT_ID_INVALID as u64 {
+            LOGGED_CAPTURE_ID[entry] = true;
+            probe::event(format!(
+                "[rat] IDFORMAT p{entry} captured object id = {cap:#x} while I am entry {entry}; \
+                 invalid sentinel is {:#x}. If the victim is p1 this says 0x5000000n.",
+                *BATTLE_OBJECT_ID_INVALID
+            ));
+        }
     }
 
     // One flush check per frame; the sink itself decides when to actually write.

@@ -372,7 +372,6 @@ unsafe extern "C" fn pikachu_specials_main_loop(fighter: &mut L2CFighterCommon) 
     // collision rather than the query -- which the same lines also show, because they include the
     // opponent's distance.
     let is_catch = CatchModule::is_catch(boma);
-    let is_grab = GrabModule::is_grab(boma, 0);
     let cap = CatchModule::capture_object_id(boma, false) as u32;
     let has_cap = cap != *BATTLE_OBJECT_ID_INVALID as u32;
     // The window the ACMD opens (script frame 18) and clears (35). Logged a little wider so the
@@ -382,25 +381,46 @@ unsafe extern "C" fn pikachu_specials_main_loop(fighter: &mut L2CFighterCommon) 
         // never ran" from "it ran and nothing was in range" from "it connected and we asked the
         // wrong thing", and nothing in the log could answer it.
         //
-        // `GrabModule::size` returns the radius of grab collision n, so a non-zero size on frames
-        // 18-35 is direct proof that `macros::CATCH` executed -- which is the half of the question
-        // that can be answered without reaching into another fighter. See the note above
-        // `entry_of` for why the other half is not measured here.
-        let g0 = GrabModule::size(boma, 0);
-        let g1 = GrabModule::size(boma, 1);
+        // PER-COLLISION, because the ACMD makes TWO catch boxes and they are independent.
+        //
+        // `GrabModule::is_grab` takes an INDEX -- it asks about grab collision n, not about the
+        // fighter. Round 2 called it with only a module accessor, got collision 0, and read its
+        // "true" as a connection; it went true on frame 17, one frame after
+        // `GrabModule::set_rebound(true)` and one BEFORE `macros::CATCH` runs at script frame 18.
+        // Whatever it means, it is not "someone is caught".
+        //
+        // Asking about both indices across the whole window says when each box exists and for how
+        // long, which is the evidence for "did the ACMD run" that this needed all along.
+        // `size` and `node` return u64 rather than a radius, so they print raw.
         probe::frame(format!(
-            "[rat] WHIP p{entry} f={mframe:.1} is_catch={is_catch} is_grab={is_grab} \
-             cap={cap:#x} rebound={} grab_size=({g0:.2},{g1:.2}); {}",
+            "[rat] WHIP p{entry} f={mframe:.1} is_catch={is_catch} cap={cap:#x} rebound={} \
+             grab0={} grab1={} size0={:#x} size1={:#x}; {}",
             GrabModule::is_rebound(boma),
+            GrabModule::is_grab(boma, 0),
+            GrabModule::is_grab(boma, 1),
+            GrabModule::size(boma, 0),
+            GrabModule::size(boma, 1),
             probe::ctx(boma)
         ));
     }
 
-    if is_catch || is_grab || has_cap {
+    // `is_grab` IS NOT "I CAUGHT SOMEONE", AND ACTING ON IT MADE THINGS WORSE.
+    //
+    // Round 2 measured it: it goes true on motion frame 17, one frame after the ACMD's
+    // `GrabModule::set_rebound(true)` at script frame 17 -- and a frame BEFORE `macros::CATCH`
+    // creates the collision at 18. So it reports the rebound state, not a connection. Acting on
+    // it entered the throw sequence with `cap=0x50000000`, which is BATTLE_OBJECT_ID_INVALID, and
+    // the whole rope-throw / lariat / failure chain then played against nobody. Playtest saw
+    // exactly that: "doesn't grab the opponent but now actually does the throw against ropes
+    // animation and seems to obey the timing for the failure/partial success/success".
+    //
+    // So the connection test is a real victim or nothing. `is_catch` is kept because it costs
+    // nothing and would be the correct signal if the engine does set it; `has_cap` is the one
+    // that can actually name who was caught.
+    if is_catch || has_cap {
         VICTIM[entry] = cap;
         probe::event(format!(
-            "[rat] WHIP p{entry} CAUGHT on f={mframe:.1} via is_catch={is_catch} is_grab={is_grab} \
-             cap={cap:#x}; {}",
+            "[rat] WHIP p{entry} CAUGHT on f={mframe:.1} via is_catch={is_catch} cap={cap:#x}; {}",
             probe::ctx(boma)
         ));
         fighter.change_status(RAT_STATUS_KIND_SPECIAL_S_THROW.into(), false.into());

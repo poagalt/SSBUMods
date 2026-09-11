@@ -94,9 +94,23 @@ fn flush_locked(s: &mut Sink) {
         s.probed = true;
         for prefix in CANDIDATES {
             let candidate = format!("{prefix}{NAME}");
+            // THE PROBE USED TO BE `fs::write`, WHICH TRUNCATES -- SO EVERY LAUNCH ERASED THE
+            // PREVIOUS SESSION'S LOG.
+            //
+            // That destroyed the only record of the run that mattered. A crash closes the game;
+            // the next launch wipes the file; by the time anyone reads it, it contains a clean
+            // session with no crash in it. Round 2 lost the cargo freeze exactly that way -- the
+            // log showed no `throw_f` at all and zero CARGO lines, not because the code did not
+            // run but because its evidence had already been overwritten.
+            //
+            // So the previous log is ROTATED to `.prev` first, and this one is appended to. Two
+            // sessions survive at once, which is what "it crashed, then I restarted and played
+            // more" actually needs.
+            let prev = format!("{prefix}{NAME}.prev");
+            let _ = std::fs::rename(&candidate, &prev);
             match std::fs::write(&candidate, b"[rat] telemetry sink opened\n") {
                 Ok(()) => {
-                    println!("[rat] telemetry sink: writing to {candidate}");
+                    println!("[rat] telemetry sink: writing to {candidate}, previous run kept as {prev}");
                     s.path = Some(candidate);
                     break;
                 }
