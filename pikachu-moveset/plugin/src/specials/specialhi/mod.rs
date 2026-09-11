@@ -46,15 +46,11 @@ unsafe extern "C" fn pikachu_specialhi_pre(fighter: &mut L2CFighterCommon) -> L2
 // landing_frame 40, pass_speed_mul 1.1. This port uses stick_min in _exec, landing_frame in _end,
 // and pass_speed_mul as the motion speed multiplier below.
 //
-// NOT MODELLED: stick_mul limit_y_mul -- and that is not an oversight this session can fix.
-// They are read by Game & Watch's own C++ SPECIAL_HI status, which no ACMD dump contains, and the
-// community reference port this module derives from (vendor/ssbuGeorgeMoveset) does not model them
-// either -- it is byte-identical here apart from the flag-id bug. Reproducing them means knowing
-// what the engine does with them under FIGHTER_KINETIC_TYPE_MOTION_AIR_ANGLE, and guessing at a
-// 30-unit multiplier would be inventing behaviour rather than porting it.
-//
-// The observable difference, if any, is in how much horizontal control the rise has. Worth a
-// direct comparison against Game & Watch in training before writing any code for it.
+// stick_mul AND limit_y_mul ARE BOTH MODELLED NOW, and what unblocked them was finding Game &
+// Watch's own decompiled status scripts -- see vendor/ssbu-status. They were listed as NOT
+// MODELLED because a "30-unit multiplier" could not be interpreted from the name alone. It is 30
+// DEGREES of launch-angle deviation, applied in _exec below; limit_y_mul halves his terminal fall
+// speed while the parachute is out, in ../specialhifall.
 unsafe extern "C" fn pikachu_specialhi_init(fighter: &mut L2CFighterCommon) -> L2CValue {
     fighter.agent.clear_lua_stack();
     fighter.agent.push_lua_stack(&mut L2CValue::new_int(*FIGHTER_KINETIC_ENERGY_ID_MOTION as u64));
@@ -122,20 +118,53 @@ unsafe extern "C" fn pikachu_specialhi_main_loop(fighter: &mut L2CFighterCommon)
 }
 
 unsafe extern "C" fn pikachu_specialhi_exec(fighter: &mut L2CFighterCommon) -> L2CValue {
-    let is_decide_direction = WorkModule::is_flag(fighter.module_accessor, *FIGHTER_GAMEWATCH_STATUS_SPECIAL_HI_FLAG_DECIDE_DIRECTION);
+    // `stick_mul` IS AN ANGLE IN DEGREES, AND THIS WAS SETTING THE ROTATION TO ZERO.
+    //
+    // Transcribed from Game & Watch's own decompiled status script,
+    // vendor/ssbu-status/.../lua2cpp_gamewatch.nro/gamewatch/gamewatch/status/SpecialHi/exec.c.
+    // The sequence there is exactly:
+    //
+    //     angle = sign(stick_x) * param_special_hi/stick_mul        (only if |stick_x| > stick_min)
+    //     PostureModule::set_rot(Vector3f(angle, 0, 0), 0)
+    //     PostureModule::set_stick_lr(0.0)
+    //     PostureModule::update_rot_y_lr()
+    //     sv_kinetic_energy::set_angle(FIGHTER_KINETIC_ENERGY_ID_MOTION, math_rad(angle))
+    //
+    // This module had the guard and the three Posture calls right -- and passed a zero vector to
+    // `set_rot` and skipped `set_angle` entirely, which is the whole of what the parameter does.
+    // `stick_mul` was listed as NOT MODELLED on the grounds that a 30-unit multiplier could not
+    // be interpreted; it is 30 DEGREES of launch-angle deviation, which is why it looked
+    // implausible as a speed.
+    //
+    // So the up-B can now be aimed, which is the behaviour it has been missing since it was
+    // ported, and the community reference port this module came from does not have either.
+    let boma = fighter.module_accessor;
+    let is_decide_direction =
+        WorkModule::is_flag(boma, *FIGHTER_GAMEWATCH_STATUS_SPECIAL_HI_FLAG_DECIDE_DIRECTION);
     if is_decide_direction {
-        // gamewatch param_special_hi stick_min = 0.25
+        // gamewatch param_special_hi stick_min = 0.25, stick_mul = 30
         let stick_min = 0.25;
-        let stick_x = ControlModule::get_stick_x(fighter.module_accessor).abs();
-        
+        let stick_mul = 30.0f32;
+        let raw_x = ControlModule::get_stick_x(boma);
+        let stick_x = raw_x.abs();
+
         if stick_min <= stick_x {
-            PostureModule::set_rot(fighter.module_accessor, &Vector3f{x: 0.0, y: 0.0, z: 0.0}, 0);
-            
-            PostureModule::set_stick_lr(fighter.module_accessor, 0.0);
-            PostureModule::update_rot_y_lr(fighter.module_accessor);
+            let angle = if raw_x >= 0.0 { stick_mul } else { -stick_mul };
+            PostureModule::set_rot(boma, &Vector3f { x: angle, y: 0.0, z: 0.0 }, 0);
+            PostureModule::set_stick_lr(boma, 0.0);
+            PostureModule::update_rot_y_lr(boma);
+            // The rotation aims the MODEL; this aims the motion energy that actually carries him.
+            // Degrees in the posture call, radians here, exactly as the source does it.
+            sv_kinetic_energy!(
+                set_angle, fighter, *FIGHTER_KINETIC_ENERGY_ID_MOTION, angle.to_radians()
+            );
+            crate::telemetry::probe::event(format!(
+                "[rat] UPB aimed: stick_x={raw_x:.2} -> {angle:.0} degrees; {}",
+                crate::telemetry::probe::ctx(boma)
+            ));
         }
-        
-        WorkModule::off_flag(fighter.module_accessor, *FIGHTER_GAMEWATCH_STATUS_SPECIAL_HI_FLAG_DECIDE_DIRECTION);
+
+        WorkModule::off_flag(boma, *FIGHTER_GAMEWATCH_STATUS_SPECIAL_HI_FLAG_DECIDE_DIRECTION);
     }
     0.into()
 }

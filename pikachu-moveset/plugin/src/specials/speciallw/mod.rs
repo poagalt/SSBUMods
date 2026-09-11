@@ -160,15 +160,11 @@ const AIR_SPEED_Y_MUL: f32 = 0.7;
 ///
 /// Sources: SmashWiki's Hitlag article for the formula, gaogaen's vl.prc for the multiplier.
 const HIT_STOP_MUL: f32 = 1.5;
-const HITLAG_CAP: i32 = 30;
-/// Frames of animation per game frame while frozen. 8 is a near-stop that still shows the shake.
-const FREEZE_SLOW_MUL: u8 = 8;
 
-/// Ultimate's hitlag, for the damage this counter absorbed.
-fn counter_freeze_frames(absorbed: f32) -> i32 {
-    let raw = (absorbed * 0.65 + 6.0) * HIT_STOP_MUL;
-    (raw as i32).clamp(1, HITLAG_CAP)
-}
+// `counter_freeze_frames` IS GONE. It rebuilt Ultimate's published hitlag formula in Rust so the
+// counter could be held for the right number of frames -- correct arithmetic solving a problem
+// that Incineroar solves with one call. `HitModule::set_hit_stop_mul` hands the multiplier to the
+// engine, which already knows the attack that hit and computes the pause for both fighters.
 
 
 /// The stored multiplier after countering an attack that dealt `d`.
@@ -276,38 +272,56 @@ pub unsafe fn open_window(boma: *mut BattleObjectModuleAccessor) {
     WINDOW_OPEN[e] = true;
     WINDOW_LEFT[e] = WINDOW_FRAMES;
     LAST_DAMAGE[e] = DamageModule::damage(boma, 0);
-    // ARMOR, WHICH IS WHY THE COUNTER SOMETIMES DID NOT COUNTER.
+
+    // THESE THREE CALLS ARE INCINEROAR'S, TRANSCRIBED FROM HIS OWN DECOMPILED STATUS SCRIPT.
     //
-    // Playtest: "in certain situations I get a revenge stack but still get normally hit by the
-    // move". Exactly so -- the watcher noticed the damage a frame later and refunded it, but by
-    // then the engine had already put Pikachu into a damage status and sent him flying. The boost
-    // banked; the counter did not happen.
+    // vendor/ssbu-status/.../lua2cpp_gaogaen.nro/gaogaen/gaogaen/status/SpecialLw/main_loop.c,
+    // in the `FLAG_STANCE_START` branch. Not inferred from param names, not reconstructed from
+    // behaviour -- the same three functions in the same order with the same arguments:
     //
-    // Incineroar takes no knockback when Revenge triggers, and the engine has the mechanism for
-    // that directly: DAMAGE_NO_REACTION_MODE_ALWAYS for the length of the window. It is the same
-    // no-reaction machinery as Little Mac's f-smash armor, reached from Rust instead of from a
-    // `damage!` macro. With it on, the hit lands, deals no reaction, and the watcher gets a clean
-    // frame to refund the damage and retaliate in.
+    //     DamageModule__set_damage_mul_2nd_impl(boma, param_special_lw/special_lw_hit_damage_mul)
+    //     HitModule__set_hit_stop_mul_impl(boma, param_special_lw/special_lw_hit_stop_mul, 3, 0.0)
+    //     DamageModule__set_no_reaction_mode_status_impl(boma, DAMAGE_NO_REACTION_MODE_ALWAYS,
+    //                                                    -1.0, -1.0, -1)
+    //
+    // EVERY ONE OF THEM CORRECTS SOMETHING THIS FILE HAD WRONG:
+    //
+    //   `set_damage_mul_2nd(0.4)` is how the 0.4 is applied -- the ENGINE scales the incoming
+    //   damage. There is nothing to refund. This was calling `add_damage` with a negative number
+    //   a frame later, which is a different thing that happens at a different time and shows up
+    //   as the percentage jumping and then dropping back.
+    //
+    //   `set_hit_stop_mul(1.5, 3, 0.0)` is the freeze, and the ENGINE computes its length from
+    //   the attack that hit. Round 3 hand-derived Ultimate's hitlag formula and multiplied it by
+    //   1.5 -- close in spirit, needless, and wrong whenever the attacker's own hitbox carried a
+    //   hitlag multiplier of its own. Handing the multiplier to the engine is both exact and less
+    //   code. `3` and `0.0` are Incineroar's literal arguments.
+    //
+    //   `set_no_reaction_mode_status(ALWAYS, -1.0, -1.0, -1)` takes MINUS ONE for all three
+    //   trailing arguments. This was passing 0.0, 0.0, 0 -- and round 3's log shows Pikachu in
+    //   `damage_air_1` when the counter fired, which is the armor not applying. A zero threshold
+    //   almost certainly armors nothing; -1 is the sentinel for "no limit".
+    let dmg_mul = WorkModule::get_param_float(boma, smash::hash40("param_special_lw"),
+                                              smash::hash40("special_lw_hit_damage_mul"));
+    let stop_mul = WorkModule::get_param_float(boma, smash::hash40("param_special_lw"),
+                                               smash::hash40("special_lw_hit_stop_mul"));
+    // Pikachu has no param_special_lw, so a lookup returns 0 and the constants stand in. Reading
+    // first anyway costs nothing and means a future shipped param object is picked up for free.
+    let dmg_mul = if dmg_mul > 0.0 { dmg_mul } else { HIT_DAMAGE_MUL };
+    let stop_mul = if stop_mul > 0.0 { stop_mul } else { HIT_STOP_MUL };
+
+    DamageModule::set_damage_mul_2nd(boma, dmg_mul);
+    HitModule::set_hit_stop_mul(boma, stop_mul, smash::app::HitStopMulTarget { _address: 3 }, 0.0);
     DamageModule::set_no_reaction_mode_status(
         boma,
         smash::app::DamageNoReactionMode { _address: *DAMAGE_NO_REACTION_MODE_ALWAYS as u8 },
-        0.0,
-        0.0,
-        0,
+        -1.0,
+        -1.0,
+        -1,
     );
-    // BOTH MECHANISMS, BECAUSE THE MODE ALONE DID NOT HOLD. Round 2's log shows Pikachu in
-    // `damage_air_1` at the moment the counter fired -- st=72, motion frame 0 -- so the reaction
-    // happened and the counter merely noticed afterwards. `_address: u8` is bindgen's shape for a
-    // C++ enum class and passing the constant through it may simply not land, which is exactly
-    // the kind of thing that cannot be settled from this side.
-    //
-    // `set_no_reaction_damage_power` is a plain float and has no such doubt: nothing below this
-    // knockback power produces a reaction. 9999 is "everything". The two do not conflict -- one
-    // sets the rule, the other sets the threshold -- and the next log says which took, because it
-    // records the status Pikachu is in when the counter triggers.
-    DamageModule::set_no_reaction_damage_power(boma, 9999.0);
     crate::telemetry::probe::event(format!(
-        "[rat] REVENGE p{e} window OPEN for {WINDOW_FRAMES}f, armor on; {}",
+        "[rat] REVENGE p{e} window OPEN {WINDOW_FRAMES}f; damage_mul_2nd={dmg_mul} \
+         hit_stop_mul={stop_mul} no_reaction=ALWAYS(-1,-1,-1); {}",
         crate::telemetry::probe::ctx(boma)
     ));
 }
@@ -316,17 +330,24 @@ pub unsafe fn close_window(boma: *mut BattleObjectModuleAccessor) {
     let e = entry_of(boma);
     if WINDOW_OPEN[e] {
         crate::telemetry::probe::event(format!(
-            "[rat] REVENGE p{e} window CLOSE, armor off; {}",
+            "[rat] REVENGE p{e} window CLOSE, reverting all three; {}",
             crate::telemetry::probe::ctx(boma)
         ));
     }
     WINDOW_OPEN[e] = false;
-    // Leaving this on past the window would armor Pikachu through everything, which is a far
-    // worse bug than the one it fixes. Reset unconditionally, including on the paths that close
-    // the window without the ACMD reaching its frame-28 call.
-    DamageModule::reset_no_reaction_mode_status(boma);
-    // And the threshold, or Pikachu keeps 9999 power of armor for the rest of the stock.
-    DamageModule::set_no_reaction_damage_power(boma, 0.0);
+    // THE EXACT REVERT INCINEROAR DOES, from the same file's `FLAG_STANCE_END` branch: mode back
+    // to NORMAL with the same -1s, and both multipliers back to 1.0. Unconditional, because
+    // leaving any of them set would give Pikachu permanent armor or permanent halved damage --
+    // far worse than the bug they fix.
+    DamageModule::set_no_reaction_mode_status(
+        boma,
+        smash::app::DamageNoReactionMode { _address: *DAMAGE_NO_REACTION_MODE_NORMAL as u8 },
+        -1.0,
+        -1.0,
+        -1,
+    );
+    DamageModule::set_damage_mul_2nd(boma, 1.0);
+    HitModule::set_hit_stop_mul(boma, 1.0, smash::app::HitStopMulTarget { _address: 3 }, 0.0);
 }
 
 // Phase within FIGHTER_STATUS_KIND_SPECIAL_LW. Pikachu has no SPECIAL_LW_HIT status kind and
@@ -342,9 +363,6 @@ pub static mut LAST_DAMAGE: [f32; 8] = [0.0; 8];
 pub static mut RATE: [f32; 8] = [1.0; 8];
 pub static mut TIMER: [i32; 8] = [0; 8];
 pub static mut COUNTERED: [f32; 8] = [0.0; 8];
-/// Frames left in the counter freeze before the retaliation is allowed to start. Non-zero only
-/// between absorbing a hit and transitioning, which is the window that did not exist before.
-static mut FREEZE_LEFT: [i32; 8] = [0; 8];
 /// Damage taken since the boost was banked, weighed against CANCEL_PERCENT.
 static mut DAMAGE_SINCE_BOOST: [f32; 8] = [0.0; 8];
 /// Whether the active-Revenge visual is up, so it is spawned and killed exactly once.
@@ -567,66 +585,44 @@ pub unsafe extern "C" fn pikachu_revenge_frame(fighter: &mut L2CFighterCommon) {
         // So the refund is 60%, not 100%. Countering a 15% attack should leave Incineroar 6%
         // worse off, and this was leaving him untouched -- which also made Revenge strictly
         // better than the real move rather than a trade.
-        DamageModule::add_damage(boma, -taken * (1.0 - HIT_DAMAGE_MUL), 0);
+        // NO REFUND. `set_damage_mul_2nd(0.4)` in open_window already made the engine scale the
+        // incoming damage, so `taken` IS the reduced figure and subtracting anything would
+        // double-apply it. What the boost formula needs is the attack's RAW damage -- SmashWiki:
+        // "ignoring the 0.4x multiplier" -- so it is recovered by dividing back out.
+        let raw = if HIT_DAMAGE_MUL > 0.0 { taken / HIT_DAMAGE_MUL } else { taken };
         COUNTERED[entry] = taken;
-        RATE[entry] = next_rate(RATE[entry], taken);
+        RATE[entry] = next_rate(RATE[entry], raw);
         TIMER[entry] = REVENGE_TIME_FRAMES;
         DAMAGE_SINCE_BOOST[entry] = 0.0;
         WINDOW_OPEN[entry] = false;
         PHASE[entry] = PHASE_COUNTER;
         LAST_DAMAGE[entry] = DamageModule::damage(boma, 0);
 
-        // FREEZE FIRST, RETALIATE AFTER. The status change used to happen on this very frame, so
-        // the sequence a player saw was "hit, fire" with nothing between them -- and the fire
-        // arrives eight frames later because that is where Incineroar's hitbox is, which reads as
-        // the damage coming out before the hit registered.
+        // THE FREEZE IS THE ENGINE'S NOW, AND SO THE DEFERRED TRANSITION IS GONE.
         //
-        // The native order is hit, stun for both, then the retaliation. So the transition is
-        // DEFERRED by exactly the hitlag the absorbed attack earns, and this frame only freezes.
-        let frames = counter_freeze_frames(taken);
-        FREEZE_LEFT[entry] = frames;
-        SlowModule::set_whole(boma, FREEZE_SLOW_MUL, frames);
-
-        // The attacker gets their own hitlag from the engine for landing a hit -- they did hit
-        // us, the armor suppresses the REACTION rather than the connection -- so the pause is
-        // mutual without reaching into their object. Their entry is logged so that if it turns
-        // out not to be, the next round starts with the number in hand.
+        // `set_hit_stop_mul(1.5, 3, 0.0)` was armed when the window opened, so the hit that just
+        // landed is ALREADY producing 1.5x its normal hitlag, on both fighters, computed by the
+        // game from that attack's own properties. Round 3 rebuilt Ultimate's hitlag formula in
+        // Rust, applied SlowModule by hand, and held the status change back by the result. All
+        // three of those go away: the pause happens before this frame's transition is acted on,
+        // which is exactly the native order.
+        //
+        // Incineroar changes status here and lets the engine's hitlag hold the frame. So do we.
         let attacker_entry =
             WorkModule::get_int(boma, *FIGHTER_INSTANCE_WORK_ID_INT_SUCCEED_ATTACKER_ENTRY_ID);
-
-        // The armor came on with the window; it must come off with the counter or Pikachu keeps
-        // it for the whole retaliation.
-        DamageModule::reset_no_reaction_mode_status(boma);
-    // And the threshold, or Pikachu keeps 9999 power of armor for the rest of the stock.
-    DamageModule::set_no_reaction_damage_power(boma, 0.0);
-
         crate::telemetry::probe::event(format!(
-            "[rat] REVENGE p{entry} COUNTERED {taken:.1}% -> rate {:.2}; freezing {frames}f at \
-             1/{FREEZE_SLOW_MUL} then retaliating (hitlag = floor(({taken:.1}*0.65+6)*1.5), \
-             attacker entry {attacker_entry}); {}",
+            "[rat] REVENGE p{entry} COUNTERED raw {raw:.1}% (took {taken:.1}% after the 0.4x) \
+             -> rate {:.2}; engine hitlag x{HIT_STOP_MUL} holds the pause (attacker entry \
+             {attacker_entry}); {}",
             RATE[entry],
             crate::telemetry::probe::ctx(boma)
         ));
+        StatusModule::change_status_request_from_script(
+            boma, *FIGHTER_STATUS_KIND_SPECIAL_LW, false
+        );
         return;
     }
 
-    // The deferred half of the counter. Counting down here rather than in the status keeps it
-    // running even if the freeze outlasts whatever Pikachu was doing.
-    if FREEZE_LEFT[entry] > 0 {
-        FREEZE_LEFT[entry] -= 1;
-        if FREEZE_LEFT[entry] == 0 {
-            crate::telemetry::probe::event(format!(
-                "[rat] REVENGE p{entry} freeze over, retaliating now (fire lands 8 frames into \
-                 special_lw, which is where Incineroar's hitbox is); {}",
-                crate::telemetry::probe::ctx(boma)
-            ));
-            StatusModule::change_status_request_from_script(
-                boma, *FIGHTER_STATUS_KIND_SPECIAL_LW, false
-            );
-        }
-        LAST_DAMAGE[entry] = damage;
-        return;
-    }
 
     if WINDOW_OPEN[entry] {
         WINDOW_LEFT[entry] -= 1;
