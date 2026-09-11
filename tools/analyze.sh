@@ -90,6 +90,13 @@ if [ -s "$R" ]; then
 
     echo
     echo "== 4. what each move did =="
+    # THE MOVE SUMMARY FIRST, because it is the index into everything else. One line per attempt
+    # saying which statuses the move passed through and for how long -- a whip that never grabbed
+    # reads "SPECIAL_S 64f -> SPECIAL_S_END 20f -> WAIT" with no THROW in it, which answers the
+    # question before any per-frame line is read.
+    echo "  --- move summaries (one per attempt) ---"
+    grep "[rat] MOVE " "$R" | tail -30 | sed "s/^/      /"
+    echo
     for tag in WHIP REVENGE CARGO SHOULDER UPB PROBE; do
         n=$(grep -c "\[rat\] $tag " "$R")
         printf '  %-8s %s line(s)\n' "$tag" "$n"

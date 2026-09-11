@@ -33,6 +33,7 @@ pub mod selftest;
 pub mod probe;
 mod buildstamp;
 pub mod exedump;
+pub mod moves;
 
 pub const ENABLED: bool = true;
 
@@ -151,6 +152,8 @@ unsafe extern "C" fn pikachu_telemetry(fighter: &mut L2CFighterCommon) {
     let frame = MotionModule::frame(boma);
     let end = MotionModule::end_frame(boma);
     let status = StatusModule::status_kind(boma);
+    // ONE LINE PER MOVE ATTEMPT, which is the index into everything else in this log.
+    moves::tick(boma, entry, status);
     let pos_x = PostureModule::pos_x(boma);
     let pos_y = PostureModule::pos_y(boma);
 
