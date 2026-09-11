@@ -317,6 +317,7 @@ pub unsafe fn open_window(boma: *mut BattleObjectModuleAccessor) {
     let dmg_mul = if dmg_mul > 0.0 { dmg_mul } else { HIT_DAMAGE_MUL };
     let stop_mul = if stop_mul > 0.0 { stop_mul } else { HIT_STOP_MUL };
 
+    ABSORB_ARMED[e] = true;
     DamageModule::set_damage_mul_2nd(boma, dmg_mul);
     HitModule::set_hit_stop_mul(boma, stop_mul, smash::app::HitStopMulTarget { _address: 3 }, 0.0);
     DamageModule::set_no_reaction_mode_status(
@@ -342,10 +343,30 @@ pub unsafe fn close_window(boma: *mut BattleObjectModuleAccessor) {
         ));
     }
     WINDOW_OPEN[e] = false;
-    // THE EXACT REVERT INCINEROAR DOES, from the same file's `FLAG_STANCE_END` branch: mode back
-    // to NORMAL with the same -1s, and both multipliers back to 1.0. Unconditional, because
-    // leaving any of them set would give Pikachu permanent armor or permanent halved damage --
-    // far worse than the bug they fix.
+    revert_absorb(boma);
+}
+
+/// Put the three absorb calls back, exactly as Incineroar does.
+///
+/// THIS IS THE WHOLE OF `SpecialLw_end` IN THE DECOMP, and it runs UNCONDITIONALLY on leaving the
+/// status, for any reason:
+///
+///   set_no_reaction_mode_status(DAMAGE_NO_REACTION_MODE_NORMAL, -1.0, -1.0, -1)
+///   set_damage_mul_2nd(1.0)
+///   set_hit_stop_mul(1.0, 3, 0.0)
+///
+/// and nothing else -- it does not touch any window flag. That split is the point. Our `End`
+/// handler used to do nothing at all, on the reasoning that clearing state there had once wiped
+/// WINDOW_OPEN before the watcher could read it and Revenge never fired. The reasoning was right
+/// about the flag and wrong about everything else: the three ENGINE calls have to be reverted or
+/// they are still armed after the stance ends, which leaves Pikachu on 0.4x incoming damage with
+/// DAMAGE_NO_REACTION_MODE_ALWAYS -- permanently, until the next Revenge happens to close its
+/// window cleanly. Halved damage and total flinch immunity for the rest of the stock.
+///
+/// So: the flag is the watcher's, the three calls are the status's, and only `close_window`
+/// touches both.
+unsafe fn revert_absorb(boma: *mut BattleObjectModuleAccessor) {
+    ABSORB_ARMED[entry_of(boma)] = false;
     DamageModule::set_no_reaction_mode_status(
         boma,
         smash::app::DamageNoReactionMode { _address: *DAMAGE_NO_REACTION_MODE_NORMAL as u8 },
@@ -373,6 +394,14 @@ pub static mut COUNTERED: [f32; 8] = [0.0; 8];
 /// Damage taken since the boost was banked, weighed against CANCEL_PERCENT.
 static mut DAMAGE_SINCE_BOOST: [f32; 8] = [0.0; 8];
 /// Whether the active-Revenge visual is up, so it is spawned and killed exactly once.
+/// Whether the three absorb calls are currently armed on this entry.
+///
+/// A SHADOW OF ENGINE STATE, BECAUSE THE ENGINE WILL NOT TELL US. There is no getter for
+/// `damage_mul_2nd` or for the no-reaction mode -- `DamageModule` exposes setters and
+/// `is_no_reaction_mode_perfect` and nothing else -- so the only way to notice that we left
+/// Pikachu armed is to track our own writes and check the invariant every frame. See
+/// `watch_absorb_leak`.
+static mut ABSORB_ARMED: [bool; 8] = [false; 8];
 static mut AURA_ON: [bool; 8] = [false; 8];
 /// Frames since the visual went up, driving the colour pulse.
 static mut AURA_CLOCK: [i32; 8] = [0; 8];
@@ -654,20 +683,50 @@ unsafe extern "C" fn pikachu_speciallw_main_loop(fighter: &mut L2CFighterCommon)
 }
 
 unsafe extern "C" fn pikachu_speciallw_end(fighter: &mut L2CFighterCommon) -> L2CValue {
-    // Deliberately does NOT clear WINDOW_OPEN. End runs at the moment the counter is hit -- the
-    // hit moves Pikachu into a damage status, which ends SPECIAL_LW -- so clearing it here wiped
-    // the flag before the watcher could read it, and Revenge never fired. The stance ACMD closes
-    // the window on its own frame 28, and the watcher clears it when it fires.
-    let _ = fighter;
+    // REVERTS THE THREE ENGINE CALLS, LEAVES WINDOW_OPEN ALONE. Both halves of that are
+    // deliberate and both were wrong before -- see `revert_absorb`. `SpecialLw_end` in the decomp
+    // is exactly these three calls and nothing else.
+    revert_absorb(fighter.module_accessor);
     0.into()
 }
 
 // Runs every frame regardless of status, which is the only place the counter CAN be detected:
 // being hit puts the fighter in a damage status, so the SPECIAL_LW status loop stops running at
 // exactly the moment the hit lands.
+/// Catch the absorb calls being left armed outside the two statuses that may arm them.
+///
+/// A SELF-CHECK FOR A WHOLE CLASS OF BUG, not for one instance of it. `open_window` arms three
+/// pieces of ENGINE state -- halved incoming damage, multiplied hitlag, and
+/// DAMAGE_NO_REACTION_MODE_ALWAYS -- and if any path out of Revenge forgets to disarm them,
+/// Pikachu keeps them. Permanently. Halved damage and total flinch immunity for the rest of the
+/// stock, with nothing on screen to say so and nothing in the log either.
+///
+/// That is not hypothetical: `End` did nothing at all until the decomp was read, and
+/// `SpecialLw_end` turns out to be exactly those three reverts. The bug was live and invisible.
+///
+/// So the invariant is stated once and checked every frame, on every status: armed implies we are
+/// in SPECIAL_LW or SPECIAL_LW_HIT. A violation is reverted and reported by name, because the
+/// next path that forgets should cost one log line rather than another playtest.
+unsafe fn watch_absorb_leak(boma: *mut BattleObjectModuleAccessor, entry: usize, status: i32) {
+    if !ABSORB_ARMED[entry] {
+        return;
+    }
+    if status == *FIGHTER_STATUS_KIND_SPECIAL_LW || status == RAT_STATUS_KIND_SPECIAL_LW_HIT {
+        return;
+    }
+    crate::telemetry::sink::crumb(format!(
+        "[rat] REVENGE p{entry} ABSORB LEAK: the three absorb calls were still armed in status \
+         {status:#x}, which is neither SPECIAL_LW nor SPECIAL_LW_HIT. Reverting. This means a \
+         path out of Revenge did not call revert_absorb -- find it, because until this fired \
+         Pikachu was on 0.4x incoming damage with no flinch."
+    ));
+    revert_absorb(boma);
+}
+
 pub unsafe extern "C" fn pikachu_revenge_frame(fighter: &mut L2CFighterCommon) {
     let boma = fighter.module_accessor;
     let entry = entry_of(boma);
+    watch_absorb_leak(boma, entry, StatusModule::status_kind(boma));
     let damage = DamageModule::damage(boma, 0);
     let taken = damage - LAST_DAMAGE[entry];
 
