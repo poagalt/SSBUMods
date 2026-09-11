@@ -138,6 +138,9 @@ unsafe extern "C" fn pikachu_telemetry(fighter: &mut L2CFighterCommon) {
         // The game's own code, if asked for. Off by default -- see exedump.rs.
         exedump::run(sink::prefix().as_str());
     }
+    // The self-test's second pass, two seconds in. Which motions are missing has come back
+    // differently from two loads of the same files, so asking once is not a measurement.
+    selftest::tick(boma, entry);
 
     let motion = MotionModule::motion_kind(boma);
     let frame = MotionModule::frame(boma);

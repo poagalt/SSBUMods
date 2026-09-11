@@ -1,0 +1,10 @@
+[package]
+name = "disasm"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]
+# Pure Rust, no C toolchain. w64devkit's objdump has no aarch64 support and there is no Ghidra
+# on this machine, so this is what makes the fighter NROs readable at all.
+yaxpeax-arm = "0.3"
+yaxpeax-arch = "0.3"

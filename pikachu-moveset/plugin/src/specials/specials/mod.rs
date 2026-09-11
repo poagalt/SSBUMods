@@ -170,62 +170,145 @@ static mut HELD_FOR: [i32; 8] = [0; 8];
 /// Frames since FLAG_THROW_ROPE. -1 while the whip has not happened yet.
 static mut SINCE_THROW: [i32; 8] = [-1; 8];
 
-// NO nearest_opponent_gap HERE, DELIBERATELY, AND THE REASON IS WORTH KEEPING.
-//
-// A probe measuring the distance to the closest opponent would answer "was anyone in range when
-// the catch box was open", which is a question the log genuinely cannot answer otherwise. It was
-// written, and then removed before shipping: reaching another fighter needs a BATTLE OBJECT id,
-// all we have is an ENTRY id, and treating one as the other is an assumption this codebase
-// declined to make ten lines away in ../speciallw when it wanted to freeze the attacker.
-//
-// Making it twice, in a probe that runs every frame of a move, would be the same class of bug
-// that froze the cargo throw -- a bad pointer handed to an engine function -- and it would be
-// self-inflicted by the diagnostics rather than by the feature.
-//
-// `GrabModule::size` covers most of what it was for anyway: a non-zero radius on frames 18-35
-// proves `macros::CATCH` executed, which separates "the ACMD never ran" from everything else.
-// Range can be read off the two fighters' positions in the log by hand if it ever matters.
-
-
-/// The fighter our command grab just caught, found by asking who is in the caught status.
-///
-/// EVERY CATCHER-SIDE SIGNAL HAS FAILED, so this asks the victim instead.
-///
-/// `CatchModule::is_catch` never goes true -- measured across a whole session, including
-/// attempts where the lunge's own pull-in hitbox connected, so an opponent was demonstrably in
-/// range. `capture_object_id` stays at BATTLE_OBJECT_ID_INVALID. `GrabModule::is_grab` tracks the
-/// collision existing, not connecting, and acting on it ran the entire throw sequence against
-/// nobody. Incineroar's own `SpecialS/main_loop.c` is no help: it delegates to `FUN_710001d4b0`
-/// and `FUN_710001ff80`, neither of which the dump includes.
-///
-/// But the ACMD names the victim's destination -- `macros::CATCH(..., SWING_GAOGAEN_CATCHED, ...)`
-/// -- and that is an engine-common status at 0x176. If the collision connected, SOMEBODY is in it.
-/// So: look.
+/// Every live fighter that is not us, as `(battle object id, module accessor)`.
 ///
 /// THE ID ARITHMETIC IS MEASURED. Round 4's telemetry logged the object id the engine itself
 /// handed back during Pikachu's ordinary grab: 0x10000, for the fighter at entry 1. A fighter's
-/// battle object id is `entry << 16`. This was the one thing blocking a victim-side check, and
+/// battle object id is `entry << 16`. This was the one thing blocking any victim-side check, and
 /// three previous rounds declined to guess it -- correctly, since 0x5000000n was the obvious
 /// guess from the invalid sentinel and it is wrong.
-unsafe fn find_caught_victim(boma: *mut BattleObjectModuleAccessor) -> Option<u32> {
-    let me = WorkModule::get_int(boma, *FIGHTER_INSTANCE_WORK_ID_INT_ENTRY_ID);
-    for e in 0..8i32 {
-        if e == me {
-            continue;
-        }
-        let id = (e as u32) << 16;
-        if sv_battle_object::is_null(id) {
+///
+/// `battle_object_id` on our own accessor is what we compare against, rather than
+/// `ENTRY_ID << 16` again: the engine wrote it, so a capture link that names us is recognised
+/// even if the entry arithmetic is ever wrong.
+unsafe fn other_fighters(
+    boma: *mut BattleObjectModuleAccessor,
+) -> Vec<(u32, *mut BattleObjectModuleAccessor)> {
+    let me = (*boma).battle_object_id;
+    let mut out = Vec::new();
+    for e in 0..8u32 {
+        let id = e << 16;
+        if id == me || sv_battle_object::is_null(id) {
             continue;
         }
         let vboma = sv_battle_object::module_accessor(id);
-        if vboma.is_null() {
-            continue;
+        if !vboma.is_null() {
+            out.push((id, vboma));
+        }
+    }
+    out
+}
+
+/// The fighter our command grab just caught, and how we know.
+///
+/// ASK THE VICTIM, BECAUSE INCINEROAR NEVER ASKS ANYTHING.
+///
+/// This round finally read the source instead of reasoning about it. `tools/disasm` resolves the
+/// lua2cpp NRO's PLT against its own .dynsym, so every call in the two helpers the public dump
+/// left unnamed now prints with a name -- and the answer is that neither is about catching.
+/// FUN_710001ff80 is the air-control block: `WorkModule::is_flag`, then `reset_energy`,
+/// `controller_set_accel_x_mul`, `controller_set_accel_x_add`, `set_stable_speed`. FUN_710001d4b0
+/// is the ground/air motion switch.
+///
+/// More conclusive still: `disasm --sym catch` over the whole gaogaen NRO finds exactly five
+/// symbols, and they are `sv_animcmd::CATCH`, `FT_CATCH_STOP`,
+/// `AttackModule__set_catch_only_all_impl` and two expression rumbles. There is no
+/// `CatchModule__is_catch_impl` import anywhere in the module, and `grep -ri catch` over the
+/// whole decompiled status tree returns nothing. **Incineroar's status scripts do not detect the
+/// catch at all.** `SpecialS/main.c` clears
+/// `FIGHTER_GAOGAEN_INSTANCE_WORK_ID_INT_BATTLE_OBJECT_ID_SWING_THROWN_FIGHTER` to
+/// BATTLE_OBJECT_ID_INVALID on entry and five later statuses read it back, but nothing in the NRO
+/// ever writes it. The engine does, in native code, and it transitions him into SPECIAL_S_THROW
+/// itself.
+///
+/// That native path keys on the fighter being Gaogaen, so it will never fire for Pikachu. Doing
+/// it here is not a workaround for a missing signal -- it is the only place it can be done.
+///
+/// SO ASK THE TWO QUESTIONS THE ENGINE CAN ANSWER, on the victim rather than on us:
+///
+///   `CaptureModule::is_capture` + `catch_object_id` -- the engine's own capture link, naming
+///   who holds them. This is the authoritative one and it is new this round; every previous
+///   attempt asked the CATCHER (`CatchModule::is_catch`, `capture_object_id`, `GrabModule::
+///   is_grab`), and those are about ordinary CAPTURE bookkeeping that a command grab need not
+///   touch.
+///
+///   the caught status itself -- the ACMD names the victim's destination,
+///   `macros::CATCH(..., SWING_GAOGAEN_CATCHED, ...)`, an engine-common status at 0x176. If the
+///   collision connected and the engine moved them, somebody is in it.
+///
+/// Either is sufficient. The reason both are read is that they fail differently: the link
+/// without the status means the engine caught them but left them in their own status, and the
+/// status without the link means it moved them without recording a master -- and the port has to
+/// cope with either, since it drives the victim's position itself from here on.
+unsafe fn find_caught_victim(boma: *mut BattleObjectModuleAccessor) -> Option<(u32, &'static str)> {
+    let me = (*boma).battle_object_id;
+    for (id, vboma) in other_fighters(boma) {
+        if CaptureModule::is_capture(vboma) && CaptureModule::catch_object_id(vboma) as u32 == me {
+            return Some((id, "capture-link"));
         }
         if StatusModule::status_kind(vboma) == *FIGHTER_STATUS_KIND_SWING_GAOGAEN_CATCHED {
-            return Some(id);
+            return Some((id, "caught-status"));
         }
     }
     None
+}
+
+/// Whoever is standing inside the catch region, ignoring whether the engine noticed.
+///
+/// THE LAST RESORT, AND IT IS ONLY REACHED IF THE ENGINE DECLINES THE CATCH ENTIRELY.
+///
+/// A CATCH collision belongs to the fighter that created it, and there is no guarantee the engine
+/// will link one created by a Pikachu running Incineroar's script -- the native handler that
+/// completes an Alolan Whip checks the fighter kind. If it does link, `find_caught_victim` sees it
+/// and this is never called. If it does not, the alternative is a move that can never connect, so
+/// this reproduces the test geometrically from the ACMD's own numbers.
+///
+/// THE REGION IS THE ACMD'S, NOT AN INVENTION. game_specialsstart makes two catch boxes on `top`:
+///
+///   id 0   size 4.166667   at (0, 8.333334, 2.0833335) .. (0, 8.333334, 8.333334)
+///   id 1   size 1.5625001  at (0, 8.333334, 2.0833335) .. (0, 8.333334, 10.937501)
+///
+/// On `top`, Z is forward and Y is up, and every figure is Incineroar's own divided by Pikachu's
+/// 0.96 `scale` so it lands in the same world space. Their union reaches from 2.08 to 10.94
+/// forward, with the wide box covering 8.33 +/- 4.17 vertically. So: in front, within
+/// `CATCH_REACH_Z` forward of us, and with the victim's own body -- feet at pos_y, so the check
+/// allows anything whose root is below the top of the box -- inside the vertical span.
+///
+/// It deliberately does NOT grab someone another fighter is already holding, or anyone who is not
+/// in a state a grab can take (`is_capture` covers being held; a dead or respawning fighter is
+/// not a live battle object and never reaches here).
+const CATCH_REACH_Z: f32 = 10.937501;
+const CATCH_TOP_Y: f32 = 8.333334 + 4.166667;
+
+unsafe fn find_victim_in_range(
+    boma: *mut BattleObjectModuleAccessor,
+) -> Option<(u32, *mut BattleObjectModuleAccessor)> {
+    let lr = PostureModule::lr(boma);
+    let (mx, my) = (PostureModule::pos_x(boma), PostureModule::pos_y(boma));
+    let mut best: Option<(f32, u32, *mut BattleObjectModuleAccessor)> = None;
+    for (id, vboma) in other_fighters(boma) {
+        if CaptureModule::is_capture(vboma) {
+            continue;
+        }
+        // A fighter who is dead, respawning or still on the platform is a live battle object with
+        // a position, and grabbing one would be a bug the engine's own catch would never make.
+        let st = StatusModule::status_kind(vboma);
+        if st == *FIGHTER_STATUS_KIND_DEAD
+            || st == *FIGHTER_STATUS_KIND_REBIRTH
+            || st == *FIGHTER_STATUS_KIND_ENTRY
+        {
+            continue;
+        }
+        let forward = (PostureModule::pos_x(vboma) - mx) * lr;
+        let dy = PostureModule::pos_y(vboma) - my;
+        if forward < 0.0 || forward > CATCH_REACH_Z || dy < -CATCH_TOP_Y || dy > CATCH_TOP_Y {
+            continue;
+        }
+        if best.map(|(d, _, _)| forward < d).unwrap_or(true) {
+            best = Some((forward, id, vboma));
+        }
+    }
+    best.map(|(_, id, vboma)| (id, vboma))
 }
 
 unsafe fn entry_of(boma: *mut BattleObjectModuleAccessor) -> usize {
@@ -395,92 +478,97 @@ unsafe extern "C" fn pikachu_specials_main_loop(fighter: &mut L2CFighterCommon) 
     let entry = entry_of(boma);
     let mframe = MotionModule::frame(boma);
 
-    // THE GRAB DOES NOT CONNECT, AND THIS ROUND'S JOB IS TO FIND OUT WHICH SIGNAL TO READ.
+    // THE CATCH WINDOW, AND THE ONE MEASUREMENT NOBODY HAD EVER TAKEN.
     //
-    // `CatchModule::is_catch` was the only thing consulted, on the reasoning that it reports
-    // whether our CATCH collision has someone. Playtest says the whip never grabs, and the
-    // hardware log confirms it: SPECIAL_S goes straight to RAT_SPECIAL_S_END and
-    // RAT_SPECIAL_S_SHOULDER never appears. The ACMD is byte-identical to Incineroar's and the
-    // catch boxes are measured in the right place, so the collision is almost certainly
-    // connecting and we are asking the wrong question about it.
+    // Three rounds of comments here asserted that "is_catch never goes true, measured across a
+    // whole session". Going back to the log that was read off: every WHIP line in it stops at
+    // motion frame 17, because the build that wrote them triggered on `GrabModule::is_grab` and
+    // `is_grab` goes true on 17. `macros::CATCH` does not run until script frame 18. **The catch
+    // window had never been observed at all.** Everything asserted about what the engine does or
+    // does not report during it was inference dressed as measurement.
     //
-    // The likely reason: `is_catch` is about holding someone in an ordinary CAPTURE. A command
-    // grab sends the victim to FIGHTER_STATUS_KIND_SWING_GAOGAEN_CATCHED instead, which need not
-    // touch the catcher's capture bookkeeping at all. `GrabModule::is_grab` asks about the GRAB
-    // COLLISION, which is what `macros::CATCH` actually creates.
+    // So this logs the window unconditionally and nothing here exits before the end of it. The
+    // per-frame line now carries both sides:
     //
-    // So: act on any of the three, and log all of them every frame the window is open. Whichever
-    // one fires in the next log is the one to keep, and if none of them does the problem is the
-    // collision rather than the query -- which the same lines also show, because they include the
-    // opponent's distance.
+    //   ours     is_catch / capture_object_id / rebound / both grab collision sizes and nodes,
+    //            which together say whether the ACMD ran and whether the engine thinks the
+    //            collision holds anyone
+    //   theirs   for each live opponent: status, CaptureModule::is_capture, catch_object_id and
+    //            forward distance, which says whether one was in range and what the engine did
+    //            to them
+    //
+    // That is the whole decision table in one line per frame, and it cannot be read two ways.
     let is_catch = CatchModule::is_catch(boma);
     let cap = CatchModule::capture_object_id(boma, false) as u32;
-    let has_cap = cap != *BATTLE_OBJECT_ID_INVALID as u32;
     // The window the ACMD opens (script frame 18) and clears (35). Logged a little wider so the
     // edges are visible rather than inferred.
     if (14.0..40.0).contains(&mframe) {
-        // DOES THE CATCH COLLISION EVEN EXIST? That is the question that separates "the ACMD
-        // never ran" from "it ran and nothing was in range" from "it connected and we asked the
-        // wrong thing", and nothing in the log could answer it.
-        //
-        // PER-COLLISION, because the ACMD makes TWO catch boxes and they are independent.
-        //
-        // `GrabModule::is_grab` takes an INDEX -- it asks about grab collision n, not about the
-        // fighter. Round 2 called it with only a module accessor, got collision 0, and read its
-        // "true" as a connection; it went true on frame 17, one frame after
-        // `GrabModule::set_rebound(true)` and one BEFORE `macros::CATCH` runs at script frame 18.
-        // Whatever it means, it is not "someone is caught".
-        //
-        // Asking about both indices across the whole window says when each box exists and for how
-        // long, which is the evidence for "did the ACMD run" that this needed all along.
-        // `size` and `node` return u64 rather than a radius, so they print raw.
-        // AND WHETHER ANYONE WAS IN RANGE AT ALL, which no probe could say and which decides
-        // between two completely different bugs.
-        //
-        // The ACMD puts two ATTACK hitboxes out on script frames 15 and 16 -- zero damage, angle
-        // 350 -- as the lunge's pull-in. They occupy the same region as the catch boxes two
-        // frames later. So `AttackModule::is_attack_occur` connecting during this window means
-        // an opponent was right there and the CATCH still did not take, which points at the
-        // engine rejecting the catch. It never connecting means nobody was in range and the
-        // grab was never going to work, which is a test-setup problem rather than a code one.
-        //
-        // Safe in a way the opponent-distance probe was not: it asks our own fighter a question
-        // about our own hitboxes, with no other object's pointer involved.
+        let lr = PostureModule::lr(boma);
+        let mx = PostureModule::pos_x(boma);
+        let mut them = String::new();
+        for (id, vboma) in other_fighters(boma) {
+            them.push_str(&format!(
+                " [{id:#x} st={:#x} cap={} by={:#x} fwd={:.1}]",
+                StatusModule::status_kind(vboma),
+                CaptureModule::is_capture(vboma),
+                CaptureModule::catch_object_id(vboma) as u32,
+                (PostureModule::pos_x(vboma) - mx) * lr,
+            ));
+        }
         probe::frame(format!(
             "[rat] WHIP p{entry} f={mframe:.1} is_catch={is_catch} cap={cap:#x} rebound={} \
-             grab0={} grab1={} size0={:#x} size1={:#x} pullin_hit={}; {}",
+             grab0={} grab1={} size0={:#x} size1={:#x} node0={:#x} node1={:#x} pullin_hit={} \
+             them:{them}",
             GrabModule::is_rebound(boma),
             GrabModule::is_grab(boma, 0),
             GrabModule::is_grab(boma, 1),
             GrabModule::size(boma, 0),
             GrabModule::size(boma, 1),
+            GrabModule::node(boma, 0),
+            GrabModule::node(boma, 1),
             AttackModule::is_attack_occur(boma),
-            probe::ctx(boma)
         ));
     }
 
-    // `is_grab` IS NOT "I CAUGHT SOMEONE", AND ACTING ON IT MADE THINGS WORSE.
+    // THE CATCH ITSELF, IN TWO TIERS.
     //
-    // Round 2 measured it: it goes true on motion frame 17, one frame after the ACMD's
-    // `GrabModule::set_rebound(true)` at script frame 17 -- and a frame BEFORE `macros::CATCH`
-    // creates the collision at 18. So it reports the rebound state, not a connection. Acting on
-    // it entered the throw sequence with `cap=0x50000000`, which is BATTLE_OBJECT_ID_INVALID, and
-    // the whole rope-throw / lariat / failure chain then played against nobody. Playtest saw
-    // exactly that: "doesn't grab the opponent but now actually does the throw against ropes
-    // animation and seems to obey the timing for the failure/partial success/success".
+    // Tier one is the engine: a capture link naming us, or somebody sitting in
+    // SWING_GAOGAEN_CATCHED. If either is true the engine completed the catch and we only have
+    // to notice.
     //
-    // So the connection test is a real victim or nothing. `is_catch` is kept because it costs
-    // nothing and would be the correct signal if the engine does set it; `has_cap` is the one
-    // that can actually name who was caught.
-    // Victim-side detection is the one that can actually answer this. The two catcher-side
-    // signals are kept because they cost nothing and either would be preferable if it ever
-    // worked -- but a whole session's log has both flat while the lunge's own pull-in hitbox was
-    // connecting, so an opponent was demonstrably in range and neither noticed.
-    let caught = find_caught_victim(boma);
-    if is_catch || has_cap || caught.is_some() {
-        VICTIM[entry] = caught.unwrap_or(cap);
+    // Tier two exists because it may never be true. `tools/disasm` establishes that Incineroar's
+    // own scripts never detect this either -- the native handler does, and it runs because the
+    // fighter is Gaogaen. There is no guarantee the engine will link a CATCH collision created by
+    // a Pikachu, and if it does not, no amount of asking better questions will produce a grab.
+    // So when the collision is open and an opponent is standing inside the region the ACMD
+    // describes, the catch is taken here.
+    //
+    // THIS IS NOT A SHORTCUT AROUND THE ENGINE, BECAUSE THE PORT ALREADY OWNS THE VICTIM. The
+    // rope trip is driven from SPECIAL_S_THROW by writing the victim's posture with Incineroar's
+    // own `special_s_through_target_*` numbers -- see the header -- precisely because Pikachu's
+    // vl.prc has no param_special_s for the engine's SWING statuses to read. Once that is true,
+    // the capture link buys nothing the port uses. Who was caught, and when, is all it needs.
+    //
+    // Tier two is gated on the window the ACMD actually opens (script frame 18 to 35) so it
+    // cannot fire during the startup or the recovery, and it reports itself distinctly in the log
+    // so a session where the engine DID link is never confused with one where it did not.
+    let mut caught = find_caught_victim(boma);
+    if caught.is_none() && is_catch && cap != *BATTLE_OBJECT_ID_INVALID as u32 {
+        caught = Some((cap, "catcher-link"));
+    }
+    if caught.is_none() && (18.0..=35.0).contains(&mframe) {
+        if let Some((id, vboma)) = find_victim_in_range(boma) {
+            StatusModule::change_status_request_from_script(
+                vboma, *FIGHTER_STATUS_KIND_SWING_GAOGAEN_CATCHED, false
+            );
+            caught = Some((id, "in-range"));
+        }
+    }
+    if let Some((id, how)) = caught {
+        VICTIM[entry] = id;
         probe::event(format!(
-            "[rat] WHIP p{entry} CAUGHT on f={mframe:.1} via is_catch={is_catch} cap={cap:#x} caught={caught:?}; {}",
+            "[rat] WHIP p{entry} CAUGHT {id:#x} via {how} on f={mframe:.1} \
+             (is_catch={is_catch} cap={cap:#x}); {}",
             probe::ctx(boma)
         ));
         fighter.change_status(RAT_STATUS_KIND_SPECIAL_S_THROW.into(), false.into());
@@ -552,6 +640,37 @@ unsafe extern "C" fn pikachu_specialsthrow_main(fighter: &mut L2CFighterCommon) 
     fighter.sub_shift_status_main(L2CValue::Ptr(pikachu_specialsthrow_main_loop as *const () as _))
 }
 
+/// Keep the victim in Incineroar's grip for the frames before the whip.
+///
+/// The engine's capture does this when it owns the catch: SWING_GAOGAEN_CATCHED follows the
+/// master. When the catch was taken here instead -- see `find_victim_in_range` -- there is no
+/// master to follow and nothing would stop the victim walking out of the hold during the two
+/// dozen frames before FLAG_THROW_ROPE. So this does the same job the capture would.
+///
+/// It runs unconditionally rather than only for a forced catch. If the engine IS holding them,
+/// it is writing the same position this does a fraction of a unit away, and the cost of agreeing
+/// with it is nothing; the cost of getting the condition wrong is a victim who slides.
+///
+/// FORWARD BY THE CATCH BOX'S OWN NEAR EDGE. The wide catch collision sits at z 2.08 with radius
+/// 4.17, so its centre of mass is about 4 units in front of `top` -- which is where an opponent
+/// it just caught actually is. Holding them there rather than at some invented distance means
+/// the whip starts from the position the grab ended at.
+const HOLD_FORWARD: f32 = 4.166667;
+
+unsafe fn pin_victim(boma: *mut BattleObjectModuleAccessor, entry: usize) {
+    let Some(vboma) = victim_boma(entry) else {
+        return;
+    };
+    let pos = Vector3f {
+        x: PostureModule::pos_x(boma) + PostureModule::lr(boma) * HOLD_FORWARD,
+        y: PostureModule::pos_y(boma),
+        z: 0.0,
+    };
+    PostureModule::set_pos(vboma, &pos);
+    // Their own momentum must not fight the placement, or they drift out of the grip.
+    KineticModule::clear_speed_all(vboma);
+}
+
 unsafe extern "C" fn pikachu_specialsthrow_main_loop(fighter: &mut L2CFighterCommon) -> L2CValue {
     let boma = fighter.module_accessor;
     let entry = entry_of(boma);
@@ -561,6 +680,7 @@ unsafe extern "C" fn pikachu_specialsthrow_main_loop(fighter: &mut L2CFighterCom
     // than approximated. The frame fallback covers the case where the flag never arrives.
     if SINCE_THROW[entry] < 0 {
         HELD_FOR[entry] += 1;
+        pin_victim(boma, entry);
         let thrown = WorkModule::is_flag(boma, *FIGHTER_GAOGAEN_STATUS_SPECIAL_S_FLAG_THROW_ROPE)
             || HELD_FOR[entry] >= THROW_ROPE_FALLBACK_FRAME;
         if thrown {
