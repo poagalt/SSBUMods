@@ -20,7 +20,18 @@ fn main() {
         let hash = Hash40::from(path);
         match arc.get_file_contents(hash, Region::UsEnglish) {
             Ok(data) => {
-                let dest = std::path::Path::new(&outdir).join(path);
+                // A COLON IS A LEGAL ARC PATH AND AN ILLEGAL WINDOWS ONE.
+                //
+                // Every path pulled so far has been `fighter/...`, so this never came up. The
+                // lua2cpp agent NROs live under `prebuilt:/nro/release/`, and joining that
+                // verbatim produces `out\prebuilt:\nro\release\...`, which Windows rejects with
+                // "the filename, directory name, or volume label syntax is incorrect" -- an
+                // error that reads like a network or permissions problem and is neither.
+                //
+                // The colon is the arc's namespace separator, so a slash is the faithful
+                // replacement: `prebuilt:/nro` becomes `prebuilt/nro`.
+                let safe: String = path.replace(':', "");
+                let dest = std::path::Path::new(&outdir).join(&safe);
                 std::fs::create_dir_all(dest.parent().unwrap()).unwrap();
                 let mut f = std::fs::File::create(&dest).unwrap();
                 f.write_all(&data).unwrap();
