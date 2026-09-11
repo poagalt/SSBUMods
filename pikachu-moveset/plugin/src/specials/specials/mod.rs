@@ -392,14 +392,27 @@ unsafe extern "C" fn pikachu_specials_main_loop(fighter: &mut L2CFighterCommon) 
         // Asking about both indices across the whole window says when each box exists and for how
         // long, which is the evidence for "did the ACMD run" that this needed all along.
         // `size` and `node` return u64 rather than a radius, so they print raw.
+        // AND WHETHER ANYONE WAS IN RANGE AT ALL, which no probe could say and which decides
+        // between two completely different bugs.
+        //
+        // The ACMD puts two ATTACK hitboxes out on script frames 15 and 16 -- zero damage, angle
+        // 350 -- as the lunge's pull-in. They occupy the same region as the catch boxes two
+        // frames later. So `AttackModule::is_attack_occur` connecting during this window means
+        // an opponent was right there and the CATCH still did not take, which points at the
+        // engine rejecting the catch. It never connecting means nobody was in range and the
+        // grab was never going to work, which is a test-setup problem rather than a code one.
+        //
+        // Safe in a way the opponent-distance probe was not: it asks our own fighter a question
+        // about our own hitboxes, with no other object's pointer involved.
         probe::frame(format!(
             "[rat] WHIP p{entry} f={mframe:.1} is_catch={is_catch} cap={cap:#x} rebound={} \
-             grab0={} grab1={} size0={:#x} size1={:#x}; {}",
+             grab0={} grab1={} size0={:#x} size1={:#x} pullin_hit={}; {}",
             GrabModule::is_rebound(boma),
             GrabModule::is_grab(boma, 0),
             GrabModule::is_grab(boma, 1),
             GrabModule::size(boma, 0),
             GrabModule::size(boma, 1),
+            AttackModule::is_attack_occur(boma),
             probe::ctx(boma)
         ));
     }
