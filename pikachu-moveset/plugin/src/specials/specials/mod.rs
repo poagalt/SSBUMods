@@ -186,6 +186,48 @@ static mut SINCE_THROW: [i32; 8] = [-1; 8];
 // proves `macros::CATCH` executed, which separates "the ACMD never ran" from everything else.
 // Range can be read off the two fighters' positions in the log by hand if it ever matters.
 
+
+/// The fighter our command grab just caught, found by asking who is in the caught status.
+///
+/// EVERY CATCHER-SIDE SIGNAL HAS FAILED, so this asks the victim instead.
+///
+/// `CatchModule::is_catch` never goes true -- measured across a whole session, including
+/// attempts where the lunge's own pull-in hitbox connected, so an opponent was demonstrably in
+/// range. `capture_object_id` stays at BATTLE_OBJECT_ID_INVALID. `GrabModule::is_grab` tracks the
+/// collision existing, not connecting, and acting on it ran the entire throw sequence against
+/// nobody. Incineroar's own `SpecialS/main_loop.c` is no help: it delegates to `FUN_710001d4b0`
+/// and `FUN_710001ff80`, neither of which the dump includes.
+///
+/// But the ACMD names the victim's destination -- `macros::CATCH(..., SWING_GAOGAEN_CATCHED, ...)`
+/// -- and that is an engine-common status at 0x176. If the collision connected, SOMEBODY is in it.
+/// So: look.
+///
+/// THE ID ARITHMETIC IS MEASURED. Round 4's telemetry logged the object id the engine itself
+/// handed back during Pikachu's ordinary grab: 0x10000, for the fighter at entry 1. A fighter's
+/// battle object id is `entry << 16`. This was the one thing blocking a victim-side check, and
+/// three previous rounds declined to guess it -- correctly, since 0x5000000n was the obvious
+/// guess from the invalid sentinel and it is wrong.
+unsafe fn find_caught_victim(boma: *mut BattleObjectModuleAccessor) -> Option<u32> {
+    let me = WorkModule::get_int(boma, *FIGHTER_INSTANCE_WORK_ID_INT_ENTRY_ID);
+    for e in 0..8i32 {
+        if e == me {
+            continue;
+        }
+        let id = (e as u32) << 16;
+        if sv_battle_object::is_null(id) {
+            continue;
+        }
+        let vboma = sv_battle_object::module_accessor(id);
+        if vboma.is_null() {
+            continue;
+        }
+        if StatusModule::status_kind(vboma) == *FIGHTER_STATUS_KIND_SWING_GAOGAEN_CATCHED {
+            return Some(id);
+        }
+    }
+    None
+}
+
 unsafe fn entry_of(boma: *mut BattleObjectModuleAccessor) -> usize {
     let e = WorkModule::get_int(boma, *FIGHTER_INSTANCE_WORK_ID_INT_ENTRY_ID) as usize;
     if e >= 8 { 0 } else { e }
@@ -430,10 +472,15 @@ unsafe extern "C" fn pikachu_specials_main_loop(fighter: &mut L2CFighterCommon) 
     // So the connection test is a real victim or nothing. `is_catch` is kept because it costs
     // nothing and would be the correct signal if the engine does set it; `has_cap` is the one
     // that can actually name who was caught.
-    if is_catch || has_cap {
-        VICTIM[entry] = cap;
+    // Victim-side detection is the one that can actually answer this. The two catcher-side
+    // signals are kept because they cost nothing and either would be preferable if it ever
+    // worked -- but a whole session's log has both flat while the lunge's own pull-in hitbox was
+    // connecting, so an opponent was demonstrably in range and neither noticed.
+    let caught = find_caught_victim(boma);
+    if is_catch || has_cap || caught.is_some() {
+        VICTIM[entry] = caught.unwrap_or(cap);
         probe::event(format!(
-            "[rat] WHIP p{entry} CAUGHT on f={mframe:.1} via is_catch={is_catch} cap={cap:#x}; {}",
+            "[rat] WHIP p{entry} CAUGHT on f={mframe:.1} via is_catch={is_catch} cap={cap:#x} caught={caught:?}; {}",
             probe::ctx(boma)
         ));
         fighter.change_status(RAT_STATUS_KIND_SPECIAL_S_THROW.into(), false.into());
