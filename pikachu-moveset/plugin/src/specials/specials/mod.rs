@@ -955,9 +955,58 @@ unsafe fn pin_victim(boma: *mut BattleObjectModuleAccessor, entry: usize) {
     KineticModule::clear_speed_all(vboma);
 }
 
+/// Swaps between the grounded and airborne variant of a motion WHEN THE SITUATION CHANGES, without
+/// restarting the animation.
+///
+/// `situated` picks a variant once, when the status is entered, so a whip that starts on the ground
+/// and gets knocked into the air keeps playing the grounded animation for the rest of the move.
+/// The source does not: `SpecialSThrow_main_loop` checks every frame and swaps, and it does it with
+/// `change_motion_inherit_frame` rather than `change_motion` so the new animation picks up at the
+/// frame the old one had reached instead of popping back to zero.
+///
+///   if globalTable[0x17] != GROUND && globalTable[0x16] == GROUND
+///       GroundModule::correct(GROUND_CORRECT_KIND_GROUND_CLIFF_STOP)
+///       change_motion_inherit_frame(hash40("special_s_throw"), -1.0, 1.0, 0.0, false, false)
+///   elif globalTable[0x17] == GROUND && globalTable[0x16] != GROUND
+///       GroundModule::correct(GROUND_CORRECT_KIND_AIR)
+///       change_motion_inherit_frame(hash40("special_air_s_throw"), -1.0, 1.0, 0.0, false, false)
+///
+/// THE ENGINE ALREADY KEEPS THE PREVIOUS SITUATION, which is what makes this three lines instead of
+/// a state machine: `global_table[0x16]` is the situation now and `global_table[0x17]` is what it
+/// was last frame, so "did it just change" needs no bookkeeping of ours. `-1.0` for the frame is
+/// what "inherit" means to that call.
+///
+/// `tools/check-nativecalls.sh` lists `MotionModule::change_motion_inherit_frame` against ten of
+/// the twenty-one ported statuses; this is the one place the difference is visible in play, because
+/// it is the only one of the whip's statuses long enough to be interrupted mid-animation.
+unsafe fn follow_situation(fighter: &mut L2CFighterCommon, suffix: &str) {
+    let boma = fighter.module_accessor;
+    let ground = *SITUATION_KIND_GROUND;
+    let now_ground = fighter.global_table[0x16] == ground;
+    let was_ground = fighter.global_table[0x17] == ground;
+    if now_ground == was_ground {
+        return;
+    }
+    let (correct, motion) = if now_ground {
+        (*GROUND_CORRECT_KIND_GROUND_CLIFF_STOP, format!("special_s{suffix}"))
+    } else {
+        (*GROUND_CORRECT_KIND_AIR, format!("special_air_s{suffix}"))
+    };
+    GroundModule::correct(boma, smash::app::GroundCorrectKind(correct));
+    MotionModule::change_motion_inherit_frame(
+        boma, Hash40::new(&motion), -1.0, 1.0, 0.0, false, false,
+    );
+    crate::telemetry::probe::event(format!(
+        "[rat] WHIP p{} situation changed mid-move -> {motion} at the frame it had reached; {}",
+        entry_of(boma),
+        crate::telemetry::probe::ctx(boma)
+    ));
+}
+
 unsafe extern "C" fn pikachu_specialsthrow_main_loop(fighter: &mut L2CFighterCommon) -> L2CValue {
     let boma = fighter.module_accessor;
     let entry = entry_of(boma);
+    follow_situation(fighter, "_throw");
 
     // THE WHIP. game_specialsthrow raises FLAG_THROW_ROPE on its frame 37; deforeign keeps that
     // id now (see tools/reach/src/bin/deforeign.rs KEEP_STATUS_IDS) so it can be read here rather
