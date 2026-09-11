@@ -80,7 +80,7 @@ if [ -s "$R" ]; then
     # handoff had nobody to hand over, STILL-UNRESOLVED means a motion was missing two seconds
     # after load and not merely early.
     MARKERS="REFUSED|UNRESOLVED|STILL-UNRESOLVED|rejected|failed|no writable path"
-    MARKERS="$MARKERS|TABLE SHORT|ABSORB LEAK|NO VALID VICTIM|SHIFT STORM|hold ceiling"
+    MARKERS="$MARKERS|TABLE SHORT|ABSORB LEAK|NO VALID VICTIM|SHIFT STORM|hold ceiling|EXEDUMP|NATIVE AREA FLAGS|exists now"
     bad=$(grep -cE "$MARKERS" "$R")
     if [ "$bad" = "0" ]; then
         echo "  none -- status table extended, no motions missing, no state left armed"
@@ -116,10 +116,10 @@ if [ -s "$R" ]; then
     #
     # Crumbs are the lines written unbuffered immediately before a call that might not return
     # (telemetry/sink.rs). If the game died inside one, the crumb naming it is the last line here.
-    n=$(grep -cE "about to |REFUSED |validated, about to|stays in status" "$R")
+    n=$(grep -cE "about to |REFUSED |validated, about to|stays in status|ROPE p|apply_lift_param|HOLD p" "$R")
     if [ "$n" != "0" ]; then
         echo "  $n breadcrumb(s); the last 8:"
-        grep -E "about to |REFUSED |validated, about to|stays in status" "$R" | tail -8 | sed 's/^/    /'
+        grep -E "about to |REFUSED |validated, about to|stays in status|ROPE p|apply_lift_param|HOLD p" "$R" | tail -8 | sed 's/^/    /'
     else
         echo "  no breadcrumbs -- no risky cross-fighter call was reached this session"
     fi

@@ -187,6 +187,8 @@ static mut SINCE_THROW: [i32; 8] = [-1; 8];
 static mut PULLIN_SEEN: [bool; 8] = [false; 8];
 /// Whether the whipped victim has reached the ropes and turned around.
 static mut RETURNING: [bool; 8] = [false; 8];
+/// Whether the engine has ever raised one of its own follow-up area flags for us.
+static mut AREA_FLAG_SEEN: [bool; 8] = [false; 8];
 
 /// Every live fighter that is not us, as `(battle object id, module accessor)`.
 ///
@@ -330,6 +332,7 @@ unsafe fn reset(boma: *mut BattleObjectModuleAccessor) {
     SINCE_THROW[e] = -1;
     PULLIN_SEEN[e] = false;
     RETURNING[e] = false;
+    AREA_FLAG_SEEN[e] = false;
 }
 
 /// The cached victim's module accessor, or None if they are gone.
@@ -409,8 +412,14 @@ unsafe fn drive_victim(boma: *mut BattleObjectModuleAccessor, frames_since: i32)
 /// An attack or special press this frame. SmashWiki says "an attack button", and in practice both
 /// A and B commit the follow-up, so both are accepted.
 unsafe fn followup_pressed(boma: *mut BattleObjectModuleAccessor) -> bool {
-    ControlModule::check_button_trigger(boma, *CONTROL_PAD_BUTTON_ATTACK)
-        || ControlModule::check_button_trigger(boma, *CONTROL_PAD_BUTTON_SPECIAL)
+    // HELD, NOT TRIGGERED, because that is what the native loop reads.
+    // `SpecialSThrow_main_loop` calls `ControlModule::check_button_on` in all four places it
+    // tests for the follow-up -- four separate call sites, every one `_on`. A trigger is a
+    // one-frame edge, so holding the button through the bounce did nothing unless the press
+    // landed on exactly the right frame; `_on` is what makes "press early -> back body drop,
+    // hold through the collision -> lariat" work at all.
+    ControlModule::check_button_on(boma, *CONTROL_PAD_BUTTON_ATTACK)
+        || ControlModule::check_button_on(boma, *CONTROL_PAD_BUTTON_SPECIAL)
 }
 
 // ---------------------------------------------------------------------------------------------
@@ -701,10 +710,38 @@ unsafe extern "C" fn pikachu_specialsthrow_pre(fighter: &mut L2CFighterCommon) -
     0.into()
 }
 
+/// IN THE ORDER `SpecialSThrow_main` DOES IT. That function is eighteen lines of decompiled C and
+/// this is now a transcription of it rather than a paraphrase:
+///
+///     pFVar4 = globalTable[5].as_pointer()          the FighterModuleAccessor
+///     FighterSpecializer_Gaogaen::generate_rope(pFVar4)
+///     if situation == GROUND { correct(GROUND_CLIFF_STOP); change_motion(special_s_throw) }
+///     else                   { correct(AIR);               change_motion(special_air_s_throw) }
+///     FUN_710001d4b0(this, true)                    the ground/air kinetic switch
+///     sub_shift_status_main(SpecialSThrow_main_loop)
+///
+/// THE ROPE COMES FIRST AND IT IS THE WHOLE MOVE. Reading `SpecialSThrow_main_loop` settles what
+/// six rounds of hand-writing could not: the rope throw is ARTICLE-DRIVEN. The loop raises
+/// FLAG_THROW_ROPE_END and calls `LinkModule::send_event_nodes` twice -- the rope and the victim
+/// are LINKED NODES, and the rope's own status is what moves them. The follow-up windows are not
+/// distances anybody measures either; the engine raises FLAG_LARIAT_AREA, FLAG_LARIAT_END_AREA,
+/// FLAG_LARIAT_AREA_FIRST and FLAG_FAILURE_AREA itself from those `-24 / -10 / -6` offsets, and
+/// the loop just reads them. It also checks `ArticleModule::is_exist(rope)` and bails to
+/// SPECIAL_S_END when the rope is gone.
+///
+/// So every part of this move that is currently reported as wrong -- "the timing of the
+/// bounce-back and travel speed is off", "the opponent can still attack while the grab is
+/// happening" -- is a consequence of the rope not existing, and all of it is downstream of one
+/// call. `generate_rope` is exported from `main`, imported by Incineroar's OWN status NRO
+/// (`disasm --sym rope` finds the PLT stub), and takes nothing but a module accessor.
+///
+/// Whether it works for a Pikachu is a measurement, and `try_native_rope` takes it.
 unsafe extern "C" fn pikachu_specialsthrow_main(fighter: &mut L2CFighterCommon) -> L2CValue {
     let boma = fighter.module_accessor;
-    HELD_FOR[entry_of(boma)] = 0;
-    SINCE_THROW[entry_of(boma)] = -1;
+    let entry = entry_of(boma);
+    HELD_FOR[entry] = 0;
+    SINCE_THROW[entry] = -1;
+    try_native_rope(boma, entry);
     MotionModule::change_motion(
         boma, Hash40::new(&situated(fighter, "_throw")), 0.0, 1.0, false, 0.0, false, false
     );
@@ -728,6 +765,62 @@ unsafe extern "C" fn pikachu_specialsthrow_main(fighter: &mut L2CFighterCommon) 
 /// it just caught actually is. Holding them there rather than at some invented distance means
 /// the whip starts from the position the grab ended at.
 const HOLD_FORWARD: f32 = 4.166667;
+
+/// Incineroar's ROPE ARTICLE ID. 0, from `FIGHTER_GAOGAEN_GENERATE_ARTICLE_ROPE`.
+///
+/// Written numerically for the same reason `crate::victim::FORBIDDEN_VICTIM_STATUSES` is: the
+/// hand-written code may not name another fighter's constants (tools/check-status.sh), and the
+/// point here is the number the ENGINE uses rather than a symbol we are entitled to.
+const GAOGAEN_ARTICLE_ROPE: i32 = 0;
+
+/// Whether calling the native rope generator produced a rope, per entry. Measured, not assumed.
+static mut ROPE_EXISTS: [bool; 8] = [false; 8];
+
+/// ASK THE GAME TO MAKE THE ROPES, USING ITS OWN FUNCTION.
+///
+/// THIS IS THE FIRST PIECE OF THE DRAG-AND-DROP THAT WAS SUPPOSED TO BE IMPOSSIBLE.
+///
+/// The whole reason this move is hand-written is that the three rope statuses --
+/// SWING_GAOGAEN_THROWN, _ATTACH_ROPE, _RETURN -- dereference the victim's LINKED PARENT, and the
+/// parent is Incineroar's rope article. No rope, null pointer, confirmed crash (ADR 0004). So the
+/// trajectory is driven by hand with his numbers, and the reported cost of that is exactly what
+/// you would expect from a reimplementation: "the timing of the bounce-back and travel speed is
+/// off", and "the opponent can still attack while the grab is happening".
+///
+/// But the rope is not something only Incineroar's status code can make. `main` exports
+///
+///     app::FighterSpecializer_Gaogaen::generate_rope(FighterModuleAccessor&)
+///
+/// and skyline-smash already binds it. A `FighterModuleAccessor` is a
+/// `BattleObjectModuleAccessor` as its first and only member, so Pikachu's accessor IS one.
+///
+/// WHETHER IT WORKS IS A MEASUREMENT, NOT A HOPE. `generate_rope` presumably calls
+/// `ArticleModule::generate_article` for article 0, and Pikachu's article list is
+/// dengekidama/kaminari/cloud/vortex -- his article 0 is not a rope. So this may no-op, may make
+/// the wrong article, or may work. `ArticleModule::is_exist` immediately afterwards is what says
+/// which, and nothing downstream acts on the rope unless that check passes. The hand-driven
+/// trajectory stays exactly as it is until a log line says the rope is real.
+///
+/// If it IS real, the next step is to stop driving the victim at all and hand them to
+/// SWING_GAOGAEN_THROWN -- the engine's own outbound leg, bounce and return, with the timings and
+/// speeds that are currently "off" because they are mine rather than the game's.
+unsafe fn try_native_rope(boma: *mut BattleObjectModuleAccessor, entry: usize) {
+    let before = ArticleModule::is_exist(boma, GAOGAEN_ARTICLE_ROPE);
+    crate::telemetry::sink::crumb(format!(
+        "[rat] ROPE p{entry} about to call FighterSpecializer_Gaogaen::generate_rope \
+         (article {GAOGAEN_ARTICLE_ROPE} exists before: {before})"
+    ));
+    smash::app::FighterSpecializer_Gaogaen::generate_rope(
+        boma as *mut smash::app::FighterModuleAccessor,
+    );
+    let after = ArticleModule::is_exist(boma, GAOGAEN_ARTICLE_ROPE);
+    ROPE_EXISTS[entry] = after;
+    crate::telemetry::sink::crumb(format!(
+        "[rat] ROPE p{entry} generate_rope returned; article {GAOGAEN_ARTICLE_ROPE} exists now: \
+         {after}. If true, the engine's own SWING_GAOGAEN_THROWN becomes usable and the \
+         hand-driven trajectory can go."
+    ));
+}
 
 /// Is the cached victim still ours to move?
 ///
@@ -833,6 +926,41 @@ unsafe extern "C" fn pikachu_specialsthrow_main_loop(fighter: &mut L2CFighterCom
     }
 
     SINCE_THROW[entry] += 1;
+
+    // THE ONE MEASUREMENT THAT DECIDES WHETHER THIS MOVE CAN BE A DRAG-AND-DROP.
+    //
+    // `SpecialSThrow_main_loop` does not measure distances. It reads four WORK FLAGS that the
+    // engine raises from `special_s_lariat_offset_x`, `_lariat_end_offset_x` and
+    // `_failure_offset_x` -- the -24 / -10 / -6 this file currently reimplements by hand, badly
+    // enough that playtest calls the timing "off".
+    //
+    // If any of these ever reads true for a Pikachu, the native area detection is running for us
+    // and every hand-derived number here can go: the bands, ROPE_DISTANCE, RETURNING, the whole
+    // of `drive_victim`. If they stay false, the flags need the rope article and the answer is
+    // whatever `try_native_rope` reported.
+    //
+    // Logged once per throw rather than per frame, and only when something is true, so a working
+    // day looks like one line and a broken one looks like none.
+    let area_flags = [
+        ("LARIAT_AREA", *FIGHTER_GAOGAEN_STATUS_SPECIAL_S_FLAG_LARIAT_AREA),
+        ("LARIAT_END_AREA", *FIGHTER_GAOGAEN_STATUS_SPECIAL_S_FLAG_LARIAT_END_AREA),
+        ("FAILURE_AREA", *FIGHTER_GAOGAEN_STATUS_SPECIAL_S_FLAG_FAILURE_AREA),
+    ];
+    let on: Vec<&str> = area_flags
+        .iter()
+        .filter(|(_, f)| WorkModule::is_flag(boma, *f))
+        .map(|(n, _)| *n)
+        .collect();
+    if !on.is_empty() && !AREA_FLAG_SEEN[entry] {
+        AREA_FLAG_SEEN[entry] = true;
+        crate::telemetry::sink::crumb(format!(
+            "[rat] WHIP p{entry} NATIVE AREA FLAGS ARE LIVE: {} on frame {} of the throw. The \
+             engine is raising them from special_s_lariat_offset_x itself -- every hand-derived \
+             band and ROPE_DISTANCE in this file can be deleted in favour of reading these.",
+            on.join("+"),
+            SINCE_THROW[entry]
+        ));
+    }
     // THEY MAY HAVE MASHED OUT MID-FLIGHT, and that is a state the move has to answer for.
     // `status_SwingGaogaenCatched_Main` in lua2cpp_common.nro reads
     // `ControlModule::get_clatter_time` and releases the victim itself when it runs down --

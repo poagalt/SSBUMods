@@ -253,6 +253,7 @@ unsafe extern "C" fn shoulder_start_loop(fighter: &mut L2CFighterCommon) -> L2CV
     hold_victim(boma, entry);
 
     if !still_held(boma, entry) {
+        apply_lift_param(boma, entry, false);
         return carry_change(fighter, entry, *FIGHTER_STATUS_KIND_WAIT, "victim lost -> WAIT");
     }
     if MotionModule::frame(boma) >= SHOULDER_WAIT_FRAME || MotionModule::is_end(boma) {
@@ -381,6 +382,7 @@ unsafe extern "C" fn shoulder_wait_loop(fighter: &mut L2CFighterCommon) -> L2CVa
             CARRY_FRAMES[entry],
             crate::telemetry::probe::ctx(boma)
         ));
+        apply_lift_param(boma, entry, false);
         return carry_change(fighter, entry, *FIGHTER_STATUS_KIND_WAIT, "victim lost -> WAIT");
     }
     if let Some(next) = requested_throw(fighter) {
@@ -442,6 +444,7 @@ unsafe extern "C" fn shoulder_walk_loop(fighter: &mut L2CFighterCommon) -> L2CVa
     hold_victim(boma, entry);
 
     if !still_held(boma, entry) {
+        apply_lift_param(boma, entry, false);
         return carry_change(fighter, entry, *FIGHTER_STATUS_KIND_WAIT, "victim lost -> WAIT");
     }
     if let Some(next) = requested_throw(fighter) {
@@ -480,6 +483,7 @@ unsafe extern "C" fn shoulder_turn_loop(fighter: &mut L2CFighterCommon) -> L2CVa
     hold_victim(boma, entry);
 
     if !still_held(boma, entry) {
+        apply_lift_param(boma, entry, false);
         return carry_change(fighter, entry, *FIGHTER_STATUS_KIND_WAIT, "victim lost -> WAIT");
     }
     if MotionModule::is_end(boma) {
@@ -539,6 +543,7 @@ unsafe extern "C" fn shoulder_landing_loop(fighter: &mut L2CFighterCommon) -> L2
     hold_victim(boma, entry);
 
     if !still_held(boma, entry) {
+        apply_lift_param(boma, entry, false);
         return carry_change(fighter, entry, *FIGHTER_STATUS_KIND_WAIT, "victim lost -> WAIT");
     }
     if MotionModule::is_end(boma) {
@@ -605,6 +610,7 @@ unsafe extern "C" fn throw_loop(fighter: &mut L2CFighterCommon) -> L2CValue {
     if MotionModule::is_end(boma) {
         VICTIM[entry] = *BATTLE_OBJECT_ID_INVALID as u32;
         crate::victim::release(entry, "cargo throw finished");
+        apply_lift_param(boma, entry, false);
         let ground = StatusModule::situation_kind(boma) == *SITUATION_KIND_GROUND;
         let next = if ground { *FIGHTER_STATUS_KIND_WAIT } else { *FIGHTER_STATUS_KIND_FALL };
         return carry_change(fighter, entry, next, "requested throw");
@@ -634,6 +640,7 @@ pub unsafe fn begin(fighter: &mut L2CFighterCommon, victim: u32) {
     // OURS NOW. The engine releases them when its own THROW ends, so nothing downstream may ask
     // it whether the carry is still live -- see `still_held` and crate::victim.
     crate::victim::hold(entry, victim);
+    apply_lift_param(boma, entry, true);
     StatusModule::change_status_request_from_script(
         boma, RAT_STATUS_KIND_SHOULDER_START, false
     );
@@ -662,6 +669,38 @@ pub fn install() {
         .status(Pre,  RAT_STATUS_KIND_THROW_F_LW, throw_pre)
         .status(Main, RAT_STATUS_KIND_THROW_F_LW, throw_flw_main)
         .install();
+}
+
+/// DK'S OWN LIFT PARAMETERS, APPLIED BY DK'S OWN FUNCTION.
+///
+/// `donkey param_lifting_walk` is three 1.1x multipliers -- walk accel, walk accel add, walk speed
+/// max -- and the header used to list them as NOT MODELLED with a reason that was entirely about
+/// the difficulty of applying them by hand: applied once they are wiped by the next status change
+/// that re-initialises the control energy from params, and applied every frame they compound, and
+/// 1.1 per frame is Pikachu off the stage inside a second.
+///
+/// That problem is DK's too, and `main` exports his answer to it:
+///
+///     app::FighterSpecializer_Donkey::apply_lift_param(FighterModuleAccessor&, bool)
+///
+/// A `FighterModuleAccessor` is a `BattleObjectModuleAccessor` as its only member, so Pikachu's
+/// accessor is one. The bool is on/off -- the only sensible reading of a one-argument setter whose
+/// name is "apply", and it is called with `true` entering the carry and `false` leaving it.
+///
+/// WHAT MAKES THIS SAFE TO TRY: it takes an accessor and a flag, touches the caller's own kinetic
+/// state, and reaches no other object -- which is the property every crash in this project has
+/// violated. The worst case is that it multiplies a param object Pikachu does not have, which is
+/// a no-op, and the log says whether his walk speed changed.
+unsafe fn apply_lift_param(boma: *mut BattleObjectModuleAccessor, entry: usize, on: bool) {
+    let before = WorkModule::get_param_float(boma, smash::hash40("walk_speed_max"), 0);
+    smash::app::FighterSpecializer_Donkey::apply_lift_param(
+        boma as *mut smash::app::FighterModuleAccessor,
+        on,
+    );
+    let after = WorkModule::get_param_float(boma, smash::hash40("walk_speed_max"), 0);
+    crate::telemetry::sink::crumb(format!(
+        "[rat] SHOULDER p{entry} apply_lift_param({on}); walk_speed_max {before:.4} -> {after:.4}"
+    ));
 }
 
 /// Change status, unless this frame has already changed status too many times.

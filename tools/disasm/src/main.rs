@@ -36,7 +36,12 @@ use yaxpeax_arch::{Decoder, U8Reader};
 use yaxpeax_arm::armv8::a64::InstDecoder;
 
 /// Where Ghidra put these modules. Every `FUN_71...` in the decomp is relative to this.
-const GHIDRA_BASE: u64 = 0x7100_0000_00;
+///
+/// Zero in `--flat` mode: a dump of main's .text starts at the module base, so a file offset is
+/// already a module-relative address and matches the symbol table exactly.
+static mut GHIDRA_BASE_CELL: u64 = 0x7100_0000_00;
+#[allow(non_snake_case)]
+fn GHIDRA_BASE() -> u64 { unsafe { GHIDRA_BASE_CELL } }
 
 struct Nro {
     bytes: Vec<u8>,
@@ -98,6 +103,51 @@ fn short_name(mangled: &str) -> String {
 }
 
 impl Nro {
+    /// A FLAT `.text` IMAGE PLUS AN EXTERNAL SYMBOL TABLE, WHICH IS HOW `main` ARRIVES.
+    ///
+    /// The fighter NROs come as files with their own headers, so `open` can walk MOD0 ->
+    /// .dynamic -> .dynsym in place. `main` cannot: it is the title's ExeFS NSO, it is encrypted
+    /// on the card, and the only copy obtainable without prod.keys is the one
+    /// `src/telemetry/exedump.rs` copies out of the running process -- 60592128 bytes of raw
+    /// `.text` and a separate text file of names, because the plugin walks main's .dynsym itself
+    /// while it is mapped.
+    ///
+    /// Addresses in that symbol file are MODULE-RELATIVE, and the image starts at the module
+    /// base, so a file offset IS a symbol address and the Ghidra base is zero. Every other mode
+    /// in this tool then works unchanged.
+    ///
+    /// usage:  RAT_SYMS=vendor/main/rat-main-symbols.txt disasm --flat <text.bin> --xrefs 0xabe800
+    fn open_flat(path: &str, syms: &str) -> Self {
+        let bytes = std::fs::read(path).unwrap_or_else(|e| panic!("cannot read {path}: {e}"));
+        let mut defined = HashMap::new();
+        let table = std::fs::read_to_string(syms)
+            .unwrap_or_else(|e| panic!("cannot read symbol table {syms}: {e}"));
+        for line in table.lines() {
+            if line.starts_with('#') {
+                continue;
+            }
+            let mut f = line.split_whitespace();
+            let Some(addr) = f.next().and_then(|s| u64::from_str_radix(s, 16).ok()) else {
+                continue;
+            };
+            let _size = f.next();
+            if let Some(name) = f.next() {
+                defined.insert(addr, name.to_string());
+            }
+        }
+        eprintln!("; flat image {} bytes, {} symbols", bytes.len(), defined.len());
+        let len = bytes.len() as u32;
+        Nro {
+            text_off: 0,
+            text_size: len,
+            ro_off: len,
+            ro_size: 0,
+            plt: HashMap::new(),
+            defined,
+            bytes,
+        }
+    }
+
     fn open(path: &str) -> Self {
         let bytes = std::fs::read(path).unwrap_or_else(|e| panic!("cannot read {path}: {e}"));
         // NRO0 sits at 0x10, after the entry branch and the MOD0 offset.
@@ -246,8 +296,8 @@ impl Nro {
             usize::from_str_radix(rest.trim_start_matches("0x"), 16).expect("bad +offset")
         } else {
             let a = u64::from_str_radix(spec.trim_start_matches("0x"), 16).expect("bad address");
-            if a >= GHIDRA_BASE {
-                (a - GHIDRA_BASE) as usize
+            if a >= GHIDRA_BASE() {
+                (a - GHIDRA_BASE()) as usize
             } else {
                 a as usize
             }
@@ -271,7 +321,18 @@ fn main() {
         eprintln!("usage: disasm <nro> <addr> [count] | --header | --calls <addr> [count] | --sym <substr>");
         std::process::exit(2);
     }
-    let nro = Nro::open(&a[0]);
+    // `--flat` swaps the NRO reader for a raw .text image plus an external symbol table, and
+    // moves the base to zero. Everything after this point is identical either way.
+    let (nro, mode_idx) = if a[0] == "--flat" {
+        unsafe { GHIDRA_BASE_CELL = 0 };
+        let syms = std::env::var("RAT_SYMS")
+            .unwrap_or_else(|_| "vendor/main/rat-main-symbols.txt".into());
+        (Nro::open_flat(&a[1], &syms), 2)
+    } else {
+        (Nro::open(&a[0]), 1)
+    };
+    let a: Vec<String> = a[mode_idx..].iter().cloned().collect();
+    let a: Vec<String> = std::iter::once(String::new()).chain(a).collect();
     let mode = a.get(1).map(String::as_str).unwrap_or("");
 
     if mode == "--header" {
@@ -280,8 +341,8 @@ fn main() {
             "text      off {:#x} size {:#x}  (ghidra {:#x}..{:#x})",
             nro.text_off,
             nro.text_size,
-            GHIDRA_BASE + nro.text_off as u64,
-            GHIDRA_BASE + (nro.text_off + nro.text_size) as u64
+            GHIDRA_BASE() + nro.text_off as u64,
+            GHIDRA_BASE() + (nro.text_off + nro.text_size) as u64
         );
         println!("rodata    off {:#x} size {:#x}", nro.ro_off, nro.ro_size);
         return;
@@ -297,12 +358,12 @@ fn main() {
     // `--xrefs <addr>` walks .text one word at a time and reports every `bl` or `b` whose resolved
     // target is that address. Fixed-width instructions make that exhaustive rather than heuristic.
     if mode == "--xrefs" {
-        let target = GHIDRA_BASE + nro.resolve(&a[2]) as u64;
+        let target = GHIDRA_BASE() + nro.resolve(&a[2]) as u64;
         let decoder = InstDecoder::default();
         let mut hits = 0;
         let mut off = 0usize;
         while off + 4 <= nro.text_size as usize {
-            let pc = GHIDRA_BASE + off as u64;
+            let pc = GHIDRA_BASE() + off as u64;
             let mut reader = U8Reader::new(&nro.bytes[off..off + 4]);
             if let Ok(inst) = decoder.decode(&mut reader) {
                 let text = format!("{inst}");
@@ -314,9 +375,9 @@ fn main() {
                             let owner = nro
                                 .defined
                                 .iter()
-                                .filter(|(k, _)| **k <= pc - GHIDRA_BASE)
+                                .filter(|(k, _)| **k <= pc - GHIDRA_BASE())
                                 .max_by_key(|(k, _)| **k)
-                                .map(|(k, v)| format!("{} + {:#x}", short_name(v), (pc - GHIDRA_BASE) - k))
+                                .map(|(k, v)| format!("{} + {:#x}", short_name(v), (pc - GHIDRA_BASE()) - k))
                                 .unwrap_or_else(|| "<no symbol>".into());
                             println!("{pc:#x}  {op}  in {owner}");
                             hits += 1;
@@ -344,7 +405,7 @@ fn main() {
         let mut pending: Vec<(u64, String)> = Vec::new();
         let mut off = 0usize;
         while off + 4 <= nro.text_size as usize {
-            let pc = GHIDRA_BASE + off as u64;
+            let pc = GHIDRA_BASE() + off as u64;
             let mut reader = U8Reader::new(&nro.bytes[off..off + 4]);
             if let Ok(inst) = decoder.decode(&mut reader) {
                 let text = format!("{inst}");
@@ -352,7 +413,7 @@ fn main() {
                     .split_once(' ')
                     .filter(|(op, _)| matches!(*op, "bl" | "b"))
                     .and_then(|(_, rest)| parse_branch_target(rest, pc));
-                let name = target.and_then(|t| nro.name_of(t - GHIDRA_BASE));
+                let name = target.and_then(|t| nro.name_of(t - GHIDRA_BASE()));
 
                 // A hit prints itself and then waits for the next NAMED call, which is what
                 // identifies the constant: the function it is handed to.
@@ -391,7 +452,7 @@ fn main() {
         }
         hits.sort();
         for (k, v, w) in hits {
-            println!("{:#x}  {w}  {v}", GHIDRA_BASE + k);
+            println!("{:#x}  {w}  {v}", GHIDRA_BASE() + k);
         }
         return;
     }
@@ -414,7 +475,7 @@ fn main() {
         if off + 4 > nro.bytes.len() {
             break;
         }
-        let pc = GHIDRA_BASE + off as u64;
+        let pc = GHIDRA_BASE() + off as u64;
         let word = u32_at(&nro.bytes, off);
         let mut reader = U8Reader::new(&nro.bytes[off..off + 4]);
         let (text, target) = match decoder.decode(&mut reader) {
@@ -429,7 +490,7 @@ fn main() {
             Err(e) => (format!("<{e}>"), None),
         };
         let note = target
-            .and_then(|t| nro.name_of(t - GHIDRA_BASE).map(|n| format!("   ; {n}")))
+            .and_then(|t| nro.name_of(t - GHIDRA_BASE()).map(|n| format!("   ; {n}")))
             .or_else(|| target.map(|t| format!("   ; {t:#x}")))
             .unwrap_or_default();
         if calls_only {
