@@ -59,7 +59,50 @@ else
     echo "  ok  every cross-object handle goes through crate::victim::boma"
 fi
 
-# 3. The telemetry must be able to survive a crash.
+# 3. "Is the victim still ours" must not be asked of the engine.
+#
+# THIS IS THE REGRESSION GUARD FOR THE BUG THAT BROKE BOTH GRABS AT ONCE. The whip and the carry
+# each had a `still_held` test written against `CaptureModule::is_capture` and `catch_object_id`,
+# or against the victim's own status. Both are false within a frame of a hand-made catch -- the
+# log is unambiguous: `victim 0x10000 stays in status 0x44` with `cap=false by=0x50000000` on
+# every frame of every attempt -- because the engine refused the catch and keeps no record of it.
+#
+# The whip cancelled itself into SPECIAL_S_END ("a failure animation plays") and the carry dropped
+# the victim as soon as the engine's own throw ended ("the opponent falls off after a second").
+# Ownership is now a fact in src/victim.rs with its own ceiling.
+#
+# SCOPED TO THE OWNERSHIP FUNCTIONS THEMSELVES, not to the whole file. The first version of this
+# grepped for the CaptureModule calls anywhere outside victim.rs and reported four false
+# positives, every one legitimate: `find_caught_victim` asks the engine whether IT caught
+# someone, which is tier one of the catch; `find_victim_in_range` skips anyone already captured
+# by anybody; and the per-frame probe logs both. Asking the engine is fine for DETECTING a catch
+# and for logging. It is only wrong as the oracle for "are we still holding them".
+#
+# So the check reads the bodies of the functions that answer that question, and nothing else. A
+# check that cries wolf four times out of four gets deleted -- see ADR 0005, which says the same
+# thing about the status-graph reachability test.
+own=""
+for fn in victim_still_ours still_held; do
+    body=$(awk -v f="unsafe fn $fn" '
+        index($0, f) { inside = 1 }
+        inside { print }
+        inside && /^}/ { inside = 0 }
+    ' $(grep -rl "unsafe fn $fn" "$S") 2>/dev/null)
+    if printf '%s' "$body" | grep -qE "CaptureModule::(is_capture|catch_object_id)|StatusModule::status_kind"; then
+        own="$own $fn"
+    fi
+done
+if [ -n "$own" ]; then
+    echo "  FAIL these ask the ENGINE whether we still hold a victim; use crate::victim::held:$own"
+    echo "       The engine refuses these catches and keeps no record of them -- measured, every"
+    echo "       frame of every attempt: 'victim stays in status 0x44' with cap=false. Asking it"
+    echo "       cancelled the whip's throw and dropped the cargo victim."
+    rc=1
+else
+    echo "  ok  ownership of a held victim comes from crate::victim, not from the engine"
+fi
+
+# 4. The telemetry must be able to survive a crash.
 #
 # This is a check because the value regressed silently once and cost a whole session: the sink
 # buffered for 120 frames, so the run that crashed on the rope throw left a 365-byte log holding

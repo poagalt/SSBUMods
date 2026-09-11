@@ -287,6 +287,95 @@ fn main() {
         return;
     }
 
+    // WHO CALLS THIS, AND THEREFORE WITH WHAT ARGUMENTS.
+    //
+    // The reason this exists: `CaptureModule::capture(boma, u32, i32, bool, i32)` is exactly the
+    // function that would let a hand-made command grab hold its victim the way the engine does --
+    // inert, positioned, escapable -- and four of its five arguments are unnamed integers. Nobody
+    // should guess those. The game calls it somewhere, so the game can be asked.
+    //
+    // `--xrefs <addr>` walks .text one word at a time and reports every `bl` or `b` whose resolved
+    // target is that address. Fixed-width instructions make that exhaustive rather than heuristic.
+    if mode == "--xrefs" {
+        let target = GHIDRA_BASE + nro.resolve(&a[2]) as u64;
+        let decoder = InstDecoder::default();
+        let mut hits = 0;
+        let mut off = 0usize;
+        while off + 4 <= nro.text_size as usize {
+            let pc = GHIDRA_BASE + off as u64;
+            let mut reader = U8Reader::new(&nro.bytes[off..off + 4]);
+            if let Ok(inst) = decoder.decode(&mut reader) {
+                let text = format!("{inst}");
+                if let Some((op, rest)) = text.split_once(' ') {
+                    if matches!(op, "bl" | "b") {
+                        if parse_branch_target(rest, pc) == Some(target) {
+                            // Name the containing function if a defined symbol covers it, by
+                            // taking the nearest defined symbol at or below this address.
+                            let owner = nro
+                                .defined
+                                .iter()
+                                .filter(|(k, _)| **k <= pc - GHIDRA_BASE)
+                                .max_by_key(|(k, _)| **k)
+                                .map(|(k, v)| format!("{} + {:#x}", short_name(v), (pc - GHIDRA_BASE) - k))
+                                .unwrap_or_else(|| "<no symbol>".into());
+                            println!("{pc:#x}  {op}  in {owner}");
+                            hits += 1;
+                        }
+                    }
+                }
+            }
+            off += 4;
+        }
+        eprintln!("; {hits} call site(s)");
+        return;
+    }
+
+    // EVERY INSTRUCTION IN .text MATCHING A SUBSTRING, WITH THE NEXT NAMED CALL AFTER IT.
+    //
+    // For anchoring an unnamed constant. The lua_const globals are a single array in `main`, so a
+    // fighter NRO loading `[x24, #0x250]` and the common NRO loading `[x23, #0x250]` are reading
+    // the SAME constant -- which means an unnamed offset can be identified by finding a use of it
+    // whose consuming function IS named, in any module. `--calls` and the plain disassembly both
+    // stop at the first `ret`, which makes them useless for a whole-module sweep; this does not.
+    if mode == "--scan" {
+        let needle = a.get(2).expect("--scan needs a substring").to_string();
+        let after: usize = a.get(3).and_then(|s| s.parse().ok()).unwrap_or(6);
+        let decoder = InstDecoder::default();
+        let mut pending: Vec<(u64, String)> = Vec::new();
+        let mut off = 0usize;
+        while off + 4 <= nro.text_size as usize {
+            let pc = GHIDRA_BASE + off as u64;
+            let mut reader = U8Reader::new(&nro.bytes[off..off + 4]);
+            if let Ok(inst) = decoder.decode(&mut reader) {
+                let text = format!("{inst}");
+                let target = text
+                    .split_once(' ')
+                    .filter(|(op, _)| matches!(*op, "bl" | "b"))
+                    .and_then(|(_, rest)| parse_branch_target(rest, pc));
+                let name = target.and_then(|t| nro.name_of(t - GHIDRA_BASE));
+
+                // A hit prints itself and then waits for the next NAMED call, which is what
+                // identifies the constant: the function it is handed to.
+                if text.contains(&needle) {
+                    pending.push((pc, text.clone()));
+                }
+                if let Some(n) = name {
+                    pending.retain(|(hit_pc, hit_text)| {
+                        if (pc - hit_pc) as usize <= after * 4 {
+                            println!("{hit_pc:#x}  {hit_text}   -> {pc:#x} {n}");
+                            false
+                        } else {
+                            true
+                        }
+                    });
+                }
+                pending.retain(|(hit_pc, _)| (pc - hit_pc) as usize <= after * 4);
+            }
+            off += 4;
+        }
+        return;
+    }
+
     if mode == "--sym" {
         let needle = a.get(2).expect("--sym needs a substring").to_lowercase();
         let mut hits: Vec<(u64, &String, &str)> = Vec::new();

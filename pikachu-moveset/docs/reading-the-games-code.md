@@ -186,3 +186,45 @@ FixCamera, FixPosSlow, **CheckDamage**, **CheckAttack**, OnChangeLr, LeaveStop,
 NotifyEventGimmick, CalcParam. So CheckDamage *is* available to us even though Incineroar does
 not use it, which makes it a design option for the whip being hit out of its lunge rather than a
 thing to go looking for in the source again.
+
+## Two more disasm modes, and what they found
+
+    disasm <nro> --xrefs <addr>          every bl/b whose target is that address, with the
+                                         containing function named
+    disasm <nro> --scan <substr> [n]     every instruction in .text matching a substring, paired
+                                         with the next NAMED call within n instructions
+
+`--xrefs` answers "who calls this engine function, and therefore with what arguments" — which is
+the only honest way to use one whose parameters are unnamed integers. `--scan` exists because the
+plain disassembly and `--calls` both stop at the first `ret`, which makes them useless for a
+whole-module sweep.
+
+### `CaptureModule::capture`, partially settled
+
+This is the function that would let a hand-made command grab hold its victim the way the engine
+does — inert, positioned, escapable — and its signature is
+`(boma, u32, i32, bool, i32)`, four unnamed integers.
+
+`--xrefs` on its PLT stub in `lua2cpp_common.nro` finds exactly two call sites, both in
+`L2CFighterCommon::status_MiifighterCounterThrown`, and reading back from them gives:
+
+```
+w1 = LinkModule::get_parent_id(boma, <lua_const + 0x4e4>)   the CAPTURER's object id
+w2 = <lua_const + 0x250>                                    unidentified
+w3 = true
+w4 = 0
+CaptureModule::capture(victim_boma, capturer_id, <0x250>, true, 0)
+```
+
+So it is called **on the victim**, with the capturer's battle object id — which we have as
+`(*boma).battle_object_id` — and `true, 0` for the last two. Two of the four are now facts.
+
+`<lua_const + 0x250>` is not recoverable this way. The lua_const globals are one array in `main`
+filled at runtime, so the NRO holds only offsets, and the only uses of 0x250 in the common module
+are this one and unrelated loads through other base registers. It is presumably a capture node or
+kind; presumably is not good enough (ADR 0005), so this is written down rather than attempted.
+
+**It is not needed yet.** The reported symptom was the victim falling off, which was ownership
+(ADR 0004's sibling problem) and is fixed. If a future playtest shows the held victim *acting* —
+attacking or moving while carried — this is the route, and the missing argument can be settled by
+logging `FIGHTER_STATUS_CAPTURE_*` candidate constants at runtime and matching the value.
