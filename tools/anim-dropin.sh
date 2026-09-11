@@ -44,6 +44,38 @@ mkdir -p "$DST" "$W" "$ROOT/work/fk"
 PIKA_SCALE=$(awk -F'\t' '$1=="pikachu"{print $3}' "$SCALES")
 [ -n "$PIKA_SCALE" ] || { echo "pikachu missing from scales.tsv" >&2; exit 1; }
 
+# WHAT PIKACHU ACTUALLY HAS, so tracks for everything else can be thrown away.
+#
+# THIS IS A CORRECTNESS FIX WEARING A SIZE FIX'S CLOTHES. A dropped-in animation is the SOURCE
+# fighter's file, and it carries a track per source bone and per source mesh. Incineroar's
+# `d01specialsstart` has 123 Transform nodes, 57 Visibility nodes and 4 Material nodes -- and
+# Pikachu's skeleton has 80 bones, of which the animation names 46. **77 of those 123 transform
+# tracks are for bones that do not exist on him**, and all 57 visibility tracks are for meshes
+# that do not exist on him either.
+#
+# The engine matches tracks to bones by name and ignores the rest, so they were harmless and
+# enormous: `d01specialsstart` ships at 155632 bytes against vanilla's 21728, a factor of 7.16.
+# Across the whole directory the port was taking Pikachu's animation set from 9720 KiB to 13393
+# KiB -- 38% growth -- and the in-game self-test had started reporting 25 of the 30 added files
+# UNRESOLVED, nondeterministically, differently between two loads of the same build. A fighter's
+# loaded animation set has a memory budget; 38% over it fails some of the time depending on what
+# else is resident, which is exactly the shape of what was observed.
+#
+# The Visibility tracks are worse than dead weight. Fifty-seven of them, naming meshes Pikachu
+# does not have -- and this project has already lost a session to a working up-B that left him
+# invisible. A visibility track that matches a Pikachu mesh by accident would do precisely that.
+#
+# So: keep a track only if the thing it animates exists. Nothing that has any effect is removed,
+# which is what makes this safe to do to all 74 files at once.
+BONES_JSON="$W/pika-bones.json"
+MESHES_JSON="$W/pika-meshes.json"
+MODEL="$ROOT/pikachu-moveset/mod/fighter/pikachu/model/body/c00"
+"$T" "$MODEL/model.nusktb" "$W/_skel.json" >/dev/null
+"$T" "$MODEL/model.numshb" "$W/_mesh.json" >/dev/null
+jq -c '[.bones[].name | ascii_downcase] | unique' "$W/_skel.json" > "$BONES_JSON"
+jq -c '[.objects[].name | ascii_downcase] | unique' "$W/_mesh.json" > "$MESHES_JSON"
+echo "  pikachu has $(jq -r 'length' "$BONES_JSON") bones and $(jq -r 'length' "$MESHES_JSON") meshes; foreign tracks will be dropped"
+
 # The whole table read once into memory, and the ratio computed once per FIGHTER rather than once
 # per animation. There are 74 animations and about fifteen fighters, and an `awk` for each of
 # those two lookups was 148 process spawns -- roughly nine seconds here, spent re-deriving
@@ -174,7 +206,7 @@ if [ -f "$STAMPFILE" ]; then
     while IFS=$'\t' read -r a v; do [ -n "${a:-}" ] && STAMP["$a"]="$v"; done < "$STAMPFILE"
 fi
 
-n=0; miss=0; scaled=0; neutralised=0; cached=0
+n=0; miss=0; scaled=0; neutralised=0; cached=0; trimmed=0
 while IFS='|' read -r fighter anim neut label; do
     fighter="${fighter// }"; anim="${anim// }"; neut="${neut// }"
     # Trimmed with bash, not `echo | sed`: two more spawns per animation for a string that is
@@ -266,6 +298,36 @@ while IFS='|' read -r fighter anim neut label; do
                 neutralised=$((neutralised+1))
             done
         fi
+        # DROP EVERY TRACK WHOSE TARGET PIKACHU DOES NOT HAVE. Last, so the scale pass and the
+        # neutralisation pass above are unaffected by it -- neutralisation ADDS identity tracks
+        # for bones Pikachu has and the source lacks, which is the mirror image of this and has
+        # to happen first or its new node would be examined before it exists.
+        #
+        # A Transform group whose nodes all vanish is kept as an empty group rather than removed:
+        # the file format allows it, and removing a group changes the group ordering that
+        # `Visibility` and `Material` indices are read against.
+        jq -c --slurpfile b "$BONES_JSON" --slurpfile m "$MESHES_JSON" '
+          ($b[0]) as $bones | ($m[0]) as $meshes
+          | .groups |= map(
+              if .group_type == "Transform" then
+                .nodes |= map(select((.name | ascii_downcase) as $n | ($bones | index($n)) != null))
+              elif .group_type == "Visibility" or .group_type == "Material" then
+                .nodes |= map(select((.name | ascii_downcase) as $n | ($meshes | index($n)) != null))
+              else . end
+            )' "$W/$stem.out.json" > "$W/$stem.trim.json"
+        # REFUSE RATHER THAN SHIP A POSELESS ANIMATION. `Trans` and `Rot` are the root of the
+        # chain -- Trans carries the root motion the game consumes to move the fighter, Rot the
+        # scale compensation this script just applied -- so an animation that lost either of them
+        # would play as a T-pose that does not travel, silently.
+        kept=$(jq -r '[.groups[]|select(.group_type=="Transform")|.nodes[].name|ascii_downcase] | length' "$W/$stem.trim.json")
+        roots=$(jq -r '[.groups[]|select(.group_type=="Transform")|.nodes[].name|ascii_downcase]|map(select(.=="trans" or .=="rot"))|length' "$W/$stem.trim.json")
+        if [ "$kept" -lt 2 ] || [ "$roots" -lt 2 ]; then
+            echo "  REFUSING $anim: trimming left $kept transform track(s) and $roots root(s) -- need Trans and Rot" >&2
+            exit 1
+        fi
+        mv "$W/$stem.trim.json" "$W/$stem.out.json"
+        trimmed=$((trimmed+1))
+
         "$T" "$W/$stem.out.json" "$DST/$anim" >/dev/null
         # Keep a dump of exactly what we ship, so tools/trace-all.sh measures the real thing.
         cp "$W/$stem.out.json" "$ROOT/work/fk/shipped_$stem.json"
@@ -282,5 +344,5 @@ done <<< "$MOVES"
 for a in "${!NEWSTAMP[@]}"; do printf "%s	%s
 " "$a" "${NEWSTAMP[$a]}" >> "$STAMPFILE"; done
 
-echo "anim-dropin: $n shipped ($cached unchanged and skipped, $scaled scale-compensated, $neutralised bones neutralised), $miss missing"
+echo "anim-dropin: $n shipped ($cached unchanged and skipped, $scaled scale-compensated, $trimmed trimmed of foreign tracks, $neutralised bones neutralised), $miss missing"
 [ "$miss" -eq 0 ] || exit 1

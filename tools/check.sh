@@ -148,6 +148,9 @@ while IFS=$'\t' read -r sz path; do
 done < <(find "$ROOT/pikachu-moveset/mod" -type f -printf '%s\t%p\n')
 [ "$bad_small" = "0" ] && echo "  ok  all $(find "$ROOT/pikachu-moveset/mod" -type f | wc -l) shipped files have plausible sizes"
 
+echo; echo "== 3l. the shipped animations fit the fighter's memory budget =="
+bash "$ROOT/tools/check-animsize.sh" || rc=1
+
 echo; echo "== 3h. the in-game self-test walks the list this build ships =="
 # The self-test's value is that it names motions the CONSOLE failed to resolve. A stale table would
 # name motions the mod no longer ships -- reporting failures that are not real -- while saying
