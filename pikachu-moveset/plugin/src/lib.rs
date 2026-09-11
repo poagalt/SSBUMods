@@ -25,6 +25,8 @@ mod specials;
 mod sword;
 mod articles;
 mod victim;
+// Answers the engine when it asks our Pikachu for one of Incineroar's params -- see params/mod.rs.
+mod params;
 
 #[skyline::main(name = "rat_of_doom")]
 pub fn main() {
@@ -40,4 +42,5 @@ pub fn main() {
     specials_acmd::install();
     sword::install();
     articles::install();
+    params::install();
 }

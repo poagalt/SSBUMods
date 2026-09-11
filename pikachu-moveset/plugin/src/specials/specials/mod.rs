@@ -87,9 +87,9 @@ use {
 // param_special_s[0]. Kept as named constants rather than read at runtime because Pikachu's
 // vl.prc has no param_special_s object to read them out of.
 const START_SPEED_MUL: f32 = 1.3;
-const CATCH_CLATTER_FRAME: i32 = 85;
+pub const CATCH_CLATTER_FRAME: i32 = 85;
 const FAIL_DAMAGE: f32 = 4.0;
-const THROUGH_CANCEL_FRAME: i32 = 30;
+pub const THROUGH_CANCEL_FRAME: i32 = 30;
 /// `special_s_through_target_speed` -- how fast the victim is whipped away.
 const THROUGH_SPEED: f32 = 11.2;
 /// `special_s_through_target_return_speed` -- how fast they come back off the ropes.
@@ -647,6 +647,7 @@ unsafe extern "C" fn pikachu_specials_main_loop(fighter: &mut L2CFighterCommon) 
         // it did not make, so nothing else in this move may ask it whether we are still holding
         // them.
         crate::victim::hold(entry, id);
+        crate::victim::untrace(entry);
         probe::event(format!(
             "[rat] WHIP p{entry} CAUGHT {id:#x} via {how} on f={mframe:.1} \
              (is_catch={is_catch} cap={cap:#x}); {}",
@@ -862,6 +863,11 @@ unsafe fn pin_victim(boma: *mut BattleObjectModuleAccessor, entry: usize) {
     let Some(vboma) = victim_boma(entry) else {
         return;
     };
+    // The catch ends on THEIR side: `status_SwingGaogaenCatched_Main` escapes the moment
+    // `ControlModule::get_clatter_time` hits zero, and that clock is started from OUR
+    // `special_s_catch_clatter_frame` -- 85 for Incineroar, 0 for a Pikachu without
+    // src/params. One line per change is what tells the two apart.
+    crate::victim::trace(entry, vboma, "whip");
     let pos = Vector3f {
         x: PostureModule::pos_x(boma) + PostureModule::lr(boma) * HOLD_FORWARD,
         y: PostureModule::pos_y(boma),

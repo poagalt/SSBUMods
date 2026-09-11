@@ -99,6 +99,11 @@ unsafe fn hold_victim(boma: *mut BattleObjectModuleAccessor, entry: usize) {
     if vboma.is_null() {
         return;
     }
+    // WHAT THE ENGINE IS DOING TO THEM, one line per change. The carry ends on THEIR side --
+    // `CaptureWaitCommon` escapes when `ControlModule::get_clatter_time` reaches zero -- so the
+    // clatter is the measurement that separates "never started" from "ran out". See
+    // src/victim.rs.
+    crate::victim::trace(entry, vboma, "cargo");
     // ONE CRUMB PER CARRY, NOT PER FRAME. The cargo crash is an Instruction Abort with no
     // symbol, so the only way to know whether control reached this function at all is for the
     // log to say so -- but a line every frame at 60fps would bury everything else. So it is
@@ -640,6 +645,7 @@ pub unsafe fn begin(fighter: &mut L2CFighterCommon, victim: u32) {
     // OURS NOW. The engine releases them when its own THROW ends, so nothing downstream may ask
     // it whether the carry is still live -- see `still_held` and crate::victim.
     crate::victim::hold(entry, victim);
+    crate::victim::untrace(entry);
     apply_lift_param(boma, entry, true);
     StatusModule::change_status_request_from_script(
         boma, RAT_STATUS_KIND_SHOULDER_START, false

@@ -43,14 +43,20 @@
 # `fighter/pikachu/param/vl.prc | Bin 0 -> 7293 bytes`. Incineroar's param_special_s is a list[4]
 # of ~50 entries against Pikachu's Skull Bash object; same shape, different size.
 #
-# WHAT IS LOST BY TURNING IT OFF: the whipped victim's engine-side statuses read
-# special_s_through_target_speed off the grabber, and Pikachu's own param_special_s has no such
-# key, so those lookups return 0. Alolan Whip's rebound distance may therefore be wrong or absent.
-# That is a worse move, not a broken game, and it trades correctly against a crash on load.
+# NOTHING IS LOST BY TURNING IT OFF ANY MORE, and this file is now kept for the crash it records
+# rather than for the numbers it was written to ship.
 #
-# TO TRY IT AGAIN, the thing to establish first is whether smashline tolerates a replaced param
-# object at all, or only an ADDED one. If only added, the way to get these numbers to the engine is
-# a differently-named object plus a plugin-side reader, not a replacement.
+# The numbers reach the engine a better way. `plugin/src/params/mod.rs` hooks
+# `WorkModule::get_param_int` and `get_param_float` and answers the twelve `param_special_s`
+# lookups the VICTIM's own status makes through the grabber's accessor -- the list is
+# disassembled out of lua2cpp_common.nro and checked against this same prc by tools/check.sh step
+# 3e2. That is the "plugin-side reader" the previous note asked for, except it needs no
+# differently-named object either: it answers for the real key, so the engine's code needs no
+# cooperation from us. No file ships, no param layout changes, and there is nothing to load at the
+# wrong moment.
+#
+# The one thing the hook cannot do is give Pikachu an ARTICLE. If the rope is ever wanted, that is
+# a weapon clone and a vl.prc article param, and this generator is where that would start.
 SHIP_PARAM_SPECIAL_S=0
 # ============================================================================================
 set -euo pipefail

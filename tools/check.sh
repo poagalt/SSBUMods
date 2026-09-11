@@ -101,8 +101,56 @@ else
   fi
 fi
 
+echo; echo "== 3e2. the param provider still agrees with Incineroar's prc =="
+# THE PARAMS THE ENGINE READS OFF US, AND WHY A CHECK RATHER THAN TRUST.
+#
+# src/params/mod.rs answers twelve `param_special_s` lookups that the VICTIM's own status makes
+# through the grabber's accessor -- disassembled out of lua2cpp_common.nro, where
+# `status_SwingGaogaenCatched` calls LinkModule::get_parent_id, resolves it to an accessor and then
+# reads `special_s_catch_clatter_frame` and friends off it. Every one of those values is typed into
+# a Rust table by hand, and `special_s_catch_clatter_frame` is the frame count the victim spends
+# pinned and mashing: 85 for Incineroar, and the 0 a vanilla Pikachu returns is why the playtest
+# saw "the opponent can still attack while the grab is happening".
+#
+# A number transcribed once and never re-read is exactly what tools/check-srcparams.sh exists to
+# catch, so the same rule applies here: every (hash, value, name) row must still match the value in
+# gaogaen's vl.prc.
+PARAMS="$ROOT/pikachu-moveset/plugin/src/params/mod.rs"
+GPRC="$ROOT/extracted/fighter/gaogaen/param/vl.prc"
+if [ ! -f "$PARAMS" ]; then
+  echo "  FAIL src/params/mod.rs is gone -- the engine would read 0 for every whip param again"; rc=1
+elif [ ! -f "$GPRC" ]; then
+  echo "  FAIL no extracted gaogaen vl.prc to check the param table against"; rc=1
+else
+  gdump=$("$ROOT/tools/prc-tool/target/release/prcdump.exe" "$GPRC" \
+            "$ROOT/vendor/param-labels/ParamLabels.csv" 2>/dev/null \
+          | awk 'index($0,"  param_special_s ")==1{f=1;next} f&&/^  [a-z0-9_]+ /{f=0} f' \
+          | awk '/^    \[0\]/{p=1;next} /^    \[[1-9]\]/{p=0} p')
+  bad=0; rows=0
+  while read -r value name; do
+    rows=$((rows+1))
+    got=$(printf '%s\n' "$gdump" | awk -v k="$name" '$1==k { print $3; exit }')
+    if [ -z "$got" ]; then
+      echo "  FAIL params/mod.rs names $name, which is not in gaogaen's param_special_s"; bad=1
+    elif [ "$got" != "$value" ]; then
+      echo "  FAIL params/mod.rs has $name = $value but the prc says $got"; bad=1
+    fi
+  done <<EOF
+$(grep -oE '^    \(0x[0-9a-f_]+, [-0-9.]+, "[a-z0-9_]+"\)' "$PARAMS" \
+  | sed -E 's/^    \(0x[0-9a-f_]+, ([-0-9.]+), "([a-z0-9_]+)"\)/\1 \2/')
+EOF
+  if [ "$rows" != "12" ]; then
+    echo "  FAIL the param table has $rows row(s); the disassembly proves the victim reads 12"; rc=1
+  elif [ "$bad" = "0" ]; then
+    echo "  ok  all 12 provided params match gaogaen's own param_special_s"
+  else
+    rc=1
+  fi
+fi
+
 
 echo; echo "== 3f. a cloned article ships its own model and motion =="
+
 # THIS IS THE CHECK THAT WOULD HAVE PREVENTED A CRASH. The clone was enabled with NONE of the
 # spikeball's assets in the tree -- config.json never mentioned spikeball at all -- and loading into
 # a match died in the game's own weapon-creation path. A cloned weapon is owned by pikachu, so the

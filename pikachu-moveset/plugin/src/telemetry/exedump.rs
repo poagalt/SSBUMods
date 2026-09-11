@@ -33,8 +33,9 @@
 // ORDER MATTERS: symbols are written BEFORE the code, because they are small, they are the part
 // that makes the rest usable, and a failed 58 MB write should not cost them.
 //
-// OFF BY DEFAULT. It writes tens of megabytes and stalls the frame it runs on. Flip ENABLED,
-// load into training once, and pull with tools/pull-exedump.sh.
+// OFF BY DEFAULT. Flip ENABLED, load into training once, stay in the match half a minute, and
+// pull with tools/pull-exedump.sh. The bytes go out from a background thread that starts ten
+// seconds in -- see `write_regions` for the crash that bought that design.
 use skyline::hooks::{getRegionAddress, Region};
 
 use super::sink;
@@ -65,17 +66,67 @@ pub const ENABLED: bool = true;
 /// 0x3074.
 ///
 /// So: everything, and deliberately more than is needed. About 120 MB total, five minutes over
-/// sys-ftpd, once. `.bss` has no knowable end from the region bases, so it takes a generous fixed
-/// slice rather than being skipped -- a short .bss is still a usable prefix and an unbounded read
-/// would fault.
+/// sys-ftpd, once. `.bss` gets its length from MOD0 -- see `bss_len`, and the crash that taught
+/// it that a fixed guess is not acceptable.
+///
+/// `.text` and `.rodata` are already pulled and versioned under `vendor/main/` (60,592,128 and
+/// 22,339,584 bytes), and neither changes between builds of THIS plugin -- only between game
+/// patches. Re-dumping them would cost two minutes of background writing for bytes already on
+/// disk, so they stay off until the game updates.
 pub const DUMP_TEXT: bool = false;
-pub const DUMP_RODATA: bool = true;
+pub const DUMP_RODATA: bool = false;
 pub const DUMP_DATA: bool = true;
 pub const DUMP_BSS: bool = true;
 
-/// How much `.bss` to take. The region bases give no end for it, and the constant array is
-/// runtime-initialised so it may well live here.
-const BSS_SLICE: usize = 48 << 20;
+/// Ceiling on the `.bss` read, as a sanity bound rather than a guess. See `bss_len`.
+const BSS_MAX: usize = 64 << 20;
+
+/// The REAL length of `.bss`, out of the MOD0 header.
+///
+/// THE PREVIOUS VERSION GUESSED 48 MB AND CRASHED THE GAME. `getRegionAddress` hands over four
+/// bases and no lengths, so `.text`, `.rodata` and `.data` get their sizes from the gaps to the
+/// next base -- correct, and those three dumped cleanly. `.bss` is last, has no next base, and
+/// took a fixed 48 MB slice on the reasoning that a short prefix is still useful. Reading 48 MB
+/// from a region that is smaller than that reads unmapped memory, which is not a short prefix,
+/// it is a Data Abort. Playtest: "I tried loading into training mode with incin and the game
+/// crashed."
+///
+/// MOD0 has the answer and this function was already parsing MOD0 for `.dynamic`. Its layout:
+///
+///     0x00  "MOD0"
+///     0x04  s32  offset to .dynamic
+///     0x08  s32  offset to bss start
+///     0x0c  s32  offset to bss end
+///     0x10  s32  offset to eh_frame_hdr start
+///
+/// every offset relative to the MOD0 address itself. So the length is exact.
+///
+/// It is also CROSS-CHECKED rather than trusted: the computed bss start must agree with the base
+/// `getRegionAddress` reported, and the length must be under `BSS_MAX`. Either check failing skips
+/// `.bss` entirely, because a wrong length here costs a crash and a whole test round, and `.bss`
+/// is the least important of the four.
+unsafe fn bss_len(mod0: usize, bss_base: usize) -> usize {
+    let start = (mod0 as i64 + u32_at(mod0, 8) as i32 as i64) as usize;
+    let end = (mod0 as i64 + u32_at(mod0, 0xc) as i32 as i64) as usize;
+    if end <= start {
+        sink::diag(format!("[rat] EXEDUMP bss: MOD0 gives start {start:#x} end {end:#x}, skipping"));
+        return 0;
+    }
+    let len = end - start;
+    if start != bss_base {
+        sink::diag(format!(
+            "[rat] EXEDUMP bss: MOD0 start {start:#x} disagrees with the region base \
+             {bss_base:#x}; skipping rather than reading somewhere unmapped"
+        ));
+        return 0;
+    }
+    if len > BSS_MAX {
+        sink::diag(format!("[rat] EXEDUMP bss: length {len:#x} over the {BSS_MAX:#x} ceiling, skipping"));
+        return 0;
+    }
+    sink::diag(format!("[rat] EXEDUMP bss: MOD0 says {len:#x} bytes at {start:#x}"));
+    len
+}
 
 /// Guard so a per-frame caller cannot dump twice.
 static mut DONE: bool = false;
@@ -125,6 +176,7 @@ pub unsafe fn run(prefix: &str) {
     // and every d_ptr in there is relative to the module base.
     let mod0 = text + u32_at(text, 4) as usize;
     let magic = u32_at(mod0, 0);
+    let have_mod0 = &magic.to_le_bytes() == b"MOD0";
     if &magic.to_le_bytes() != b"MOD0" {
         sink::diag(format!(
             "[rat] EXEDUMP no MOD0 at {mod0:#x} (read {magic:#x}); cannot locate .dynamic"
@@ -189,60 +241,107 @@ pub unsafe fn run(prefix: &str) {
     }
 
     // ---- the regions -----------------------------------------------------------------------
-    //
-    // Chunked rather than one `fs::write`: this is tens of megabytes through Skyline's fs layer,
-    // and a single call that fails halfway leaves nothing. Each chunk is appended, so a partial
-    // dump is still a usable prefix.
-    let regions: [(&str, bool, usize, usize); 4] = [
+    // A `vec!` rather than an array: this crate is edition 2018, where `[T; N].into_iter()` is
+    // still `iter()` and hands out references.
+    let plan: Vec<(&'static str, usize, usize)> = vec![
         ("text", DUMP_TEXT, text, rodata.saturating_sub(text)),
         ("rodata", DUMP_RODATA, rodata, data.saturating_sub(rodata)),
         ("data", DUMP_DATA, data, bss.saturating_sub(data)),
-        // `.bss` has no end in the region bases, so it takes a fixed slice. See BSS_SLICE.
-        ("bss", DUMP_BSS, bss, BSS_SLICE),
-    ];
-    for (name, want, base, len) in regions {
+        // Exact, from MOD0, and skipped entirely if that cannot be confirmed. The 48 MB guess
+        // this replaces read unmapped memory, which is a fault and not a short prefix.
+        ("bss", DUMP_BSS, bss, if have_mod0 { bss_len(mod0, bss) } else { 0 }),
+    ]
+    .into_iter()
+    .filter(|&(name, want, _, len)| {
         if !want {
-            continue;
+            return false;
         }
         if len == 0 || len > 0x8000_0000 {
             sink::diag(format!("[rat] EXEDUMP {name} length {len:#x} is implausible, skipped"));
-            continue;
+            return false;
         }
+        true
+    })
+    .map(|(name, _, base, len)| (name, base, len))
+    .collect();
+
+    // The base addresses are as important as the bytes -- every offset in a crash report and
+    // every symbol address is relative to one -- and they are handed to the writer rather than
+    // written here, so that the manifest appearing on the card MEANS the regions finished.
+    let manifest = format!(
+        "text {text:#x}\nrodata {rodata:#x}\ndata {data:#x}\nbss {bss:#x}\nbuild {}\n",
+        super::buildstamp::BUILD
+    );
+    sink::diag(format!(
+        "[rat] EXEDUMP handed {} region(s) to the background writer; results land in \
+         rat-exedump.txt, not here",
+        plan.len()
+    ));
+    if !plan.is_empty() {
+        let owned = prefix.to_string();
+        std::thread::spawn(move || write_regions(owned, plan, manifest));
+    }
+}
+
+/// Writes the regions to the card FROM ITS OWN THREAD, slowly and on purpose.
+///
+/// THIS COST A CRASH AND A TEST ROUND, so the reasoning is worth keeping. The first version ran
+/// the region loop inline in `run`, which is called on the FIRST FRAME OF THE PIKACHU OBJECT --
+/// i.e. during the load, while the game's other threads are still streaming resources off the
+/// same SD card. 22 MB of synchronous `write_all` there produced:
+///
+///   * a Data Abort on `nus3::audio update` with a fault address of 0 -- the audio streamer got a
+///     null buffer back, because its read never landed;
+///   * `SELFTEST motions 59/77` in the same run, down from 77/77 -- animation resolution fails
+///     the same way for the same reason;
+///   * a log that stops dead after the `.rodata` line, one region in.
+///
+/// It was never the dump's own memory reads that were wrong. It was holding the only I/O device
+/// the loader has, for seconds, at the one moment it is busiest.
+///
+/// So: a separate thread (`vendor/arc_network_lib.rs` proves `std::thread::spawn` works in a
+/// Skyline plugin), a ten-second head start so the match is fully loaded before the first byte,
+/// 1 MB chunks, and a rest between each one so the SD queue drains and the audio thread gets its
+/// turn. Total cost about twenty seconds of wall clock, none of it on the game thread.
+///
+/// It also does NOT call `sink::diag`. The log buffer is `static mut` owned by the game thread,
+/// and racing it from here would trade a starvation crash for a corruption crash. Everything this
+/// function has to say goes into the manifest file, which only it writes.
+fn write_regions(prefix: String, plan: Vec<(&'static str, usize, usize)>, manifest: String) {
+    const CHUNK: usize = 1 << 20;
+    const HEAD_START_MS: u64 = 10_000;
+    const REST_MS: u64 = 40;
+
+    std::thread::sleep(std::time::Duration::from_millis(HEAD_START_MS));
+
+    let mut report = manifest;
+    for (name, base, len) in plan {
         let path = format!("{prefix}rat-main-{name}.bin");
         let _ = std::fs::remove_file(&path);
         use std::io::Write;
-        const CHUNK: usize = 4 << 20;
         let mut written = 0usize;
-        let mut ok = true;
+        let mut err = String::new();
         match std::fs::OpenOptions::new().create(true).append(true).open(&path) {
             Ok(mut f) => {
                 while written < len {
                     let n = CHUNK.min(len - written);
-                    let s = std::slice::from_raw_parts((base + written) as *const u8, n);
-                    if f.write_all(s).is_err() {
-                        ok = false;
+                    // Reading the game's own mapped image. The bases come from
+                    // `getRegionAddress` and the lengths from the next base up or MOD0, so this
+                    // stays inside the module.
+                    let s = unsafe { std::slice::from_raw_parts((base + written) as *const u8, n) };
+                    if let Err(e) = f.write_all(s) {
+                        err = format!(" write failed: {e}");
                         break;
                     }
                     written += n;
+                    std::thread::sleep(std::time::Duration::from_millis(REST_MS));
                 }
             }
-            Err(e) => {
-                ok = false;
-                sink::diag(format!("[rat] EXEDUMP open {path} failed: {e}"));
-            }
+            Err(e) => err = format!(" open failed: {e}"),
         }
-        sink::diag(format!(
-            "[rat] EXEDUMP {path}: wrote {written:#x} of {len:#x} bytes from {base:#x}, ok={ok}"
+        report.push_str(&format!(
+            "{name} {base:#x} wrote {written:#x} of {len:#x}{err}\n"
         ));
     }
-
-    // The base address is as important as the bytes. Every offset in a crash report and every
-    // symbol address is relative to it. BSS_SLICE is recorded too, so a reader knows the .bss
-    // file is a prefix rather than the whole region.
-    let manifest = format!(
-        "text {text:#x}\nrodata {rodata:#x}\ndata {data:#x}\nbss {bss:#x}\nbss_slice {BSS_SLICE:#x}\nbuild {}\n",
-        super::buildstamp::BUILD
-    );
-    let _ = std::fs::write(format!("{prefix}rat-exedump.txt"), manifest.as_bytes());
-    sink::diag("[rat] EXEDUMP complete".to_string());
+    let _ = std::fs::write(format!("{prefix}rat-exedump.txt"), report.as_bytes());
 }

@@ -281,3 +281,62 @@ pub unsafe fn request_status(
     StatusModule::change_status_request_from_script(vboma, status, false);
     true
 }
+
+// ---------------------------------------------------------------------------------------------
+// WHAT THE ENGINE IS DOING TO THE VICTIM, ONE LINE PER CHANGE.
+// ---------------------------------------------------------------------------------------------
+
+/// The victim's engine-side state, logged only when it changes.
+///
+/// WHY THIS IS THE MISSING MEASUREMENT. Both remaining grab bugs are reports about the VICTIM --
+/// "the opponent can still attack while the grab is happening", "mario escapes a brief moment
+/// after being grabbed no matter the percent" -- and everything this plugin logged was about US.
+/// Six rounds of fixes were aimed at our side of a release that the engine was performing on
+/// theirs.
+///
+/// The disassembly says what to watch. Both the whip's victim status and the cargo's end the same
+/// way, in code neither we nor Incineroar nor Donkey Kong wrote:
+///
+///   status_SwingGaogaenCatched_Main:  if ControlModule::get_clatter_time(boma) <= 0.0 -> escape
+///   CaptureWaitCommon:                if ControlModule::get_clatter_time(boma) <= 0.0 -> escape
+///
+/// A clatter time that starts at zero and a clatter time that runs out are the same symptom from
+/// our side and completely different bugs, and this is the only line that can tell them apart.
+///
+/// One line per CHANGE, not per frame: a carry is a few hundred frames and the interesting events
+/// are the status transitions and the frame the clatter dies.
+///
+/// # Safety
+/// Game thread, inside a fighter callback, with an accessor from [`boma`].
+pub unsafe fn trace(entry: usize, vboma: *mut BattleObjectModuleAccessor, who: &str) {
+    if entry >= 8 {
+        return;
+    }
+    let status = StatusModule::status_kind(vboma);
+    let captured = CaptureModule::is_capture(vboma);
+    let master = CaptureModule::catch_object_id(vboma) as u32;
+    // Quantised, because it decrements every frame and only the crossings matter: still running,
+    // or run out.
+    let clatter = ControlModule::get_clatter_time(vboma, 0);
+    let alive = clatter > 0.0;
+    let now = (status, captured, master, alive);
+    if LAST_SEEN[entry] == Some(now) {
+        return;
+    }
+    LAST_SEEN[entry] = Some(now);
+    crate::telemetry::sink::diag(format!(
+        "[rat] VICTIM p{entry} {who}: status={status:#x} captured={captured} master={master:#x} \
+         clatter={clatter:.1} (<=0 is what the engine's escape check tests)"
+    ));
+}
+
+/// Forgets the last traced state, so the next carry or catch logs its opening state again.
+pub fn untrace(entry: usize) {
+    unsafe {
+        if entry < 8 {
+            LAST_SEEN[entry] = None;
+        }
+    }
+}
+
+static mut LAST_SEEN: [Option<(i32, bool, u32, bool)>; 8] = [None; 8];
