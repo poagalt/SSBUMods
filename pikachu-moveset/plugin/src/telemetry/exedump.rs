@@ -33,15 +33,22 @@
 // ORDER MATTERS: symbols are written BEFORE the code, because they are small, they are the part
 // that makes the rest usable, and a failed 58 MB write should not cost them.
 //
-// OFF BY DEFAULT. Flip ENABLED, load into training once, stay in the match half a minute, and
-// pull with tools/pull-exedump.sh. The bytes go out from a background thread that starts ten
-// seconds in -- see `write_regions` for the crash that bought that design.
+// OFF, AND THE REGION DUMP SHOULD STAY OFF. Writing megabytes to the SD card from inside a live
+// match crashes the game, and moving the writes to a background thread did not fix it -- see
+// `write_regions`, which now records three crashes instead of one. What the regions were WANTED
+// for is `src/telemetry/luaconst.rs`, which reads the same bytes out of mapped memory and writes
+// nothing at all.
+//
+// `.text` and the symbol table are already pulled and versioned under vendor/main/, and they only
+// change when the GAME does. If a patch ever invalidates them: flip ENABLED and DUMP_TEXT, load
+// into training, leave the match IDLE and untouched for two minutes, quit to the menu, and pull
+// with tools/pull-exedump.sh. Not during play.
 use skyline::hooks::{getRegionAddress, Region};
 
 use super::sink;
 
 /// Whether to dump on the next fighter load. A deliberate one-off, not telemetry.
-pub const ENABLED: bool = true;
+pub const ENABLED: bool = false;
 
 /// WHICH REGIONS TO WRITE, AND WHY ALL OF THEM RATHER THAN JUST `.text`.
 ///
@@ -75,8 +82,8 @@ pub const ENABLED: bool = true;
 /// disk, so they stay off until the game updates.
 pub const DUMP_TEXT: bool = false;
 pub const DUMP_RODATA: bool = false;
-pub const DUMP_DATA: bool = true;
-pub const DUMP_BSS: bool = true;
+pub const DUMP_DATA: bool = false;
+pub const DUMP_BSS: bool = false;
 
 /// Ceiling on the `.bss` read, as a sanity bound rather than a guess. See `bss_len`.
 const BSS_MAX: usize = 64 << 20;
@@ -283,9 +290,9 @@ pub unsafe fn run(prefix: &str) {
     }
 }
 
-/// Writes the regions to the card FROM ITS OWN THREAD, slowly and on purpose.
+/// Writes the regions to the card FROM ITS OWN THREAD, slowly and on purpose. DISABLED.
 ///
-/// THIS COST A CRASH AND A TEST ROUND, so the reasoning is worth keeping. The first version ran
+/// THIS COST THREE CRASHES AND THREE TEST ROUNDS, so the reasoning is worth keeping in full. The first version ran
 /// the region loop inline in `run`, which is called on the FIRST FRAME OF THE PIKACHU OBJECT --
 /// i.e. during the load, while the game's other threads are still streaming resources off the
 /// same SD card. 22 MB of synchronous `write_all` there produced:
@@ -299,10 +306,30 @@ pub unsafe fn run(prefix: &str) {
 /// It was never the dump's own memory reads that were wrong. It was holding the only I/O device
 /// the loader has, for seconds, at the one moment it is busiest.
 ///
-/// So: a separate thread (`vendor/arc_network_lib.rs` proves `std::thread::spawn` works in a
-/// Skyline plugin), a ten-second head start so the match is fully loaded before the first byte,
-/// 1 MB chunks, and a rest between each one so the SD queue drains and the audio thread gets its
-/// turn. Total cost about twenty seconds of wall clock, none of it on the game thread.
+/// The second attempt was a separate thread (`vendor/arc_network_lib.rs` proves
+/// `std::thread::spawn` works in a Skyline plugin), a ten-second head start so the match is fully
+/// loaded before the first byte, 1 MB chunks, and a 40 ms rest between each one so the SD queue
+/// drains. THAT DID NOT WORK EITHER, and the measurement says why it never could:
+///
+///   "I got hit by a get up attack and the game crashed. I reloaded the game and hit an fsmash
+///    and the game crashed."
+///
+/// Two more crashes, both null Data Aborts on a resource thread with no plugin frame anywhere in
+/// the backtrace, and the first byte-identical to the first one -- `nus3::audio update`, returning
+/// into cross2 + 0x398818c. And the card settled the mechanism: `rat-main-data.bin` was EXACTLY
+/// 4 MB of the 37 MB expected, `.bss` absent, the manifest still the previous run's. The writer
+/// was mid-chunk both times.
+///
+/// 4 MB in the tens of seconds the match lasted is about 300 KB/s, which is what this card does
+/// through Skyline's fs layer. So a 1 MB `write_all` holds the card for THREE SECONDS, a 40 ms
+/// rest gives back one part in seventy-five, and 37 MB is two minutes of continuous occupation.
+/// Getting hit is exactly when a new sound and effect have to be read. There is no chunk size or
+/// rest that makes writing tens of megabytes safe during play, because the total time on the card
+/// is fixed by its throughput and the game needs the card the whole time.
+///
+/// WHAT REPLACED IT: `src/telemetry/luaconst.rs`. The regions were only ever wanted for the
+/// lua_const array, and a plugin runs INSIDE the process -- the array is mapped memory, so it can
+/// be found and read directly and the answer is a few integers in the log. No I/O at all.
 ///
 /// It also does NOT call `sink::diag`. The log buffer is `static mut` owned by the game thread,
 /// and racing it from here would trade a starvation crash for a corruption crash. Everything this
