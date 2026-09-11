@@ -40,11 +40,42 @@ use skyline::hooks::{getRegionAddress, Region};
 use super::sink;
 
 /// Whether to dump on the next fighter load. A deliberate one-off, not telemetry.
-pub const ENABLED: bool = false;
+pub const ENABLED: bool = true;
 
-/// Also write the raw `.text`. The symbol table alone answers "does this function exist and
-/// where", which is most of the value; the bytes are needed to read what it does.
+/// WHICH REGIONS TO WRITE, AND WHY ALL OF THEM RATHER THAN JUST `.text`.
+///
+/// The first pass took `.text` and the symbol table only, on the reasoning that code and names
+/// are what you read. That was too thin, and both of the questions it could not answer are
+/// answered by the regions it skipped:
+///
+/// `.rodata` and `.data` hold the VTABLES. 4917 exported names is a tiny fraction of ~39,600
+/// functions, and `FighterGaogaen`, `FighterDonkey` and `FighterGamewatch` are not among them --
+/// internal statics are not exported. A vtable is how an unexported class is identified anyway:
+/// find the table, and every slot in it is one of that class's methods at a known index. The
+/// decompiled `CaptureModule.h` in the public 13.0.4 decomp is built exactly that way, indices
+/// and all.
+///
+/// `.data` or `.bss` holds the LUA_CONST ARRAY. Every fighter NRO reads its constants out of one
+/// global i32 array in `main` -- `ldr w1, [x24, #0x250]` and so on -- and the offsets are all
+/// this project can see from an NRO, which is why `CaptureModule::capture`'s third argument is
+/// still unnamed. With the array dumped the offsets become VALUES, and smash-rs already has
+/// ~19,000 name-to-value pairs to match them against. The array is findable by signature: the
+/// status-line conditions sit at offsets 0x38, 0x3c and 0x50 and must read 0, 1 and 2
+/// (LUA_SCRIPT_STATUS_FUNC_STATUS_PRE / _STATUS / _STATUS_END), with 0xC (CHECK_ATTACK) at
+/// 0x3074.
+///
+/// So: everything, and deliberately more than is needed. About 120 MB total, five minutes over
+/// sys-ftpd, once. `.bss` has no knowable end from the region bases, so it takes a generous fixed
+/// slice rather than being skipped -- a short .bss is still a usable prefix and an unbounded read
+/// would fault.
 pub const DUMP_TEXT: bool = false;
+pub const DUMP_RODATA: bool = true;
+pub const DUMP_DATA: bool = true;
+pub const DUMP_BSS: bool = true;
+
+/// How much `.bss` to take. The region bases give no end for it, and the constant array is
+/// runtime-initialised so it may well live here.
+const BSS_SLICE: usize = 48 << 20;
 
 /// Guard so a per-frame caller cannot dump twice.
 static mut DONE: bool = false;
@@ -157,49 +188,59 @@ pub unsafe fn run(prefix: &str) {
         }
     }
 
-    // ---- the code --------------------------------------------------------------------------
+    // ---- the regions -----------------------------------------------------------------------
     //
     // Chunked rather than one `fs::write`: this is tens of megabytes through Skyline's fs layer,
     // and a single call that fails halfway leaves nothing. Each chunk is appended, so a partial
     // dump is still a usable prefix.
-    if DUMP_TEXT {
-        let len = rodata.saturating_sub(text);
+    let regions: [(&str, bool, usize, usize); 4] = [
+        ("text", DUMP_TEXT, text, rodata.saturating_sub(text)),
+        ("rodata", DUMP_RODATA, rodata, data.saturating_sub(rodata)),
+        ("data", DUMP_DATA, data, bss.saturating_sub(data)),
+        // `.bss` has no end in the region bases, so it takes a fixed slice. See BSS_SLICE.
+        ("bss", DUMP_BSS, bss, BSS_SLICE),
+    ];
+    for (name, want, base, len) in regions {
+        if !want {
+            continue;
+        }
         if len == 0 || len > 0x8000_0000 {
-            sink::diag(format!("[rat] EXEDUMP text length {len:#x} is implausible, skipped"));
-        } else {
-            let path = format!("{prefix}rat-main-text.bin");
-            let _ = std::fs::remove_file(&path);
-            use std::io::Write;
-            const CHUNK: usize = 4 << 20;
-            let mut written = 0usize;
-            let mut ok = true;
-            match std::fs::OpenOptions::new().create(true).append(true).open(&path) {
-                Ok(mut f) => {
-                    while written < len {
-                        let n = CHUNK.min(len - written);
-                        let s = std::slice::from_raw_parts((text + written) as *const u8, n);
-                        if f.write_all(s).is_err() {
-                            ok = false;
-                            break;
-                        }
-                        written += n;
+            sink::diag(format!("[rat] EXEDUMP {name} length {len:#x} is implausible, skipped"));
+            continue;
+        }
+        let path = format!("{prefix}rat-main-{name}.bin");
+        let _ = std::fs::remove_file(&path);
+        use std::io::Write;
+        const CHUNK: usize = 4 << 20;
+        let mut written = 0usize;
+        let mut ok = true;
+        match std::fs::OpenOptions::new().create(true).append(true).open(&path) {
+            Ok(mut f) => {
+                while written < len {
+                    let n = CHUNK.min(len - written);
+                    let s = std::slice::from_raw_parts((base + written) as *const u8, n);
+                    if f.write_all(s).is_err() {
+                        ok = false;
+                        break;
                     }
-                }
-                Err(e) => {
-                    ok = false;
-                    sink::diag(format!("[rat] EXEDUMP open {path} failed: {e}"));
+                    written += n;
                 }
             }
-            sink::diag(format!(
-                "[rat] EXEDUMP {path}: wrote {written:#x} of {len:#x} bytes, ok={ok}"
-            ));
+            Err(e) => {
+                ok = false;
+                sink::diag(format!("[rat] EXEDUMP open {path} failed: {e}"));
+            }
         }
+        sink::diag(format!(
+            "[rat] EXEDUMP {path}: wrote {written:#x} of {len:#x} bytes from {base:#x}, ok={ok}"
+        ));
     }
 
     // The base address is as important as the bytes. Every offset in a crash report and every
-    // symbol address is relative to it.
+    // symbol address is relative to it. BSS_SLICE is recorded too, so a reader knows the .bss
+    // file is a prefix rather than the whole region.
     let manifest = format!(
-        "text {text:#x}\nrodata {rodata:#x}\ndata {data:#x}\nbss {bss:#x}\nbuild {}\n",
+        "text {text:#x}\nrodata {rodata:#x}\ndata {data:#x}\nbss {bss:#x}\nbss_slice {BSS_SLICE:#x}\nbuild {}\n",
         super::buildstamp::BUILD
     );
     let _ = std::fs::write(format!("{prefix}rat-exedump.txt"), manifest.as_bytes());

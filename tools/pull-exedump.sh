@@ -64,7 +64,16 @@ get() {
 echo "== the game's own symbol table and code =="
 get rat-exedump.txt 16 || true
 get rat-main-symbols.txt 100000 || true
-get rat-main-text.bin 1000000 || true
+# `.text` is only re-pulled when it is missing: 60 MB takes three minutes and it does not change
+# between builds of OUR plugin, only between game patches.
+if [ -s "$OUT/rat-main-text.bin" ]; then
+    echo "  rat-main-text.bin: already have $(stat -c%s "$OUT/rat-main-text.bin") bytes, skipping"
+else
+    get rat-main-text.bin 1000000 || true
+fi
+get rat-main-rodata.bin 1000000 || true
+get rat-main-data.bin 1000000 || true
+get rat-main-bss.bin 1000000 || true
 
 echo
 if [ -s "$OUT/rat-main-symbols.txt" ]; then

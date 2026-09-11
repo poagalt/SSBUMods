@@ -228,3 +228,53 @@ kind; presumably is not good enough (ADR 0005), so this is written down rather t
 (ADR 0004's sibling problem) and is fixed. If a future playtest shows the held victim *acting* —
 attacking or moving while carried — this is the route, and the missing argument can be settled by
 logging `FIGHTER_STATUS_CAPTURE_*` candidate constants at runtime and matching the value.
+
+## Source 5: `main` itself, and source 6: the public matching decompilation
+
+### `main`, out of the running process
+
+`data.arc` does not contain fighter status LOGIC and neither do the lua2cpp NROs. "When this catch
+connects, put the victim there and me here" is compiled C++ in `main`, the title's ExeFS NSO,
+keyed on the fighter kind. That is the single reason six of these moves are reimplementations
+rather than drag-and-drops.
+
+It needs no keys. A Skyline plugin is injected INTO the game process, so `main` is mapped memory:
+`src/telemetry/exedump.rs` reads `getRegionAddress` for each region, walks MOD0 -> `.dynamic` ->
+`.dynsym` exactly as `tools/disasm` does on an NRO, and writes the names and the bytes to the
+card. `tools/pull-exedump.sh` brings them back. Flip `ENABLED` in that file, load one match, pull.
+
+What arrives: `.text` 60592128 bytes, `.rodata`, `.data`, a 48 MB slice of `.bss`, and 4,917
+symbol names. `disasm --flat` reads a raw region against an external symbol table.
+
+**The export list is not the function list.** 4,917 names against ~39,600 functions, and they are
+all exports: 2,225 `app::lua_bind::*`, 248 `app::ai`, 219 `sv_animcmd`. `FighterGaogaen`,
+`FighterDonkey` and `FighterGamewatch` return ZERO hits, because internal statics are not
+exported. So `--xrefs` rather than `--sym`: 309 `FighterSpecializer_*` symbols ARE exported and
+are called from the fighter-specific code, so working backwards from one lands inside it.
+
+That is how the Alolan Whip got answered. `FighterSpecializer_Gaogaen::generate_rope` at
+`0xabe800` has one caller in `main`, a lua-binding thunk -- so the rope is made from the STATUS
+SCRIPT layer, Incineroar's own NRO imports it, and the decomp names the call site as
+`SpecialSThrow/main.c:23`.
+
+`.rodata` and `.data` are in the dump for the VTABLES, which are how an unexported class gets
+identified at all, and `.data`/`.bss` for the LUA_CONST ARRAY -- one global i32 array every NRO
+reads its constants from. An NRO only shows offsets (`ldr w1, [x24, #0x250]`), which is why
+`CaptureModule::capture`'s third argument stayed unnamed; with the array dumped an offset becomes
+a value, and smash-rs already holds ~19,000 name-to-value pairs. The array is findable by
+signature: offsets 0x38, 0x3c and 0x50 must read 0, 1 and 2, with 0xC at 0x3074.
+
+### The public matching decompilation — check for this FIRST next time
+
+`https://github.com/sbergeron42/ssbu-decomp`, targeting patch 13.0.4. See
+`vendor/ssbu-decomp/README-rat.md`. `data/ghidra_1301_named.csv` is **15,320 named functions for
+13.0.1**, including the internals our own `.dynsym` does not have, and `data/functions.csv` is all
+39,636 with sizes. `include/` carries decompiled headers with vtable indices.
+
+Merging it with our export table gives `vendor/main/symbols-merged.txt`, and that combination
+immediately settled `CaptureModule::Capture` -- which two rounds had guessed at and one had
+explicitly declined to guess at.
+
+**The lesson is procedural.** Six rounds were spent reconstructing logic that a public
+decompilation already had a map for, and nobody searched for it. Look for the community artifact
+before building the tool: the tool was still worth building, but it would have been aimed better.
