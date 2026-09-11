@@ -158,22 +158,20 @@ unsafe fn hold_victim(boma: *mut BattleObjectModuleAccessor, entry: usize) {
 /// two and every status in the list stops matching. `CaptureModule::catch_object_id` naming us is
 /// the durable fact, and it is the same question `hold_victim` asks.
 unsafe fn still_held(boma: *mut BattleObjectModuleAccessor, entry: usize) -> bool {
-    let vboma = victim_boma(entry);
-    if vboma.is_null() {
-        return false;
-    }
-    if CaptureModule::is_capture(vboma)
-        && CaptureModule::catch_object_id(vboma) as u32 == (*boma).battle_object_id
-    {
-        return true;
-    }
-    let s = StatusModule::status_kind(vboma);
-    s == *FIGHTER_STATUS_KIND_CAPTURE_PULLED
-        || s == *FIGHTER_STATUS_KIND_CAPTURE_WAIT
-        || s == *FIGHTER_STATUS_KIND_CAPTURE_CUT
-        || s == *FIGHTER_STATUS_KIND_THROWN
-        || s == *FIGHTER_STATUS_KIND_SHOULDERED_DONKEY
-        || s == *FIGHTER_STATUS_KIND_SHOULDERED_DONKEY_START
+    // OURS TO ANSWER. "The opponent falls off Pikachu's shoulder after a second" is this
+    // function, and the reason is the same one that cancelled the whip's rope throw: it was
+    // asking the ENGINE whether we were still holding someone.
+    //
+    // The cargo grab is an ordinary capture that DK's game_throwf re-catches rather than
+    // releases -- but the engine's own THROW status ends the moment SHOULDER_START takes over,
+    // and with it the capture link and every CAPTURE_* status. So every test here went false
+    // within a frame or two of the carry starting, and the carry dropped the victim.
+    //
+    // `crate::victim::held` is the fact, with a 170-frame ceiling so it cannot become a stuck
+    // grab. The engine's link is still accepted where it exists -- `hold_victim` leans on it to
+    // do the positioning for us -- but its absence proves nothing.
+    let _ = boma;
+    crate::victim::held(entry).is_some()
 }
 
 /// Common `pre` for the grounded carry states. DK uses the same shape for all of them and varies
@@ -586,6 +584,7 @@ unsafe extern "C" fn throw_loop(fighter: &mut L2CFighterCommon) -> L2CValue {
     let entry = entry_of(boma);
     if MotionModule::is_end(boma) {
         VICTIM[entry] = *BATTLE_OBJECT_ID_INVALID as u32;
+        crate::victim::release(entry, "cargo throw finished");
         let ground = StatusModule::situation_kind(boma) == *SITUATION_KIND_GROUND;
         let next = if ground { *FIGHTER_STATUS_KIND_WAIT } else { *FIGHTER_STATUS_KIND_FALL };
         return carry_change(fighter, entry, next, "requested throw");
@@ -612,6 +611,9 @@ pub unsafe fn begin(fighter: &mut L2CFighterCommon, victim: u32) {
     let entry = entry_of(boma);
     VICTIM[entry] = victim;
     CARRY_FRAMES[entry] = 0;
+    // OURS NOW. The engine releases them when its own THROW ends, so nothing downstream may ask
+    // it whether the carry is still live -- see `still_held` and crate::victim.
+    crate::victim::hold(entry, victim);
     StatusModule::change_status_request_from_script(
         boma, RAT_STATUS_KIND_SHOULDER_START, false
     );

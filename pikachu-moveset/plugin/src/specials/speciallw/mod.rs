@@ -402,6 +402,10 @@ static mut DAMAGE_SINCE_BOOST: [f32; 8] = [0.0; 8];
 /// Pikachu armed is to track our own writes and check the invariant every frame. See
 /// `watch_absorb_leak`.
 static mut ABSORB_ARMED: [bool; 8] = [false; 8];
+/// Last frame's `AttackModule::is_attack_occur`, so the consumption can be charged on the rising
+/// edge. The flag is sticky for the whole move, which is why reading it directly spent a boost on
+/// the counter's own fire -- see the consumption test.
+static mut ATTACK_SEEN: [bool; 8] = [false; 8];
 static mut AURA_ON: [bool; 8] = [false; 8];
 /// Frames since the visual went up, driving the colour pulse.
 static mut AURA_CLOCK: [i32; 8] = [0; 8];
@@ -887,7 +891,27 @@ pub unsafe extern "C" fn pikachu_revenge_frame(fighter: &mut L2CFighterCommon) {
         // And pummel, floor attacks and the edge attack, which SmashWiki lists as "not affected
         // by Revenge, and neither use up the boost nor cause storage loss" -- so landing one must
         // not spend a boost the player is holding for something else.
-        if !in_counter_attack && !revenge_exempt(boma) && AttackModule::is_attack_occur(boma) {
+        // THE EDGE, NOT THE FLAG. `is_attack_occur` is STICKY: it stays true for the rest of the
+        // move once anything of ours connects. The log shows exactly what that cost:
+        //
+        //   REVENGE retaliation status entered, motion 'special_air_lw'; st=513(=0x201) f=0.0/67
+        //   REVENGE p0 boost 2.16 CONSUMED by a landed attack in 513(=0x201); f=67.0/67
+        //
+        // Consumed in the retaliation's own status, on the retaliation's LAST frame. The status
+        // test was right and `in_counter_attack` was true for sixty-six of those frames -- but
+        // `pikachu_speciallw_main_loop` resets PHASE to PHASE_STANCE at `is_end`, so on frame 67
+        // it went false while the fire's own `is_attack_occur` was still latched. Playtest:
+        // "revenge still seems to use bonus damage on fire counter".
+        //
+        // Two changes, because either alone leaves a hole. PHASE is out of the test -- being in
+        // SPECIAL_LW or SPECIAL_LW_HIT at all means any attack occurring belongs to Revenge,
+        // since the stance has no hitbox and the retaliation's fire is the only one either status
+        // produces. And the consumption is charged on the RISING EDGE, so a latched flag from a
+        // previous move can never spend a boost banked after it.
+        let occur = AttackModule::is_attack_occur(boma);
+        let attack_edge = occur && !ATTACK_SEEN[entry];
+        ATTACK_SEEN[entry] = occur;
+        if !is_revenge_status(status) && !revenge_exempt(boma) && attack_edge {
             probe::event(format!(
                 "[rat] REVENGE p{entry} boost {:.2} CONSUMED by a landed attack in {}; {}",
                 RATE[entry],

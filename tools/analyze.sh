@@ -80,7 +80,7 @@ if [ -s "$R" ]; then
     # handoff had nobody to hand over, STILL-UNRESOLVED means a motion was missing two seconds
     # after load and not merely early.
     MARKERS="REFUSED|UNRESOLVED|STILL-UNRESOLVED|rejected|failed|no writable path"
-    MARKERS="$MARKERS|TABLE SHORT|ABSORB LEAK|NO VALID VICTIM|SHIFT STORM"
+    MARKERS="$MARKERS|TABLE SHORT|ABSORB LEAK|NO VALID VICTIM|SHIFT STORM|hold ceiling"
     bad=$(grep -cE "$MARKERS" "$R")
     if [ "$bad" = "0" ]; then
         echo "  none -- status table extended, no motions missing, no state left armed"

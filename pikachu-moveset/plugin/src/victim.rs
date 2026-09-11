@@ -97,6 +97,105 @@ pub unsafe fn others(me: u32) -> Vec<(u32, *mut BattleObjectModuleAccessor)> {
 /// is exactly what we want while driving their position ourselves.
 pub const FORBIDDEN_VICTIM_STATUSES: &[i32] = &[0x177, 0x178, 0x179];
 
+// ============================================================================================
+// OWNERSHIP OF A HELD VICTIM IS OURS TO TRACK. THE ENGINE DOES NOT KEEP IT FOR US.
+// ============================================================================================
+//
+// This is the same bug three times, and the log finally says so in one line:
+//
+//   [rat] WHIP p0 CAUGHT 0x10000 via in-range on f=16.0 (is_catch=false cap=0x50000000)
+//   [rat] WHIP p0 rope moment: victim 0x10000 stays in status 0x44
+//   [rat] WHIP p0 victim escaped 1 frame(s) after the whip -- ending
+//
+// The victim is in status 0x44 -- whatever the pull-in hitbox left them in -- NOT
+// SWING_GAOGAEN_CATCHED, and `cap=false by=0x50000000` on every frame of every attempt says the
+// engine holds no capture link either. Of course it does not: the engine did not make this grab.
+// It refused to, which is the finding from two rounds ago, so the catch was taken geometrically
+// and there is nobody but us who thinks the victim is held.
+//
+// Every "is the victim still ours" test in this moveset was asking the engine:
+//
+//   the whip   status == SWING_GAOGAEN_CATCHED, or a capture link naming us
+//   the carry  one of the CAPTURE_* statuses, or a capture link naming us
+//
+// Both are false immediately, so both features cancel themselves. The whip exits to
+// SPECIAL_S_END the frame after the whip -- reported as "it cancels and a failure animation
+// plays" -- and the carry drops the victim as soon as the engine's own throw finishes, reported
+// as "the opponent falls off Pikachu's shoulder after a second".
+//
+// So ownership lives here, as a fact we assert and clear ourselves. The engine's link is still
+// honoured when it exists, because for an ordinary grab it does and it is better than our
+// bookkeeping -- but its absence is no longer evidence of anything.
+//
+// A HOLD MUST EXPIRE. A flag that only we clear is a stuck grab waiting to happen, which is the
+// one failure worse than not grabbing at all. `special_s_catch_clatter_frame` is 85 frames of
+// mashing, so twice that is a ceiling no legitimate hold reaches and every broken one does.
+
+/// Ceiling on a hold, in frames. Twice Incineroar's 85-frame clatter window.
+pub const MAX_HOLD_FRAMES: i32 = 170;
+
+static mut HELD_ID: [u32; 8] = [0; 8];
+static mut HELD_FOR: [i32; 8] = [0; 8];
+
+/// Take ownership of a victim. Returns false if the id is not a live fighter.
+pub unsafe fn hold(entry: usize, id: u32) -> bool {
+    if entry >= 8 || boma(id).is_none() {
+        return false;
+    }
+    HELD_ID[entry] = id;
+    HELD_FOR[entry] = 0;
+    crate::telemetry::sink::crumb(format!("[rat] HOLD p{entry} took {id:#x}"));
+    true
+}
+
+/// Give them up.
+pub unsafe fn release(entry: usize, why: &str) {
+    if entry >= 8 || HELD_ID[entry] == 0 {
+        return;
+    }
+    crate::telemetry::sink::crumb(format!(
+        "[rat] HOLD p{entry} released {:#x} after {}f: {why}",
+        HELD_ID[entry], HELD_FOR[entry]
+    ));
+    HELD_ID[entry] = 0;
+    HELD_FOR[entry] = 0;
+}
+
+/// The victim we are holding, if we still are.
+///
+/// Ours to answer, with three ways to lose them and none of them being "the engine stopped
+/// agreeing": the object went away, the hold timed out, or somebody called `release`.
+pub unsafe fn held(entry: usize) -> Option<(u32, *mut BattleObjectModuleAccessor)> {
+    if entry >= 8 || HELD_ID[entry] == 0 {
+        return None;
+    }
+    let id = HELD_ID[entry];
+    match boma(id) {
+        Some(acc) => Some((id, acc)),
+        None => {
+            release(entry, "the victim is no longer a live battle object");
+            None
+        }
+    }
+}
+
+/// How long we have held them.
+pub unsafe fn held_frames(entry: usize) -> i32 {
+    if entry >= 8 { 0 } else { HELD_FOR[entry] }
+}
+
+/// Advance the hold clock. Called once per frame from the telemetry hook, next to `new_frame`,
+/// so a hold cannot outlive its ceiling even if the move that created it stops running.
+pub unsafe fn tick_hold(entry: usize) {
+    if entry >= 8 || HELD_ID[entry] == 0 {
+        return;
+    }
+    HELD_FOR[entry] += 1;
+    if HELD_FOR[entry] > MAX_HOLD_FRAMES {
+        release(entry, "hold ceiling reached -- something never let go");
+    }
+}
+
 /// How many status changes one entry may make in a single game frame before something is wrong.
 ///
 /// A HARD STOP ON THE WHOLE CLASS OF FREEZE, not on one instance of it.

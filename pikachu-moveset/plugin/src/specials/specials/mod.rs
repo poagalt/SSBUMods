@@ -313,6 +313,7 @@ unsafe fn entry_of(boma: *mut BattleObjectModuleAccessor) -> usize {
 
 unsafe fn reset(boma: *mut BattleObjectModuleAccessor) {
     let e = entry_of(boma);
+    crate::victim::release(e, "side-B restarted");
     VICTIM[e] = *BATTLE_OBJECT_ID_INVALID as u32;
     HELD_FOR[e] = 0;
     SINCE_THROW[e] = -1;
@@ -588,6 +589,10 @@ unsafe extern "C" fn pikachu_specials_main_loop(fighter: &mut L2CFighterCommon) 
     }
     if let Some((id, how)) = caught {
         VICTIM[entry] = id;
+        // OURS NOW, on our own books -- see crate::victim. The engine keeps no record of a catch
+        // it did not make, so nothing else in this move may ask it whether we are still holding
+        // them.
+        crate::victim::hold(entry, id);
         probe::event(format!(
             "[rat] WHIP p{entry} CAUGHT {id:#x} via {how} on f={mframe:.1} \
              (is_catch={is_catch} cap={cap:#x}); {}",
@@ -694,12 +699,22 @@ const HOLD_FORWARD: f32 = 4.166667;
 /// So both writers ask first, and the answer is the same pair of questions the catch used: are
 /// they in the caught status, or does the engine's capture link still name us.
 unsafe fn victim_still_ours(boma: *mut BattleObjectModuleAccessor, entry: usize) -> bool {
-    let Some(vboma) = victim_boma(entry) else { return false };
-    if StatusModule::status_kind(vboma) == *FIGHTER_STATUS_KIND_SWING_GAOGAEN_CATCHED {
-        return true;
-    }
-    CaptureModule::is_capture(vboma)
-        && CaptureModule::catch_object_id(vboma) as u32 == (*boma).battle_object_id
+    // ASKED OF OURSELVES, NOT OF THE ENGINE, AND THE LOG IS WHY.
+    //
+    //   CAUGHT 0x10000 via in-range on f=16.0 (is_catch=false cap=0x50000000)
+    //   rope moment: victim 0x10000 stays in status 0x44
+    //   victim escaped 1 frame(s) after the whip -- ending
+    //
+    // This used to require SWING_GAOGAEN_CATCHED or a capture link naming us. The victim is in
+    // 0x44 -- whatever the pull-in hitbox left them in -- and `cap=false by=0x50000000` on every
+    // frame of every attempt. The engine did not make this grab and keeps no record of it, so
+    // both tests were false one frame after the catch and this guard cancelled the throw itself.
+    // Playtest: "it cancels and a failure animation plays".
+    //
+    // `crate::victim::held` is the fact instead, with a ceiling so it cannot become a stuck grab.
+    // The engine's link is still accepted when it exists, because for an ordinary grab it does.
+    let _ = boma;
+    crate::victim::held(entry).is_some()
 }
 
 unsafe fn pin_victim(boma: *mut BattleObjectModuleAccessor, entry: usize) {
@@ -876,6 +891,10 @@ unsafe extern "C" fn pikachu_specialsend_pre(fighter: &mut L2CFighterCommon) -> 
 
 unsafe extern "C" fn pikachu_specialsend_main(fighter: &mut L2CFighterCommon) -> L2CValue {
     let boma = fighter.module_accessor;
+    // The move is over, so the victim is not ours any more. The 170-frame ceiling in
+    // crate::victim would get there eventually; saying so explicitly means the log reads as an
+    // event rather than as a timeout.
+    crate::victim::release(entry_of(boma), "side-B ended");
     reset(boma);
     MotionModule::change_motion(
         boma, Hash40::new(&situated(fighter, "_end")), 0.0, 1.0, false, 0.0, false, false
