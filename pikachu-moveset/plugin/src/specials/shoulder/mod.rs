@@ -223,6 +223,9 @@ unsafe extern "C" fn shoulder_start_main(fighter: &mut L2CFighterCommon) -> L2CV
     let boma = fighter.module_accessor;
     let entry = entry_of(boma);
     CARRY_FRAMES[entry] = 0;
+    // DK's own three calls, from ShoulderStart_init. In his Init line rather than Main; ours goes
+    // here because Main runs once per entry too and the port does not register Init for these.
+    enter_carry(boma, entry);
     // CRUMBED, because the cargo crash lands here and the report cannot say why. The Atmosphere
     // backtrace for it is `rat_of_doom + 0x9cf8` under smashline own line hook with no engine
     // frame between -- an Instruction Abort, so a branch to an address that is not code. That
@@ -720,10 +723,122 @@ unsafe fn apply_lift_param(boma: *mut BattleObjectModuleAccessor, entry: usize, 
 /// So the budget in `crate::victim` bounds it. Refusing a transition leaves the fighter in the
 /// current status for the rest of the frame, which is always a legal state, and the log says once
 /// that it happened.
+
+// ---------------------------------------------------------------------------------------------
+// DK'S OWN CARRY PROTOCOL, WHICH THIS PORT WAS NOT SPEAKING.
+//
+// Every status here reproduces DK's kinetics and motions, and the victim still slid off his
+// shoulder with a tumble animation and then fell. The reason is not in the statuses at all -- it
+// is five calls in `ShoulderStart_init` and `ShoulderStart_exit`, decompiled from
+// lua2cpp_donkey.nro, that are the entire conversation between the carrier and the carried:
+//
+//   init:  LinkModule::send_event_nodes(boma, LINK_NO_CAPTURE, hash40("shoulder"), 0)
+//          CaptureModule::set_ignore_catching(boma, true)          [via MA_MSC_SET_IGNORE_CATCHING]
+//          HitModule::set_invincible_frame_global(boma,
+//              get_param_int(boma, "common", "throw_invincible_frame"), false, 0)
+//
+//   exit:  motion = hash40("invalid")
+//          if next is THROW_F_F/_B/_HI/_LW  -> motion = that throw's own motion name
+//          elif next is one of the eleven carry statuses -> nothing at all
+//          else -> CatchModule::catch_cut(boma, false, false); set_ignore_catching(boma, false)
+//          if motion != "invalid" -> WorkModule::set_int64(boma, motion,
+//                                        FIGHTER_STATUS_CATCH_WAIT_WORK_INT_MOTION_KIND)
+//                                    set_ignore_catching(boma, false)
+//
+// EVERY HASH IN THAT IS CONFIRMED, not inferred: 0x8af9b3d1d is hash40("shoulder"), 0x7fb997a80
+// is hash40("invalid"), and 0x9c72950bb / 0x9c04494a2 / 0xa249b58ab / 0xabaf8a0cc are
+// hash40("throw_f_f"/"throw_f_b"/"throw_f_hi"/"throw_f_lw") -- the same four names this module
+// already passes to `throw_main`.
+//
+// WHAT EACH ONE BUYS.
+//
+// "shoulder" is how the victim is TOLD. `CaptureWait_Loop` in lua2cpp_common.nro reads a motion
+// out of work and hands it to `CaptureModule::motion`; until something names the carry, they keep
+// the pose the grab gave them, which is why the playtest saw "a spinning arms animation that looks
+// like an animation that would happen when mario is falling".
+//
+// `set_ignore_catching(true)` stops the carry being interrupted by another catch.
+//
+// `throw_invincible_frame` off "common" is real invincibility DK has during the lift and this port
+// did not -- and it is a COMMON param, so it reads correctly off Pikachu with no help from
+// src/params.
+//
+// `catch_cut` on the way out is the release. Leaving a carry for WAIT without it leaves the
+// engine's catch bookkeeping believing the grab is still live.
+// ---------------------------------------------------------------------------------------------
+
+/// The eleven statuses DK treats as "still carrying" -- ours are ten, since his four
+/// carry-jump statuses are not reproduced (see ../status.rs).
+fn still_carrying(status: i32) -> bool {
+    status == RAT_STATUS_KIND_SHOULDER_START
+        || status == RAT_STATUS_KIND_SHOULDER_WAIT
+        || status == RAT_STATUS_KIND_SHOULDER_WALK
+        || status == RAT_STATUS_KIND_SHOULDER_TURN
+        || status == RAT_STATUS_KIND_SHOULDER_FALL
+        || status == RAT_STATUS_KIND_SHOULDER_LANDING
+}
+
+/// The victim's thrown motion for each of the four cargo throws, exactly DK's mapping.
+fn throw_motion(status: i32) -> Option<&'static str> {
+    if status == RAT_STATUS_KIND_THROW_F_F {
+        Some("throw_f_f")
+    } else if status == RAT_STATUS_KIND_THROW_F_B {
+        Some("throw_f_b")
+    } else if status == RAT_STATUS_KIND_THROW_F_HI {
+        Some("throw_f_hi")
+    } else if status == RAT_STATUS_KIND_THROW_F_LW {
+        Some("throw_f_lw")
+    } else {
+        None
+    }
+}
+
+/// `ShoulderStart_init`, call for call.
+unsafe fn enter_carry(boma: *mut BattleObjectModuleAccessor, entry: usize) {
+    LinkModule::send_event_nodes(boma, *LINK_NO_CAPTURE, Hash40::new("shoulder"), 0);
+    CaptureModule::set_ignore_catching(boma, true);
+    // "common" is every fighter's own param object, so this is Pikachu's number and not
+    // Donkey Kong's -- which is correct: it is how long HE is invincible for while lifting.
+    let frames = WorkModule::get_param_int(boma, hash40("common"), hash40("throw_invincible_frame"));
+    HitModule::set_invincible_frame_global(boma, frames, false, 0);
+    crate::telemetry::sink::diag(format!(
+        "[rat] SHOULDER p{entry} carry protocol: sent \"shoulder\" to LINK_NO_CAPTURE, \
+         ignore_catching on, {frames}f invincible"
+    ));
+}
+
+/// `ShoulderStart_exit`, call for call, for a transition to `next`.
+unsafe fn leave_carry(boma: *mut BattleObjectModuleAccessor, entry: usize, next: i32) {
+    if let Some(motion) = throw_motion(next) {
+        WorkModule::set_int64(
+            boma,
+            Hash40::new(motion).hash as u64,
+            *FIGHTER_STATUS_CATCH_WAIT_WORK_INT_MOTION_KIND,
+        );
+        CaptureModule::set_ignore_catching(boma, false);
+        crate::telemetry::sink::diag(format!(
+            "[rat] SHOULDER p{entry} carry protocol: throwing, victim motion {motion}"
+        ));
+        return;
+    }
+    if still_carrying(next) {
+        return;
+    }
+    CatchModule::catch_cut(boma, false, false);
+    CaptureModule::set_ignore_catching(boma, false);
+    crate::telemetry::sink::diag(format!(
+        "[rat] SHOULDER p{entry} carry protocol: released -- catch_cut, ignore_catching off"
+    ));
+}
+
 unsafe fn carry_change(fighter: &mut L2CFighterCommon, entry: usize, next: i32, why: &str) -> L2CValue {
     if !crate::victim::allow_shift(entry, why) {
         return 0.into();
     }
+    // DK does this in the status EXIT line, which smashline supports -- but every one of these
+    // transitions already funnels through here, and one place that knows both the old and the new
+    // status is easier to keep honest than ten registered exits.
+    leave_carry(fighter.module_accessor, entry, next);
     fighter.change_status(next.into(), false.into());
     1.into()
 }
