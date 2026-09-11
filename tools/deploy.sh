@@ -321,7 +321,11 @@ for d in "${!DIRS[@]}"; do
     if [ -s "$LS/$safe.txt" ]; then
         printf '%s' "$(tr -d '\r' < "$LS/$safe.txt")" > "$LS/$safe.txt.clean" && mv "$LS/$safe.txt.clean" "$LS/$safe.txt"
     else
-        echo "  could not list $d -- cannot verify it"; bad=$((bad+1))
+        # NOT COUNTED AS A FAILURE. An unlistable directory is a reason to fall through to the
+        # per-file SIZE query below, and that query is the authority -- so counting it here too
+        # double-reported the same file ("2 file(s) wrong" for one path) and, worse, could fail a
+        # deploy whose files were all present. Said once, as information.
+        echo "  could not list $d -- falling back to a per-file SIZE query for its contents"
     fi
 done
 
@@ -358,9 +362,25 @@ for f in "${FILES[@]}"; do
     # ones, so the cached-listing optimisation (one request per directory instead of per file)
     # still holds for everything that looks fine.
     if [ "$got" != "$want" ]; then
-        enc=$(printf '%s' "$f" | sed 's/ /%20/g')
-        confirmed=$(curl -sI "${CURL_AUTH[@]}" --max-time 45 "$DEST/$enc" 2>/dev/null \
-                    | tr -d '\r' | awk '/^Content-Length:/ { print $2; exit }')
+        enc="${f// /%20}"
+        # THREE ATTEMPTS, BECAUSE THE SIZE QUERY LIES TRANSIENTLY TOO.
+        #
+        # The paragraph above says a directory listing is not authoritative and a targeted SIZE
+        # is. Half right: sys-ftpd wedges after a run of connections and then fails EVERYTHING
+        # for a moment, SIZE included. Measured -- a verify sweep declared
+        # ui/message/msg_name.xmsbt absent, and three SIZE queries by hand seconds later all
+        # returned 908, which is exactly the local size. The verifier had just called a correct
+        # file broken.
+        #
+        # A false alarm is as bad as no verifier, because it trains you to ignore the word FAIL.
+        # So the authoritative query gets retries of its own.
+        confirmed=""
+        for attempt in 1 2 3; do
+            confirmed=$(curl -sI "${CURL_AUTH[@]}" --max-time 20 "$DEST/$enc" 2>/dev/null \
+                        | tr -d '\r' | awk '/^Content-Length:/ { print $2; exit }')
+            [ -n "$confirmed" ] && break
+            sleep 2
+        done
         if [ -n "$confirmed" ] && [ "$confirmed" = "$want" ]; then
             # The listing lied. Nothing to do.
             got="$want"

@@ -335,6 +335,11 @@ unsafe fn victim_gap(boma: *mut BattleObjectModuleAccessor) -> Option<f32> {
 /// of how heavy the victim is or what their own kinetic state was doing.
 unsafe fn drive_victim(boma: *mut BattleObjectModuleAccessor, frames_since: i32) {
     let entry = entry_of(boma);
+    // Stops the moment they are no longer ours -- see `victim_still_ours`. An opponent who mashed
+    // free mid-flight should fall, not keep tracing the rest of the arc.
+    if !victim_still_ours(boma, entry) {
+        return;
+    }
     let Some(vboma) = victim_boma(entry) else { return };
 
     let lr = PostureModule::lr(boma);
@@ -639,7 +644,33 @@ unsafe extern "C" fn pikachu_specialsthrow_main(fighter: &mut L2CFighterCommon) 
 /// the whip starts from the position the grab ended at.
 const HOLD_FORWARD: f32 = 4.166667;
 
+/// Is the cached victim still ours to move?
+///
+/// A STUCK GRAB IS WORSE THAN A MISSED ONE, and without this the port could produce one.
+/// `victim_boma` proves the handle is a live fighter; it says nothing about whether that fighter
+/// is still caught. Incineroar's victim can leave at any moment -- `special_s_catch_clatter_frame`
+/// is 85 frames of mashing, and `status_SwingGaogaenCatched_Main` in lua2cpp_common.nro reads
+/// `ControlModule::get_clatter_time` and transitions them out itself when it runs down.
+///
+/// Whoever escaped that way was still being written by `pin_victim` and `drive_victim` every
+/// frame: position overwritten, `clear_speed_all` called, for the rest of the move. Held in place
+/// by a grab they had already broken, with no input that could free them.
+///
+/// So both writers ask first, and the answer is the same pair of questions the catch used: are
+/// they in the caught status, or does the engine's capture link still name us.
+unsafe fn victim_still_ours(boma: *mut BattleObjectModuleAccessor, entry: usize) -> bool {
+    let Some(vboma) = victim_boma(entry) else { return false };
+    if StatusModule::status_kind(vboma) == *FIGHTER_STATUS_KIND_SWING_GAOGAEN_CATCHED {
+        return true;
+    }
+    CaptureModule::is_capture(vboma)
+        && CaptureModule::catch_object_id(vboma) as u32 == (*boma).battle_object_id
+}
+
 unsafe fn pin_victim(boma: *mut BattleObjectModuleAccessor, entry: usize) {
+    if !victim_still_ours(boma, entry) {
+        return;
+    }
     let Some(vboma) = victim_boma(entry) else {
         return;
     };
@@ -707,6 +738,21 @@ unsafe extern "C" fn pikachu_specialsthrow_main_loop(fighter: &mut L2CFighterCom
     }
 
     SINCE_THROW[entry] += 1;
+    // THEY MAY HAVE MASHED OUT MID-FLIGHT, and that is a state the move has to answer for.
+    // `status_SwingGaogaenCatched_Main` in lua2cpp_common.nro reads
+    // `ControlModule::get_clatter_time` and releases the victim itself when it runs down --
+    // `special_s_catch_clatter_frame` is 85 frames of it. "Keep driving a fighter who is no
+    // longer caught" is not an answer: it holds them in place through a grab they already broke.
+    // Incineroar simply finishes the move, and SPECIAL_S_END is that.
+    if !victim_still_ours(boma, entry) {
+        crate::telemetry::probe::event(format!(
+            "[rat] WHIP p{entry} victim escaped {} frame(s) after the whip -- ending; {}",
+            SINCE_THROW[entry],
+            crate::telemetry::probe::ctx(boma)
+        ));
+        fighter.change_status(RAT_STATUS_KIND_SPECIAL_S_END.into(), false.into());
+        return 1.into();
+    }
     // Carry the victim out to the ropes and back. Without this the engine's own SWING_GAOGAEN
     // statuses would try to, and they read numbers Pikachu's vl.prc does not have.
     drive_victim(boma, SINCE_THROW[entry]);
