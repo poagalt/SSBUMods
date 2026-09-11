@@ -367,3 +367,62 @@ is presentation this project defers by design. The value is that the list is com
 It strips comments before matching, because the first thing it caught was itself: a doc comment
 explaining why a call is not made names that call, and a plain text search counts it as made. The
 same lesson `tools/check-srcparams.sh` learned with `NOT MODELLED:`.
+
+## 9. `disasm --trace` — the decompilation lua2cpp_common does not have
+
+    tools/disasm/target/release/disasm.exe vendor/nro/.../lua2cpp_common.nro \
+      --trace 0x710028a510 1400
+
+`vendor/ssbu-status` ships Ghidra-decompiled C for five FIGHTER NROs and not for `lua2cpp_common`
+— and lua2cpp_common is where the VICTIM side of every grab lives. `SwingGaogaenCatched`,
+`CaptureWait`, `CapturePulled`, `MiifighterCounterThrown`: all of it was read one `--calls`
+invocation at a time with the constants cross-referenced by hand, which is why each grab bug cost
+a full investigation. There is no Ghidra on this machine, so this is the substitute.
+
+For a status script it is most of what a decompilation would give, because an L2C status function
+IS a straight sequence of engine calls with constants marshalled in between:
+
+    call LinkModule__set_model_constraint_pos_ort  [LINK_NO_CAPTURE, "rot", "throw",
+                                                    CONSTRAINT_FLAG_POSITION,
+                                                    CONSTRAINT_FLAG_ORIENTATION]
+    call WorkModule__get_param_int    ["param_special_s", "special_s_catch_clatter_frame"]
+    call ControlModule__start_clatter
+
+The L2CValue constructor and accessor traffic is dropped — 45 lines of signal instead of 400 of
+noise — and constants accumulate across the dropped calls and attach to the next real one, which
+is what the marshalling is for. Names come from the module's symbols, `lua_dict.txt`, and the
+hash40 name list, so `0x8af9b3d1d` prints as `"shoulder"`.
+
+It paid for itself the first time it ran. `set_model_constraint_pos_ort` turns out to bind the
+victim to the captor's **`"throw"` bone** with **`"rot"`** — the grip, free, the moment a capture
+exists. And four lines of `CaptureWaitCommon` settle how a victim escapes:
+
+    call ControlModule__get_clatter_time
+      tbz ...
+    call WorkModule__is_enable_transition_term  [FIGHTER_STATUS_TRANSITION_TERM_ID_CAPTURE_CUT]
+    call L2CFighterBase::change_status          [FIGHTER_STATUS_KIND_CAPTURE_CUT]
+
+so the mash-out is a clatter timer gated by a transition term that the victim's own
+`status_CaptureWait` enables. The capture statuses are 0x41 PULLED, 0x42 WAIT, 0x44 CUT, 0x45 JUMP
+— worth knowing by number, because that is how they appear in `crate::victim::trace`.
+
+## What is still missing, as of this writing
+
+Written down because a known gap is cheaper than a rediscovered one.
+
+- **The status-line dispatcher's return-value polarity.** What `main` does with the value a
+  `CheckDamage` line returns. Blocks DK's carry damage rule; see BACKLOG.md, where the whole
+  decompiled rule is recorded waiting on this one fact. The way in is the native caller of the
+  line, through `FighterStatusModuleImpl`'s vtable.
+- **What the engine requires of a status for it to keep a capture alive.** Four of Donkey Kong's
+  `init_settings` and `set_fighter_status_data` arguments were not being copied, and
+  FS_SUCCEEDS_KEEP_ATTACK_ABSOLUTE is the leading candidate, but the mechanism has been inferred
+  from the argument's name rather than read. If there is a per-status attribute table in `main`,
+  reading it would answer this and several other questions at once.
+- **Why `CaptureModule::capture` returned without capturing.** `is_capture` was false on the frame
+  after the call, with `catch_object_id` still BATTLE_OBJECT_ID_INVALID. The suspicion is that
+  `capture` updates bookkeeping for a link the CATCH system creates, rather than creating one —
+  every native caller invokes it on a victim that is already linked. If that is right, the missing
+  call is on the captor's side: `CatchModule::set_catch`.
+- **`main`'s `.data` and `.bss`.** No longer wanted. `lua_dict.txt` answered the question they were
+  being dumped for, and dumping them during play crashed the game three times.

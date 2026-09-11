@@ -472,6 +472,88 @@ fn main() {
         return;
     }
 
+    // A READABLE TRACE OF A STATUS FUNCTION -- see `is_noise` and `hash40_names` for why.
+    if mode == "--trace" {
+        let start = nro.resolve(a.get(2).expect("--trace needs an address"));
+        let count: usize = a.get(3).and_then(|s| s.parse().ok()).unwrap_or(2000);
+        let decoder = InstDecoder::default();
+        let mut pending: Vec<String> = Vec::new();
+        let mut page: [u64; 32] = [0; 32];
+        let mut imm: [u64; 32] = [0; 32];
+        for i in 0..count {
+            let off = start + i * 4;
+            if off + 4 > nro.bytes.len() {
+                break;
+            }
+            let pc = GHIDRA_BASE() + off as u64;
+            let mut reader = U8Reader::new(&nro.bytes[off..off + 4]);
+            let Ok(inst) = decoder.decode(&mut reader) else { continue };
+            let text = format!("{inst}");
+
+            // A 64-bit immediate built by mov/movk, which is how every hash40 literal arrives.
+            if let Some(rest) = text.strip_prefix("mov ") {
+                let p: Vec<&str> = rest.split(", ").collect();
+                if p.len() == 2 {
+                    if let (Some(rd), Some(v)) = (reg_num(p[0]), imm_val(p[1])) {
+                        imm[rd] = v;
+                    }
+                }
+            } else if let Some(rest) = text.strip_prefix("movk ") {
+                let p: Vec<&str> = rest.split(", ").collect();
+                if p.len() == 3 {
+                    if let (Some(rd), Some(v)) = (reg_num(p[0]), imm_val(p[1])) {
+                        let sh: u32 = p[2].trim_start_matches("lsl #").parse().unwrap_or(0);
+                        imm[rd] |= v << sh;
+                        if let Some(n) = hash40_names().get(&imm[rd]) {
+                            pending.push(format!("\"{n}\""));
+                        }
+                    }
+                }
+            } else if let Some(rd) = adrp_dest(&text) {
+                page[rd] = adrp_page(&text).unwrap_or(0);
+            } else if text.starts_with("ldr w") {
+                if let Some(note) = lua_const_note(&text) {
+                    pending.push(note.trim_start_matches("   ; ~lua_const ").to_string());
+                }
+            }
+
+            if text.starts_with("bl ") {
+                let target = text
+                    .split_once(' ')
+                    .and_then(|(_, rest)| parse_branch_target(rest, pc));
+                let name = target.and_then(|t| nro.name_of(t - GHIDRA_BASE()));
+                match name {
+                    Some(n) if !is_noise(&n) => {
+                        if pending.is_empty() {
+                            println!("{pc:#x}  call {n}");
+                        } else {
+                            println!("{pc:#x}  call {n}   [{}]", pending.join(", "));
+                        }
+                        pending.clear();
+                    }
+                    Some(_) => {}
+                    None => {
+                        if let Some(t) = target {
+                            println!("{pc:#x}  call {t:#x}   (unnamed)");
+                            pending.clear();
+                        }
+                    }
+                }
+            } else if text.starts_with("tbz ")
+                || text.starts_with("tbnz ")
+                || text.starts_with("cbz ")
+                || text.starts_with("cbnz ")
+                || text.starts_with("b.")
+            {
+                println!("{pc:#x}    {text}");
+            } else if text == "ret" {
+                println!("{pc:#x}  --- ret ---");
+                break;
+            }
+        }
+        return;
+    }
+
     // WHAT GLOBAL AN `adrp`+`ldr` PAIR IS READING, BY NAME.
     //
     // The lua_const array is the reason this exists. Every fighter NRO reads its constants as
@@ -768,6 +850,80 @@ fn lua_dict() -> &'static HashMap<u64, String> {
                         m.insert(v, name.to_string());
                     }
                 }
+            }
+        }
+        m
+    })
+}
+
+// ---------------------------------------------------------------------------------------------
+// A READABLE TRACE OF A STATUS FUNCTION: every engine call in order, with the constants that were
+// loaded for it.
+//
+// WHY THIS EXISTS. `vendor/ssbu-status` ships Ghidra-decompiled C for five fighter NROs and NOT
+// for `lua2cpp_common.nro` -- and lua2cpp_common is where the VICTIM side of every grab lives.
+// `SwingGaogaenCatched`, `CaptureWait`, `CapturePulled`, `MiifighterCounterThrown`: all of it has
+// been read here one `--calls` invocation at a time, cross-referencing the constants by hand. That
+// is how six rounds of grab bugs each took a full investigation.
+//
+// There is no Ghidra on this machine, so this is the substitute, and for reading a status script it
+// is most of what the decompilation would give. An L2C status function is a straight sequence of
+// engine calls with constants marshalled into L2CValues in between, so printing the calls in order
+// with their pending constants IS the shape of the source:
+//
+//   call LinkModule::is_link                      [LINK_NO_CAPTURE]
+//   call LinkModule::set_model_constraint_pos_ort [LINK_NO_CAPTURE, CONSTRAINT_FLAG_POSITION, ...]
+//   call WorkModule::get_param_int                [param_special_s, special_s_catch_clatter_frame]
+//   call ControlModule::start_clatter
+//
+// The L2CValue constructor and accessor traffic is dropped, which is the difference between 45
+// lines of signal and 400 lines of noise. Constants accumulate across the dropped calls and are
+// attributed to the next real one, because that is what the marshalling is FOR.
+//
+// Three sources of names, all already in the tree: the module's own symbols for the calls,
+// `vendor/ssbu-status/lua_dict.txt` for `ldr wN, [xM, #off]` constant reads, and the hash40 name
+// list for `mov`/`movk` immediates -- so a motion or event name appears as `"shoulder"` rather than
+// as 0x8af9b3d1d.
+// ---------------------------------------------------------------------------------------------
+
+/// Calls that are marshalling rather than behaviour.
+fn is_noise(name: &str) -> bool {
+    name.contains("L2CValue")
+        || name.contains("L2CAgent")
+        || name.contains("Vector3__create")
+        || name.contains("_Unwind_Resume")
+}
+
+fn hash40_names() -> &'static HashMap<u64, String> {
+    static CELL: std::sync::OnceLock<HashMap<u64, String>> = std::sync::OnceLock::new();
+    CELL.get_or_init(|| {
+        let mut t = [0u32; 256];
+        for i in 0..256usize {
+            let mut c = i as u32;
+            for _ in 0..8 {
+                c = if c & 1 != 0 { 0xEDB8_8320 ^ (c >> 1) } else { c >> 1 };
+            }
+            t[i] = c;
+        }
+        let mut m = HashMap::new();
+        for path in [
+            std::env::var("RAT_HASH_NAMES").unwrap_or_else(|_| "work/hash40-names.txt".into()),
+            "vendor/Hashes.txt".to_string(),
+        ] {
+            if let Ok(s) = std::fs::read_to_string(&path) {
+                for line in s.lines() {
+                    let name = line.trim();
+                    if name.is_empty() {
+                        continue;
+                    }
+                    let mut c: u32 = 0xFFFF_FFFF;
+                    for &b in name.as_bytes() {
+                        c = t[((c as u8) ^ b) as usize] ^ (c >> 8);
+                    }
+                    let h = ((name.len() as u64) << 32) | (c ^ 0xFFFF_FFFF) as u64;
+                    m.entry(h).or_insert_with(|| name.to_string());
+                }
+                break;
             }
         }
         m
