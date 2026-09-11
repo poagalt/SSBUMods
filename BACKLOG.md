@@ -62,6 +62,25 @@ Two measurements worth keeping from that log:
 - The up-B rises 74.98 world units and its status chain is exactly right, which is how the
   invisibility was traced to the motion entry rather than to the move.
 
+### Playtest round 3 (build 2e8065d): three fixed, one reframed, one still open
+
+| Report | What the log said | State |
+| --- | --- | --- |
+| Cargo throw crashes in the same place | Byte-identical crash, and `librat_of_doom` is in no frame and not in the module list. CARGO logged nothing -- because the sink TRUNCATED the log on every launch, so the crashed session's evidence was erased by the next boot. | Log now rotates to `.prev`. The remaining outside-reach the module has, pushing the victim into DK's SHOULDERED statuses, is off behind `TELL_VICTIM_SHOULDERED` |
+| Whip does the rope throw against nobody | `is_grab` goes true on motion frame 17 -- one frame after `set_rebound(true)`, one BEFORE `macros::CATCH` runs -- while `cap` stays `0x50000000`, which is BATTLE_OBJECT_ID_INVALID. It also takes an index the call never passed. | Removed from the trigger; both indices plus `is_attack_occur` now logged across the whole window |
+| Revenge damage lands before the hit registers | No freeze existed, and the fire is on script frame 8 of `special_lw` regardless. | Freezes for `floor((absorbed*0.65+6)*1.5)` frames first -- Ultimate's hitlag formula times Incineroar's own `special_lw_hit_stop_mul` |
+| Revenge sometimes banks a stack and still takes the hit | Log shows `st=72 damage_air_1` at the counter, so the reaction happened anyway. | `set_no_reaction_damage_power(9999)` added alongside the mode, which may not carry through bindgen's `_address: u8` |
+| Up-B invisible | Not reported this round; the synth fix worked. The guard still fires, but `get_whole` returns u64 and the `== 0` test may simply be wrong. | Guard now logs before AND after, which settles it in one line |
+
+Confirmed from the constant table rather than assumed: `SWING_GAOGAEN_CATCHED` is 0x176, inside
+the common range that ends before Pikachu's own extras at 0x1E1, so the victim status is
+reachable. And smash-script's `CATCH` passes its 11th argument straight through as that status,
+so the ACMD call is structurally correct. Whatever stops the grab is not the script.
+
+Also measured: `PostureModule::scale`, `base_scale` and `owner_scale` all read exactly 1.0. They
+are the runtime multiplier, not the `fighter_param` scale -- so they neither confirm nor refute
+the bone-radius decision in section 3.
+
 ### What the next round needs
 
 The card holds the current build and `tools/deploy.sh` reports DEPLOY OK. One training-mode load,
