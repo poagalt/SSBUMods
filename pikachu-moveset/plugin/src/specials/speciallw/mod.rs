@@ -473,7 +473,18 @@ unsafe extern "C" fn pikachu_speciallw_pre(fighter: &mut L2CFighterCommon) -> L2
         false,
         false,
         false,
-        (*FIGHTER_LOG_MASK_FLAG_ACTION_TRIGGER_ON | *FIGHTER_LOG_MASK_FLAG_ATTACK_KIND_SPECIAL_LW) as u64,
+        // ACTION_CATEGORY_ATTACK was missing, and the decomp has it:
+        // SpecialLw/pre.c passes ATTACK_KIND_SPECIAL_LW | ACTION_CATEGORY_ATTACK |
+        // ACTION_TRIGGER_ON. The category is how the engine files the move in its own action log,
+        // which is what training-mode counters and the game's statistics read.
+        //
+        // The ATTR argument stays 0 on purpose. HewDraw Remix's gaogaen special_lw_pre passes
+        // FIGHTER_STATUS_ATTR_START_TURN here and vanilla does NOT -- SpecialS/pre.c has it,
+        // SpecialLw/pre.c has no attr line at all. HDR is a rebalance mod, so where it and the
+        // decomp disagree the decomp is the source of truth; see vendor/hdr/README-rat.md.
+        (*FIGHTER_LOG_MASK_FLAG_ATTACK_KIND_SPECIAL_LW
+            | *FIGHTER_LOG_MASK_FLAG_ACTION_CATEGORY_ATTACK
+            | *FIGHTER_LOG_MASK_FLAG_ACTION_TRIGGER_ON) as u64,
         0,
         FIGHTER_POWER_UP_ATTACK_BIT_SPECIAL_LW.into(),
         0
@@ -551,6 +562,27 @@ unsafe fn revenge_kinetics(fighter: &mut L2CFighterCommon, air: bool) {
     // ids are CONTROL and its no-stop twin, which is the pair that survives a hitstop.
     KineticUtility::clear_unable_energy(*FIGHTER_KINETIC_ENERGY_ID_CONTROL, boma);
     KineticUtility::clear_unable_energy(*FIGHTER_KINETIC_ENERGY_ID_CONTROL_NO_STOP, boma);
+
+    // RESET BEFORE SET, WHICH IS THE ORDER THE REAL HELPER USES AND THE STEP THAT MAKES IT TAKE.
+    //
+    // `set_speed` on its own writes a field on an energy that may still be carrying the previous
+    // status's reset type, angle and multiplier -- the MOTION energy is stateful. Incineroar's
+    // FUN_7100013e50 calls `reset_energy` first, and HewDraw Remix does the same thing in DK's
+    // `catch_pull_main` when arriving from a special: clear_speed, then reset_energy with an
+    // explicit type, and only then a speed.
+    //
+    // The reset TYPE is the ground/air distinction the engine itself draws --
+    // `EnergyMotionResetType::is_ground` / `is_air` in HDR's decoded struct -- so the grounded
+    // stance uses GROUND_TRANS and the airborne one AIR_TRANS.
+    let reset_type = if air {
+        *ENERGY_MOTION_RESET_TYPE_AIR_TRANS
+    } else {
+        *ENERGY_MOTION_RESET_TYPE_GROUND_TRANS
+    };
+    sv_kinetic_energy!(
+        reset_energy, fighter, *FIGHTER_KINETIC_ENERGY_ID_MOTION, reset_type,
+        0.0, 0.0, 0.0, 0.0, 0.0
+    );
 
     let vx = sx * START_X_MUL;
     let vy = if air { sy * AIR_SPEED_Y_MUL } else { 0.0 };
