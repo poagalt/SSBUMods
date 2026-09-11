@@ -181,6 +181,22 @@ unsafe fn still_held(boma: *mut BattleObjectModuleAccessor, entry: usize) -> boo
 
 /// Common `pre` for the grounded carry states. DK uses the same shape for all of them and varies
 /// only the kinetic type and the ground correction.
+/// The carry status settings, which are Donkey Kong's down to the last argument.
+///
+/// `FS_SUCCEEDS_KEEP_ATTACK_ABSOLUTE` IS THE ONE THAT WAS MISSING, and all eleven of his carry
+/// statuses pass it -- ShoulderStart, Wait, Walk, Turn, Fall, Landing, Pass and the four jumps.
+/// This port passed 0.
+///
+/// The measurement says what that costs. `crate::victim::trace` logged the carried fighter as
+/// `status=0x44 clatter=65.0` on the first frame of the carry and `status=0xe` two lines later:
+/// 0x44 is FIGHTER_STATUS_KIND_CAPTURE_CUT and 0xe is FIGHTER_STATUS_KIND_FALL. The victim was
+/// ALREADY CUT LOOSE before the carry loop ran once, and the clatter counting 65 -> 31 -> 0 is the
+/// tail of an escape that had already been decided. Every playtest report of the victim "falling
+/// off his shoulder" was describing a fighter who was never held.
+///
+/// The attack-absolute data is the throw relationship -- it is what
+/// FIGHTER_STATUS_THROW_WORK_INT_TARGET_OBJECT is read against -- and entering a status without
+/// this flag discards it, so the engine has no reason to keep the capture alive.
 unsafe fn shoulder_pre(
     fighter: &mut L2CFighterCommon,
     kinetic: i32,
@@ -196,11 +212,13 @@ unsafe fn shoulder_pre(
         *FIGHTER_STATUS_WORK_KEEP_FLAG_NONE_FLAG,
         *FIGHTER_STATUS_WORK_KEEP_FLAG_NONE_INT,
         *FIGHTER_STATUS_WORK_KEEP_FLAG_NONE_FLOAT,
-        0,
+        *FS_SUCCEEDS_KEEP_ATTACK_ABSOLUTE,
     );
     FighterStatusModuleImpl::set_fighter_status_data(
         fighter.module_accessor,
-        false,
+        // His first argument is `true` here and `false` in the throws. Both copied rather than
+        // chosen.
+        true,
         *FIGHTER_TREADED_KIND_NO_REAC,
         false,
         false,
@@ -563,17 +581,29 @@ unsafe extern "C" fn shoulder_landing_loop(fighter: &mut L2CFighterCommon) -> L2
 // ---- THE FOUR CARGO THROWS -------------------------------------------------------------------
 
 /// Common `pre` for the throws, matching the engine's own THROW status shape.
+// THE THROW STATUS SETTINGS ARE DONKEY KONG'S, ARGUMENT FOR ARGUMENT, AND THE KEEP FLAGS ARE
+// WHY THIS MATTERS. `FIGHTER_STATUS_WORK_KEEP_FLAG_THROW_INT` is what preserves the THROW status
+// work ints across the transition into the throw -- and
+// FIGHTER_STATUS_THROW_WORK_INT_TARGET_OBJECT, the id of the fighter being thrown, is one of
+// them. This passed `NONE_INT`, which tells the engine to CLEAR every status work int on entry,
+// so the throw began with no record of who it was throwing.
+//
+// The kinetic type is his too: UNIQ, not MOTION. His four cargo throws call no kinetic or speed
+// function at all -- `CatchModule::catch_cut`, `set_fighter_status_data`, `init_settings`,
+// `get_node_object_id`, `send_event_nodes_throw`, `get_int64` and `set_int` is the whole list --
+// so he plants and throws rather than sliding, and MOTION was letting the animation's root motion
+// move him.
 unsafe extern "C" fn throw_pre(fighter: &mut L2CFighterCommon) -> L2CValue {
     StatusModule::init_settings(
         fighter.module_accessor,
         smash::app::SituationKind(*SITUATION_KIND_NONE),
-        *FIGHTER_KINETIC_TYPE_MOTION,
+        *FIGHTER_KINETIC_TYPE_UNIQ,
         *GROUND_CORRECT_KIND_KEEP as u32,
         smash::app::GroundCliffCheckKind(*GROUND_CLIFF_CHECK_KIND_NONE),
         true,
-        *FIGHTER_STATUS_WORK_KEEP_FLAG_NONE_FLAG,
-        *FIGHTER_STATUS_WORK_KEEP_FLAG_NONE_INT,
-        *FIGHTER_STATUS_WORK_KEEP_FLAG_NONE_FLOAT,
+        *FIGHTER_STATUS_WORK_KEEP_FLAG_THROW_FLAG,
+        *FIGHTER_STATUS_WORK_KEEP_FLAG_THROW_INT,
+        *FIGHTER_STATUS_WORK_KEEP_FLAG_THROW_FLOAT,
         0,
     );
     FighterStatusModuleImpl::set_fighter_status_data(
@@ -644,15 +674,17 @@ fn thrown_motion(throw: &str) -> &'static str {
     // TELL THE VICTIM THEY HAVE BEEN THROWN -- DK does this in the throw status's Init line and
     // this port never did it at all. See `thrown_motion`.
     let thrown = thrown_motion(motion);
-    LinkModule::send_event_nodes_throw(
-        boma,
-        Hash40::new("shoulder_throw"),
-        Hash40::new(thrown),
-        true,
-        *FIGHTER_STATUS_THROW_WORK_INT_TARGET_HIT_GROUP,
-        *FIGHTER_STATUS_THROW_WORK_INT_TARGET_HIT_NO,
-        *FIGHTER_STATUS_THROW_WORK_FLOAT_MOTION_RATE,
-    );
+    if linked_victim(boma, entry, "throw") {
+        LinkModule::send_event_nodes_throw(
+            boma,
+            Hash40::new("shoulder_throw"),
+            Hash40::new(thrown),
+            true,
+            *FIGHTER_STATUS_THROW_WORK_INT_TARGET_HIT_GROUP,
+            *FIGHTER_STATUS_THROW_WORK_INT_TARGET_HIT_NO,
+            *FIGHTER_STATUS_THROW_WORK_FLOAT_MOTION_RATE,
+        );
+    }
     crate::telemetry::probe::event(format!(
         "[rat] SHOULDER p{entry} throw motion '{motion}' target={:#x}; {}",
         VICTIM[entry],
@@ -845,7 +877,9 @@ fn throw_motion(status: i32) -> Option<&'static str> {
 
 /// `ShoulderStart_init`, call for call.
 unsafe fn enter_carry(boma: *mut BattleObjectModuleAccessor, entry: usize) {
-    LinkModule::send_event_nodes(boma, *LINK_NO_CAPTURE, Hash40::new("shoulder"), 0);
+    if linked_victim(boma, entry, "carry start") {
+        LinkModule::send_event_nodes(boma, *LINK_NO_CAPTURE, Hash40::new("shoulder"), 0);
+    }
     CaptureModule::set_ignore_catching(boma, true);
     // "common" is every fighter's own param object, so this is Pikachu's number and not
     // Donkey Kong's -- which is correct: it is how long HE is invincible for while lifting.
@@ -891,4 +925,42 @@ unsafe fn carry_change(fighter: &mut L2CFighterCommon, entry: usize, next: i32, 
     leave_carry(fighter.module_accessor, entry, next);
     fighter.change_status(next.into(), false.into());
     1.into()
+}
+
+/// Is there actually a fighter on the capture link, and says so once per carry.
+///
+/// THIS GUARD IS A DEVIATION FROM THE SOURCE, ON PURPOSE, AND IT COST A CRASH. Donkey Kong's
+/// `ShoulderStart_init` and `ThrowF*_init` send their events with no check at all, because for him
+/// the link is guaranteed: he only ever reaches those statuses out of a catch that connected. This
+/// port reaches them out of a hand-detected grab, and the measurement says the link is not there:
+///
+///   [rat] VICTIM p0 cargo: status=0x44 captured=false master=0x50000000 clatter=65.0
+///
+/// `captured=false`, `master=BATTLE_OBJECT_ID_INVALID`, and status 0x44 is CAPTURE_CUT.
+///
+/// `LinkModule::send_event_nodes_throw` with nothing on the link is what crashed the throw -- a
+/// Data Abort at fault address 0 on MainThread, no plugin frame in the backtrace, faulting at
+/// `cross2 + 0x3e614c`:
+///
+///     ldrh w9,  [x28, #0x28]
+///     ldr  x10, [x19, #0x18]      <- the array base, null
+///     madd x9, x9, x22, x10       <- x22 = 0x2d0, the stride
+///     ldrb w8,  [x28, #0x2a]
+///     add  x8, x9, x8, lsl #3
+///     ldr  x0, [x8, #0x30]        <- the fault
+///
+/// an engine table indexed off a null base. The event is delivered by walking the link's nodes,
+/// and there were none.
+///
+/// ADR 0004 is exactly this rule: engine code may not be handed something it assumes the source
+/// fighter has. The precondition Donkey Kong gets for free has to be checked here.
+unsafe fn linked_victim(boma: *mut BattleObjectModuleAccessor, entry: usize, who: &str) -> bool {
+    let linked = LinkModule::is_linked(boma, *LINK_NO_CAPTURE);
+    if !linked {
+        crate::telemetry::sink::crumb(format!(
+            "[rat] SHOULDER p{entry} {who}: NOTHING on LINK_NO_CAPTURE, so the native event is \
+             not sent -- the engine is not holding this victim for us"
+        ));
+    }
+    linked
 }
