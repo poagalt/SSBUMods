@@ -170,6 +170,107 @@ fn counter_freeze_frames(absorbed: f32) -> i32 {
     (raw as i32).clamp(1, HITLAG_CAP)
 }
 
+
+/// The stored multiplier after countering an attack that dealt `d`.
+///
+/// BOTH FORMULAS ARE THE GAME'S, TRANSCRIBED. SmashWiki's Revenge article -- kept verbatim at
+/// vendor/smashwiki/revenge.wikitext so this can be re-checked without a network -- gives them
+/// explicitly, and they are not what this file had:
+///
+///     first counter    0.075 * d + 1.5
+///     with m stored    m + (d * 0.075 + 0.5) * (1 - 0.25 * (m - 1))
+///
+/// capped at 3x, which a single attack reaches at 20% damage. `d` is the attack's FULL damage,
+/// "ignoring the 0.4x multiplier for Incineroar's damage taken".
+///
+/// The old code was `m + 0.5 + 0.075 * d` for both cases. That is right for the first counter
+/// (m starts at 1.0, giving 1.5 + 0.075d) and wrong for every one after it: the real stacking
+/// formula DAMPS each addition by how much boost is already stored, so a second counter adds less
+/// than the first. Without the damping two small counters overshot, and the article's own worked
+/// example -- three 5% attacks giving 1.875x, 2.5586x, then the 3x cap -- is the test case.
+///
+/// This also fixes a subtler thing: the minimum boost is 1.5x, always. The additive version could
+/// produce less than that if RATE had somehow been left below 1.0.
+
+/// Per-category knockback ceilings, straight out of SmashWiki's Revenge table
+/// (vendor/smashwiki/revenge.wikitext):
+///
+///     Neutral attack 1.2   tilts 1.15   dash attack 1.15   smashes 1.2
+///     aerials 1.15         throws 1.1   Alolan Whip 1.2    Darkest Lariat 1.1
+///     Cross Chop 1.0       Final Smash 1.0                 item swing 1.0
+///
+/// The same table lists "storage loss (seconds)" per category for whiffing, which is the one
+/// documented rule still not reproduced -- whiff detection from a frame hook is not reliable
+/// enough to risk draining a boost that should still be there.
+///
+/// NOT AFFECTED BY REVENGE AT ALL, per the article: pummel, floor attacks, edge attack and
+/// non-battering items. They "neither use up the boost nor cause storage loss", which is why
+/// they return 1.0 and are excluded from consumption below.
+const KB_DEFAULT: f32 = 1.15;
+fn category_kb_ceiling(boma: *mut BattleObjectModuleAccessor) -> f32 {
+    unsafe {
+        let s = StatusModule::status_kind(boma);
+        if s == *FIGHTER_STATUS_KIND_ATTACK || s == *FIGHTER_STATUS_KIND_ATTACK_100 {
+            1.2
+        } else if s == *FIGHTER_STATUS_KIND_ATTACK_S4
+            || s == *FIGHTER_STATUS_KIND_ATTACK_HI4
+            || s == *FIGHTER_STATUS_KIND_ATTACK_LW4
+        {
+            1.2
+        } else if s == *FIGHTER_STATUS_KIND_THROW {
+            1.1
+        } else if s == *FIGHTER_STATUS_KIND_SPECIAL_S || s == RAT_SPECIAL_S_ANY {
+            // Alolan Whip is 1.2 and Darkest Lariat 1.1; this moveset's side-B IS Alolan Whip.
+            1.2
+        } else {
+            // Tilts, dash attack and every aerial are all 1.15, which is also the safest default
+            // for anything unlisted.
+            KB_DEFAULT
+        }
+    }
+}
+
+/// Sentinel so the side-B follow-up statuses count as Alolan Whip without listing all five.
+const RAT_SPECIAL_S_ANY: i32 = -999;
+
+/// Attacks Revenge does not touch: they neither consume the boost nor get it.
+fn revenge_exempt(boma: *mut BattleObjectModuleAccessor) -> bool {
+    unsafe {
+        let s = StatusModule::status_kind(boma);
+        s == *FIGHTER_STATUS_KIND_CATCH_ATTACK
+            || s == *FIGHTER_STATUS_KIND_DOWN_STAND_ATTACK
+            || s == *FIGHTER_STATUS_KIND_CLIFF_ATTACK
+            || s == *FIGHTER_STATUS_KIND_SLIP_STAND_ATTACK
+    }
+}
+
+fn next_rate(current: f32, d: f32) -> f32 {
+    let m = current.max(1.0);
+    let raw = if m <= 1.0 {
+        RATE_ATTACK_MUL_ADD * d + 1.5
+    } else {
+        m + (d * RATE_ATTACK_MUL_ADD + RATE_BASE_ADD) * (1.0 - 0.25 * (m - 1.0))
+    };
+    raw.clamp(1.5, RATE_MAX)
+}
+
+/// Knockback multiplier for a stored damage multiplier of `m`, given this move category's ceiling.
+///
+/// REVENGE'S DAMAGE BOOST IS NOT ITS KNOCKBACK BOOST, and this file applied the damage multiplier
+/// to both. SmashWiki: "Revenge's damage boost is ignored entirely by affected attacks. Instead,
+/// when Revenge is active, each kind of attack uses its own knockback multiplier, which scales
+/// from 1x to the specified amount, proportionally to how close the damage multiplier is to the
+/// maximum of 3x."
+///
+/// So a 3x damage boost on a smash is only 1.2x knockback, and `set_reaction_mul(3.0)` -- which
+/// is what this did -- was roughly fifteen times too strong. The scaling is linear in (m-1)/2,
+/// which the article's worked example confirms: at m=2, a 1.15x move gives 1.075x and a 1.2x move
+/// gives 1.1x.
+fn knockback_mul(m: f32, ceiling: f32) -> f32 {
+    let t = ((m - 1.0) / (RATE_MAX - 1.0)).clamp(0.0, 1.0);
+    1.0 + (ceiling - 1.0) * t
+}
+
 pub unsafe fn open_window(boma: *mut BattleObjectModuleAccessor) {
     let e = entry_of(boma);
     WINDOW_OPEN[e] = true;
@@ -456,11 +557,19 @@ pub unsafe extern "C" fn pikachu_revenge_frame(fighter: &mut L2CFighterCommon) {
 
     // A hit landed while the window was open.
     if WINDOW_OPEN[entry] && WINDOW_LEFT[entry] > 0 && taken > 0.0 {
-        // Refund the damage the counter absorbed, then bank the boost. Counters STACK: the new
-        // rate builds on whatever is already stored, still capped at revenge_rate_max.
-        DamageModule::add_damage(boma, -taken, 0);
+        // HE KEEPS 40% OF THE DAMAGE. THIS REFUNDED ALL OF IT.
+        //
+        // `special_lw_hit_damage_mul` is 0.4 and this file read it as "the retaliation's damage
+        // scales with what it ate". It does not. SmashWiki, quoted in
+        // vendor/smashwiki/revenge.wikitext: "When initially triggered, Incineroar receives 0.4x
+        // of the incoming attack's damage". The param is what the COUNTERER TAKES.
+        //
+        // So the refund is 60%, not 100%. Countering a 15% attack should leave Incineroar 6%
+        // worse off, and this was leaving him untouched -- which also made Revenge strictly
+        // better than the real move rather than a trade.
+        DamageModule::add_damage(boma, -taken * (1.0 - HIT_DAMAGE_MUL), 0);
         COUNTERED[entry] = taken;
-        RATE[entry] = (RATE[entry] + RATE_BASE_ADD + RATE_ATTACK_MUL_ADD * taken).min(RATE_MAX);
+        RATE[entry] = next_rate(RATE[entry], taken);
         TIMER[entry] = REVENGE_TIME_FRAMES;
         DAMAGE_SINCE_BOOST[entry] = 0.0;
         WINDOW_OPEN[entry] = false;
@@ -558,24 +667,49 @@ pub unsafe extern "C" fn pikachu_revenge_frame(fighter: &mut L2CFighterCommon) {
             return;
         }
 
-        // Two DIFFERENT multipliers, because Incineroar uses two. The retaliation's own damage
-        // scales by special_lw_hit_damage_mul (0.4) against what it absorbed, while the STORED
-        // rate is what boosts everything afterwards. Applying the stored rate to the retaliation
-        // as well would double-count -- a 10% counter would swing it from 1.4x to 2.25x.
-        let mul = if in_counter_attack { retaliation_damage_mul(boma) } else { RATE[entry] };
-        // power_up scales damage, reaction_mul scales knockback. revenge_data in Incineroar's
-        // vl.prc carries reaction_mul 1.15-1.2 per move against power_mul 1, so knockback is the
-        // larger part of the effect; both are driven from the same stored rate here.
-        AttackModule::set_power_up(boma, mul);
-        AttackModule::set_reaction_mul(boma, mul);
+        // THE COUNTER FIRE IS NOT BOOSTED AT ALL. This scaled it by something either way.
+        //
+        // SmashWiki: Revenge "produces a minor burst of flame that deals minimal damage with set
+        // knockback. However, this ALSO applies a damage boost to the NEXT attack Incineroar
+        // lands". Minimal and set -- the 2.4 in the ACMD is the whole of it, and the boost belongs
+        // to the attack after. Playtest, exactly: "it appears to use the revenge damage boost on
+        // the counter fire hit instead of the next hit after that."
+        //
+        // `retaliation_damage_mul` was invented to explain `special_lw_hit_damage_mul`, and that
+        // param turns out to mean something else entirely -- the 0.4x damage INCINEROAR TAKES.
+        // So the function is gone and the retaliation gets no multiplier of any kind.
+        if in_counter_attack {
+            AttackModule::set_power_up(boma, 1.0);
+            AttackModule::set_reaction_mul(boma, 1.0);
+        } else {
+            // AND KNOCKBACK IS NOT THE DAMAGE MULTIPLIER. This set both to the stored rate, so a
+            // 3x boost meant 3x knockback -- roughly fifteen times too strong.
+            //
+            // SmashWiki: "Revenge's damage boost is ignored entirely by affected attacks.
+            // Instead ... each kind of attack uses its own knockback multiplier, which scales
+            // from 1x to the specified amount, proportionally to how close the damage multiplier
+            // is to the maximum of 3x." The per-category ceilings are in the article's table and
+            // in KB_* below; 1.2x is the most any move gets.
+            AttackModule::set_power_up(boma, RATE[entry]);
+            AttackModule::set_reaction_mul(boma, knockback_mul(RATE[entry], category_kb_ceiling(boma)));
+        }
         aura_on(fighter);
         aura_tick(fighter);
-
-        // CONSUMED BY THE NEXT LANDED ATTACK, which is the whole point of the move and was the
-        // reported bug. The counterattack is exempt: it belongs to Revenge itself and is already
-        // scaled by hit_damage_mul, so letting it eat the stored boost would make the buff
-        // unusable.
-        if !in_counter_attack && AttackModule::is_attack_occur(boma) {
+        use crate::telemetry::probe;
+        // CONSUMED BY THE NEXT LANDED ATTACK, which is the whole point of the move.
+        //
+        // Three things are exempt, and all three are the game's rules rather than convenience.
+        // The counterattack itself, because the boost is explicitly for the attack AFTER it.
+        // And pummel, floor attacks and the edge attack, which SmashWiki lists as "not affected
+        // by Revenge, and neither use up the boost nor cause storage loss" -- so landing one must
+        // not spend a boost the player is holding for something else.
+        if !in_counter_attack && !revenge_exempt(boma) && AttackModule::is_attack_occur(boma) {
+            probe::event(format!(
+                "[rat] REVENGE p{entry} boost {:.2} CONSUMED by a landed attack in {}; {}",
+                RATE[entry],
+                probe::st(status),
+                probe::ctx(boma)
+            ));
             clear_boost(fighter);
             LAST_DAMAGE[entry] = damage;
             return;
@@ -590,26 +724,11 @@ pub unsafe extern "C" fn pikachu_revenge_frame(fighter: &mut L2CFighterCommon) {
 }
 
 // How much extra the retaliation itself does, scaled by what it absorbed. Used by the ACMD
-// override so the counter attack is not a flat 2.4 damage regardless of what it countered.
-/// UNVERIFIED, AND FLAGGED RATHER THAN QUIETLY SHIPPED.
-///
-/// `special_lw_hit_damage_mul` is 0.4 and the hitbox's base damage is 2.4, but nothing says how
-/// the two combine and the two readings differ by a factor of two and a half:
-///
-///     base + absorbed * 0.4          a 12% hit returns 7.2%   -> mul = 1 + absorbed / 6
-///     base * (1 + absorbed * 0.4)    a 12% hit returns 13.9%  -> mul = 1 + 0.4 * absorbed
-///
-/// This is the second one, which was picked when there was nothing to pick from. The first is
-/// more plausible for a counter and neither is evidence.
-///
-/// THE TRACER SETTLES IT. The same telemetry is installed on Incineroar now: counter a move of
-/// known damage as the real character, read what the retaliation deals, and the formula falls
-/// out of two numbers. Until then the multiplier is logged next to the damage it produced so the
-/// comparison needs no re-derivation.
-pub unsafe fn retaliation_damage_mul(boma: *mut BattleObjectModuleAccessor) -> f32 {
-    let entry = entry_of(boma);
-    1.0 + HIT_DAMAGE_MUL * COUNTERED[entry]
-}
+// `retaliation_damage_mul` IS GONE. It existed to scale the counter fire by
+// `special_lw_hit_damage_mul`, on the reading that 0.4 meant "the retaliation scales with what it
+// ate". SmashWiki says the param is the 0.4x damage INCINEROAR TAKES, and that the fire "deals
+// minimal damage with set knockback" -- a flat 2.4, unboosted. A function built entirely on a
+// misread constant is worse than no function, so it is deleted rather than corrected.
 
 pub fn install() {
     Agent::new("pikachu")
