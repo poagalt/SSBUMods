@@ -597,12 +597,62 @@ unsafe extern "C" fn throw_pre(fighter: &mut L2CFighterCommon) -> L2CValue {
 /// FIGHTER_STATUS_THROW_WORK_INT_TARGET_OBJECT, _TARGET_HIT_GROUP and _TARGET_HIT_NO and pass them
 /// to ATK_HIT_ABS. Without them the ATTACK_ABS(THROW) has nobody to throw, which is precisely why
 /// changing motion alone did nothing. Filling them here is what turns the animation into a throw.
-unsafe fn throw_main(fighter: &mut L2CFighterCommon, motion: &str) -> L2CValue {
+/// The victim's thrown motion for each of our four throw statuses, and the event that delivers it.
+///
+/// DK'S OWN LOOP, CLOSED. `ShoulderStart_exit` writes the throw's own motion name into
+/// `FIGHTER_STATUS_CATCH_WAIT_WORK_INT_MOTION_KIND` (see `leave_carry`), and then `ThrowFF_init`
+/// reads it straight back out and maps it to the motion the VICTIM plays:
+///
+///   WorkModule::get_int64(boma, FIGHTER_STATUS_CATCH_WAIT_WORK_INT_MOTION_KIND)
+///     hash40("throw_f_f")  -> hash40("thrown_f_donkey_f")
+///     hash40("throw_f_b")  -> hash40("thrown_f_donkey_b")
+///     hash40("throw_f_hi") -> hash40("thrown_f_donkey_hi")
+///     else                 -> hash40("thrown_f_donkey_lw")
+///   LinkModule::send_event_nodes_throw(boma, hash40("shoulder_throw"), that, true,
+///       FIGHTER_STATUS_THROW_WORK_INT_TARGET_HIT_GROUP,
+///       FIGHTER_STATUS_THROW_WORK_INT_TARGET_HIT_NO,
+///       FIGHTER_STATUS_THROW_WORK_FLOAT_MOTION_RATE)
+///
+/// Every one of those five names is confirmed by hash rather than guessed -- 0x11474b27b0,
+/// 0x114026e3a9, 0x12b3c9e354, 0x122daa1b33 and 0xe9b37bc21 in the decompiled `init` are exactly
+/// hash40 of the five strings above.
+///
+/// AND THE VICTIM ALREADY HAS THE ANIMATIONS, which is what makes this free. `thrown_f_donkey_f`
+/// and its three siblings ship with EVERY fighter -- `extracted/fighter/pickel/motion/body/c00/`
+/// has `d05thrownfdonkeyf.nuanmb` and `d05thrownfdonkeyb.nuanmb` -- because anyone can be cargo
+/// thrown by Donkey Kong. Nothing has to be shipped for this and the animation budget is untouched.
+///
+/// Without it the victim is launched with whatever pose they were already in, which is the other
+/// half of "a spinning arms animation that looks like an animation that would happen when mario is
+/// falling": the carry never told them to be carried and the throw never told them they were
+/// thrown.
+fn thrown_motion(throw: &str) -> &'static str {
+    match throw {
+        "throw_f_f" => "thrown_f_donkey_f",
+        "throw_f_b" => "thrown_f_donkey_b",
+        "throw_f_hi" => "thrown_f_donkey_hi",
+        _ => "thrown_f_donkey_lw",
+    }
+}
+
+ unsafe fn throw_main(fighter: &mut L2CFighterCommon, motion: &str) -> L2CValue {
     let boma = fighter.module_accessor;
     let entry = entry_of(boma);
     WorkModule::set_int64(boma, VICTIM[entry] as u64, *FIGHTER_STATUS_THROW_WORK_INT_TARGET_OBJECT);
     WorkModule::set_int64(boma, 0, *FIGHTER_STATUS_THROW_WORK_INT_TARGET_HIT_GROUP);
     WorkModule::set_int64(boma, 0, *FIGHTER_STATUS_THROW_WORK_INT_TARGET_HIT_NO);
+    // TELL THE VICTIM THEY HAVE BEEN THROWN -- DK does this in the throw status's Init line and
+    // this port never did it at all. See `thrown_motion`.
+    let thrown = thrown_motion(motion);
+    LinkModule::send_event_nodes_throw(
+        boma,
+        Hash40::new("shoulder_throw"),
+        Hash40::new(thrown),
+        true,
+        *FIGHTER_STATUS_THROW_WORK_INT_TARGET_HIT_GROUP,
+        *FIGHTER_STATUS_THROW_WORK_INT_TARGET_HIT_NO,
+        *FIGHTER_STATUS_THROW_WORK_FLOAT_MOTION_RATE,
+    );
     crate::telemetry::probe::event(format!(
         "[rat] SHOULDER p{entry} throw motion '{motion}' target={:#x}; {}",
         VICTIM[entry],
