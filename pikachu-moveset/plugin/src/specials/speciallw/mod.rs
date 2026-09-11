@@ -78,19 +78,21 @@ const REVENGE_TIME_FRAMES: i32 = 60 * 60;
 /// interrupted before its frame-28 close_window, the window used to stay open indefinitely and a
 /// hit long afterwards would still counter.
 const WINDOW_FRAMES: i32 = 26;
+/// `special_lw_start_x_mul` -- fraction of horizontal speed Revenge keeps on entry.
+const START_X_MUL: f32 = 0.6;
+/// `special_air_lw_speed_y_mul` -- fraction of vertical speed the airborne one keeps.
+const AIR_SPEED_Y_MUL: f32 = 0.7;
 
 // WHAT THIS PORT DOES NOT REPRODUCE, enumerated because tools/check-srcparams.sh asks and because
 // "we did not know" and "we decided not to" should not look the same in six months.
 //
-// NOT MODELLED: special_lw_start_x_mul special_air_lw_speed_y_mul
-//   Incineroar keeps 60% of his horizontal speed and 70% of his vertical when Revenge starts.
-//   This port hard-stops instead -- FIGHTER_KINETIC_TYPE_GROUND_STOP / AIR_STOP in _main -- so a
-//   running or rising Revenge plants where his drifts. NONE of his four Revenge ACMDs contains a
-//   speed call, so both are applied by his C++ status and the names are all there is to go on:
-//   "multiply the entering speed" is the obvious reading and "the start motion's own x energy" is
-//   a real alternative. Implementing the wrong one turns a stop into a slide, which is worse than
-//   the stop. THE PLAYTEST SETTLES IT: telemetry logs `moved x` and `peak` per motion, so run into
-//   a grounded Revenge and rise into an air one, then do the same with Incineroar and compare.
+// `special_lw_start_x_mul` AND `special_air_lw_speed_y_mul` ARE NOW MODELLED, and what settled
+// them was not the param names but the KINETIC TYPE. `_pre` sets FIGHTER_KINETIC_TYPE_UNIQ, which
+// HewDraw Remix reproduces for Incineroar verbatim -- and `_main` was then overriding it with
+// GROUND_STOP / AIR_STOP, so the entering speed was not being multiplied by 0.6, it was being set
+// to zero. With UNIQ kept, the multipliers mean what they say.
+//   special_lw_start_x_mul     0.6   fraction of horizontal speed kept
+//   special_air_lw_speed_y_mul 0.7   fraction of vertical speed kept, airborne only
 //
 // `special_lw_hit_stop_mul` IS NOW MODELLED. It is 1.5, and it is the multiplier on the counter
 // freeze that HIT_STOP_MUL below applies to Ultimate's hitlag formula -- the round-3 fix for
@@ -373,13 +375,37 @@ unsafe extern "C" fn pikachu_speciallw_main(fighter: &mut L2CFighterCommon) -> L
     };
     MotionModule::change_motion(boma, Hash40::new(motion), 0.0, 1.0, false, 0.0, false, false);
 
-    if fighter.global_table[0x16] != *SITUATION_KIND_GROUND {
-        KineticModule::change_kinetic(boma, *FIGHTER_KINETIC_TYPE_AIR_STOP);
-        GroundModule::correct(boma, GroundCorrectKind(*GROUND_CORRECT_KIND_AIR));
-    } else {
-        KineticModule::change_kinetic(boma, *FIGHTER_KINETIC_TYPE_GROUND_STOP);
-        GroundModule::correct(boma, GroundCorrectKind(*GROUND_CORRECT_KIND_GROUND_CLIFF_STOP));
-    }
+    // THE NATIVE MOVE DOES NOT DO THIS, AND THAT IS EVIDENCE, NOT INFERENCE.
+    //
+    // `_pre` above sets FIGHTER_KINETIC_TYPE_UNIQ, which is what Incineroar's own SPECIAL_LW uses
+    // -- confirmed against HewDraw Remix's `fighters/gaogaen/src/status/special_lw.rs`, which
+    // overrides only the Pre and reproduces it as UNIQ with GROUND_CLIFF_CHECK_KIND_NONE and
+    // FIGHTER_STATUS_ATTR_START_TURN. Ours matched. Then `_main` immediately threw it away and
+    // forced GROUND_STOP / AIR_STOP, which is where "Revenge plants where Incineroar drifts"
+    // came from: a hard stop is not a 0.6x multiplier on entering speed, it is zero.
+    //
+    // With UNIQ kept, `special_lw_start_x_mul` (0.6) and `special_air_lw_speed_y_mul` (0.7) are
+    // applicable as what their names say -- what fraction of the entering speed survives -- and
+    // the momentum question in the header stops being unanswerable.
+    let air = fighter.global_table[0x16] != *SITUATION_KIND_GROUND;
+    let sx = KineticModule::get_sum_speed_x(boma, *KINETIC_ENERGY_RESERVE_ATTRIBUTE_MAIN);
+    let sy = KineticModule::get_sum_speed_y(boma, *KINETIC_ENERGY_RESERVE_ATTRIBUTE_MAIN);
+    GroundModule::correct(
+        boma,
+        GroundCorrectKind(if air { *GROUND_CORRECT_KIND_AIR } else { *GROUND_CORRECT_KIND_GROUND_CLIFF_STOP }),
+    );
+    // `gaogaen param_special_lw` special_lw_start_x_mul = 0.6, special_air_lw_speed_y_mul = 0.7.
+    sv_kinetic_energy!(
+        set_speed, fighter, *FIGHTER_KINETIC_ENERGY_ID_CONTROL,
+        sx * START_X_MUL, if air { sy * AIR_SPEED_Y_MUL } else { 0.0 }
+    );
+    crate::telemetry::probe::event(format!(
+        "[rat] REVENGE start air={air} speed ({sx:.2},{sy:.2}) -> ({:.2},{:.2}) via \
+         start_x_mul {START_X_MUL} / air_speed_y_mul {AIR_SPEED_Y_MUL}; {}",
+        sx * START_X_MUL,
+        if air { sy * AIR_SPEED_Y_MUL } else { 0.0 },
+        crate::telemetry::probe::ctx(boma)
+    ));
     fighter.sub_shift_status_main(L2CValue::Ptr(pikachu_speciallw_main_loop as *const () as _))
 }
 
@@ -502,8 +528,20 @@ pub unsafe extern "C" fn pikachu_revenge_frame(fighter: &mut L2CFighterCommon) {
 
     if TIMER[entry] > 0 {
         let status = StatusModule::status_kind(boma);
-        let in_counter_attack = PHASE[entry] == PHASE_COUNTER
-            && MotionModule::motion_kind(boma) == smash::hash40("special_lw");
+        // THE AIRBORNE COUNTER PLAYS `special_air_lw`, AND THIS ONLY MATCHED `special_lw`.
+        //
+        // That is the bug behind "it appears to use the revenge damage boost on the counter fire
+        // hit instead of the next hit after that". With the test false, `mul` below took the
+        // STORED RATE instead of the retaliation multiplier, so the fire hitbox was scaled by the
+        // whole banked boost -- and `is_attack_occur` then consumed it, because consuming is
+        // gated on the same flag. Both halves of the reported symptom, from one missing name.
+        //
+        // Driven off the STATUS now rather than the motion. PHASE_COUNTER plus being in
+        // SPECIAL_LW is what "this is the retaliation" means; which of the two motions is playing
+        // is a detail of whether Incineroar happened to be in the air, and every time this has
+        // been keyed on a motion name it has missed a variant.
+        let in_counter_attack =
+            PHASE[entry] == PHASE_COUNTER && status == *FIGHTER_STATUS_KIND_SPECIAL_LW;
 
         // LOSS CONDITIONS, both Incineroar's own: taking cancel_percent in total while holding a
         // boost destroys it, and so does being thrown.
@@ -553,6 +591,21 @@ pub unsafe extern "C" fn pikachu_revenge_frame(fighter: &mut L2CFighterCommon) {
 
 // How much extra the retaliation itself does, scaled by what it absorbed. Used by the ACMD
 // override so the counter attack is not a flat 2.4 damage regardless of what it countered.
+/// UNVERIFIED, AND FLAGGED RATHER THAN QUIETLY SHIPPED.
+///
+/// `special_lw_hit_damage_mul` is 0.4 and the hitbox's base damage is 2.4, but nothing says how
+/// the two combine and the two readings differ by a factor of two and a half:
+///
+///     base + absorbed * 0.4          a 12% hit returns 7.2%   -> mul = 1 + absorbed / 6
+///     base * (1 + absorbed * 0.4)    a 12% hit returns 13.9%  -> mul = 1 + 0.4 * absorbed
+///
+/// This is the second one, which was picked when there was nothing to pick from. The first is
+/// more plausible for a counter and neither is evidence.
+///
+/// THE TRACER SETTLES IT. The same telemetry is installed on Incineroar now: counter a move of
+/// known damage as the real character, read what the retaliation deals, and the formula falls
+/// out of two numbers. Until then the multiplier is logged next to the damage it produced so the
+/// comparison needs no re-derivation.
 pub unsafe fn retaliation_damage_mul(boma: *mut BattleObjectModuleAccessor) -> f32 {
     let entry = entry_of(boma);
     1.0 + HIT_DAMAGE_MUL * COUNTERED[entry]

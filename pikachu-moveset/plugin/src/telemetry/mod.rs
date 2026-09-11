@@ -32,6 +32,7 @@ mod motions;
 pub mod selftest;
 pub mod probe;
 mod buildstamp;
+pub mod exedump;
 
 pub const ENABLED: bool = true;
 
@@ -69,6 +70,8 @@ static mut PEAK_Y: [f32; 8] = [0.0; 8];
 static mut DUMPED_PARAMS: [bool; 8] = [false; 8];
 /// One IDFORMAT line per player is enough; the answer does not change during a match.
 static mut LOGGED_CAPTURE_ID: [bool; 8] = [false; 8];
+/// Last damage value logged, so a change can be reported as an event rather than polled for.
+static mut LAST_LOGGED_DAMAGE: [f32; 8] = [0.0; 8];
 
 // Reads the attribute values the game is actually using, so "are the stat changes working?"
 // becomes a measurement rather than a guess. fighter_param.prcxml edits are invisible otherwise:
@@ -95,6 +98,22 @@ unsafe fn dump_params(boma: *mut smash::app::BattleObjectModuleAccessor, entry: 
     );
 }
 
+
+/// Short name for a fighter kind, so a trace line says who it is about.
+///
+/// Only the fighters this project touches. Anything else prints its raw kind, which is still
+/// enough to tell two fighters apart in a log.
+fn kind_tag(kind: i32) -> &'static str {
+    unsafe {
+        if kind == *FIGHTER_KIND_PIKACHU { "pika" }
+        else if kind == *FIGHTER_KIND_GAOGAEN { "GAOGAEN" }
+        else if kind == *FIGHTER_KIND_DONKEY { "DONKEY" }
+        else if kind == *FIGHTER_KIND_GAMEWATCH { "GAMEWATCH" }
+        else if kind == *FIGHTER_KIND_PACKUN { "PACKUN" }
+        else { "other" }
+    }
+}
+
 unsafe extern "C" fn pikachu_telemetry(fighter: &mut L2CFighterCommon) {
     if !ENABLED {
         return;
@@ -116,6 +135,8 @@ unsafe extern "C" fn pikachu_telemetry(fighter: &mut L2CFighterCommon) {
         // (vendor/sl_create_agent.rs:738), so this is also the only way to confirm from inside the
         // running game that the seven new kinds registered rather than assuming they did.
         selftest::run(boma, entry, fighter.global_table[0xC].get_int() as i32);
+        // The game's own code, if asked for. Off by default -- see exedump.rs.
+        exedump::run(sink::prefix().as_str());
     }
 
     let motion = MotionModule::motion_kind(boma);
@@ -125,6 +146,25 @@ unsafe extern "C" fn pikachu_telemetry(fighter: &mut L2CFighterCommon) {
     let pos_x = PostureModule::pos_x(boma);
     let pos_y = PostureModule::pos_y(boma);
 
+    // WHICH FIGHTER THIS LINE IS ABOUT. The same callback is installed on the source fighters now
+    // (see SOURCE_AGENTS), so `p0` alone is ambiguous the moment an Incineroar is in the match --
+    // and a trace of the real move mistaken for a trace of ours would be worse than no trace.
+    let who = kind_tag(smash::app::utility::get_kind(&mut *boma));
+
+    // DAMAGE EVENTS, FLUSHED, because the counter is defined by one. Tracing what Incineroar does
+    // when Revenge absorbs a hit needs the exact frame it arrived on and how much it was, and the
+    // per-motion lines cannot show that -- damage does not change the motion.
+    let dmg = DamageModule::damage(boma, 0);
+    if (dmg - LAST_LOGGED_DAMAGE[entry]).abs() > 0.01 {
+        probe::event(format!(
+            "[rat] {who}{entry} DAMAGE {:+.1} -> {dmg:.1}% on frame {frame:.0} of {motion:#012x}, \
+             {}",
+            dmg - LAST_LOGGED_DAMAGE[entry],
+            probe::st(status)
+        ));
+        LAST_LOGGED_DAMAGE[entry] = dmg;
+    }
+
     if motion != LAST_MOTION[entry] {
         // Report how long the motion we are leaving actually lasted, which is the number that
         // matters for perceived endlag, plus how far it carried him. `peak` is measured against
@@ -132,14 +172,14 @@ unsafe extern "C" fn pikachu_telemetry(fighter: &mut L2CFighterCommon) {
         // and without an aerial attack.
         if LAST_MOTION[entry] != 0 {
             rat!(
-                "[rat] p{} motion {:#012x} ended after {:.0}f, moved x {:+.2} y {:+.2} peak {:+.2}",
-                entry, LAST_MOTION[entry], MOTION_START[entry],
+                "[rat] {}{} motion {:#012x} ended after {:.0}f, moved x {:+.2} y {:+.2} peak {:+.2}",
+                who, entry, LAST_MOTION[entry], MOTION_START[entry],
                 pos_x - START_X[entry], pos_y - START_Y[entry], PEAK_Y[entry] - START_Y[entry]
             );
         }
         rat!(
-            "[rat] p{} motion {:#012x} start  end={:.0}  status={}  y={:.2}",
-            entry, motion, end, status, pos_y
+            "[rat] {}{} motion {:#012x} start  end={:.0}  status={}  y={:.2}",
+            who, entry, motion, end, status, pos_y
         );
         LAST_MOTION[entry] = motion;
         MOTION_START[entry] = 0.0;
@@ -169,8 +209,8 @@ unsafe extern "C" fn pikachu_telemetry(fighter: &mut L2CFighterCommon) {
         // `DASH(0x3) -> SPECIAL_S(0x1dd)`, and the moveset's own kinds resolve by name too, so
         // seeing RAT_SPECIAL_S_SHOULDER in the log is direct evidence the grab connected.
         probe::event(format!(
-            "[rat] p{} status {} -> {} on frame {:.0} of {:#012x} (anim end {:.0})",
-            entry, probe::st(LAST_STATUS[entry]), probe::st(status), frame, motion, end
+            "[rat] {}{} status {} -> {} on frame {:.0} of {:#012x} (anim end {:.0})",
+            who, entry, probe::st(LAST_STATUS[entry]), probe::st(status), frame, motion, end
         ));
         LAST_STATUS[entry] = status;
     }
@@ -208,6 +248,31 @@ unsafe extern "C" fn pikachu_telemetry(fighter: &mut L2CFighterCommon) {
     sink::tick();
 }
 
+/// The fighters this moveset ports from. The same telemetry installs on each of them.
+///
+/// TRACING THE REAL MOVE IS THE ONLY GROUND TRUTH LEFT, and not having it is why Revenge has been
+/// wrong three times.
+///
+/// Everything this project can read offline has been read. The ACMD dumps have the animation
+/// commands and nothing else; the status logic that actually implements a counter, a command grab
+/// or a cargo carry is C++ in the game binary and appears in no dump. vl.prc gives the constants
+/// but not what consumes them. HewDraw Remix reimplements fighters in Rust and for Incineroar's
+/// Revenge it overrides only the `Pre` -- it lets the game run the counter, so it has no answer
+/// either. Public frame data gives windows, not mechanics.
+///
+/// So the remaining source of truth is the game itself, running. Install the same per-frame
+/// telemetry on Incineroar, Donkey Kong, Game & Watch and Piranha Plant, play the real move, and
+/// the log records exactly what the engine does: every status it passes through in order, the
+/// motion and frame of each, what it does to speed, and when damage lands. Then our Pikachu doing
+/// the same move produces the same shape of log, and the two can be diffed line for line.
+///
+/// That turns "implement it faithfully" from a reading exercise into a comparison. It is also
+/// free: no extra console work, no dumping, no disassembly -- just play Incineroar for a minute.
+///
+/// Costs nothing when they are not in the match, since the callback only runs for fighters that
+/// exist.
+const SOURCE_AGENTS: &[&str] = &["gaogaen", "donkey", "gamewatch", "packun"];
+
 pub fn install() {
     // First thing written each boot, so the log always starts with a known marker and a missing
     // file means the sink itself failed rather than the plugin not loading.
@@ -215,4 +280,15 @@ pub fn install() {
     Agent::new("pikachu")
         .on_line(Main, pikachu_telemetry)
         .install();
+
+    for name in SOURCE_AGENTS {
+        Agent::new(*name)
+            .on_line(Main, pikachu_telemetry)
+            .install();
+    }
+    sink::diag(format!(
+        "[rat] source tracing armed on {} -- play one of them and the log records what the \
+         REAL move does, frame by frame, to diff against ours",
+        SOURCE_AGENTS.join(", ")
+    ));
 }

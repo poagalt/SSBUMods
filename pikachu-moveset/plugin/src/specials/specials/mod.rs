@@ -450,17 +450,31 @@ unsafe extern "C" fn pikachu_specials_main_loop(fighter: &mut L2CFighterCommon) 
     //
     // Incineroar's own entry says what a whiff costs: `special_s_start` has a cancel_frame of 64.
     // Read at runtime from the shipped motion_list rather than hardcoded, so it tracks whatever
-    // motion-patch put there. There is no special_s_end on a whiff either -- that motion is the
-    // recovery from a COMPLETED sequence, and playing it was the second half of the same mistake.
+    // motion-patch put there.
+    //
+    // AND IT GOES THROUGH SPECIAL_S_END, WHICH IS A THIRD ANSWER TO A QUESTION ASKED TWICE.
+    //
+    //   round 2  waited for `is_end` on a 117-frame animation and THEN played special_s_end.
+    //            161 frames. Playtest: "the much lengthier escape animation as well".
+    //   round 3  exited at the FAF straight to WAIT. 64 frames. Playtest: "the end animation is
+    //            mostly correct -- it doesn't seem to have enough end lag".
+    //   now      exits at the FAF into SPECIAL_S_END, whose own entry has a cancel_frame of 20.
+    //            About 84 frames to actionable with the recovery animation actually playing.
+    //
+    // Both bounds are measured and the middle is the only reading consistent with both reports:
+    // the lunge should not run its full length on a miss, and cutting straight to WAIT drops the
+    // recovery entirely. `special_s_end` is the move's own recovery motion -- round 2 was wrong
+    // that playing it was the mistake; playing it AFTER 117 frames of lunge was.
+    //
+    // The tracer will settle it exactly: the same telemetry is on Incineroar now, so one whiffed
+    // side-B as the real character gives the status sequence and the frame counts to diff against.
     let faf = FighterMotionModuleImpl::get_cancel_frame(boma, Hash40::new(&situated(fighter, "_start")), true);
     if (faf >= 1.0 && mframe >= faf) || MotionModule::is_end(boma) {
         probe::event(format!(
-            "[rat] WHIP p{entry} whiffed, ending at f={mframe:.1} (faf {faf:.0}); {}",
+            "[rat] WHIP p{entry} whiffed at f={mframe:.1} (faf {faf:.0}) -> SPECIAL_S_END; {}",
             probe::ctx(boma)
         ));
-        let ground = fighter.global_table[0x16] == *SITUATION_KIND_GROUND;
-        let next = if ground { *FIGHTER_STATUS_KIND_WAIT } else { *FIGHTER_STATUS_KIND_FALL };
-        fighter.change_status(next.into(), false.into());
+        fighter.change_status(RAT_STATUS_KIND_SPECIAL_S_END.into(), false.into());
         return 1.into();
     }
     0.into()

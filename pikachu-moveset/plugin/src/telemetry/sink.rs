@@ -145,3 +145,17 @@ fn flush_locked(s: &mut Sink) {
         Err(e) => println!("[rat] telemetry sink: append to {path} failed ({e})"),
     }
 }
+
+/// The mount prefix the sink proved writable, for anything else that wants to write to the card.
+///
+/// EXISTS SO THE PREFIX IS PROBED ONCE. `sd:/` versus `sdmc:/` is settled by trying a real write
+/// and keeping whichever worked (see `flush_locked`), and that answer should not be re-derived --
+/// or worse, guessed differently -- by a second writer. Returns an empty string before the first
+/// flush, which callers should treat as "not ready yet" rather than as the current directory.
+pub fn prefix() -> String {
+    let Ok(s) = SINK.lock() else { return String::new() };
+    match &s.path {
+        Some(p) => p.trim_end_matches(NAME).to_string(),
+        None => String::new(),
+    }
+}

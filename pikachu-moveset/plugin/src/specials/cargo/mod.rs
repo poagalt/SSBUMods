@@ -405,6 +405,28 @@ unsafe fn suppress_carry_actions(boma: *mut BattleObjectModuleAccessor) {
     ] {
         WorkModule::unable_transition_term_group(boma, group);
     }
+    // NO DASHING OR RUNNING WHILE CARRYING, which is the restriction playtest noticed was
+    // missing: "doesn't have the less movement speed limit that cargo throw places on dk".
+    //
+    // Worth being precise about what that limit is, because the param says the opposite of what
+    // it sounds like. `donkey param_lifting_walk` multiplies walk speed and acceleration by 1.1 --
+    // carrying makes him WALK slightly faster, not slower. What he loses is the fast options: DK's
+    // carry is a walk-only mode, with no dash and no run, and that is what makes it feel slow.
+    //
+    // Suppressing the transitions is exactly how the engine expresses that, and unlike the walk
+    // multipliers it does not compound across frames -- these are re-asserted every frame by
+    // design, which is why they are safe here and `mul_x_speed_max` is not.
+    // Dash and run are individual TERMS, not a group -- the only ground groups the engine has are
+    // ATTACK, CATCH, ESCAPE, GUARD, ITEM, JUMP and SPECIAL. So they are forbidden one by one.
+    for term in [
+        *FIGHTER_STATUS_TRANSITION_TERM_ID_CONT_DASH,
+        *FIGHTER_STATUS_TRANSITION_TERM_ID_CONT_TURN_DASH,
+        *FIGHTER_STATUS_TRANSITION_TERM_ID_DASH_TO_RUN,
+        *FIGHTER_STATUS_TRANSITION_TERM_ID_RUN,
+        *FIGHTER_STATUS_TRANSITION_TERM_ID_CONT_TURN_RUN,
+    ] {
+        WorkModule::unable_transition_term(boma, term);
+    }
 }
 
 /// Whether the carried fighter is still in one of the shouldered statuses.
