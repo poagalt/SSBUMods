@@ -462,9 +462,32 @@ unsafe fn take_captive(
     entry: usize,
 ) {
     let me = (*boma).battle_object_id;
+    let them = (*vboma).battle_object_id;
+    // THE CAPTOR HALF, WHICH WAS MISSING. A capture is a relationship between two objects and
+    // the last round only wrote one end of it: `CaptureModule::capture` on the victim, with no
+    // corresponding claim by us. The measurement said so -- `is_capture=false`,
+    // `master=0x50000000` -- and tracing the captor side shows `CatchModule::set_catch` is the
+    // setter for our end. lua2cpp_common uses it in `sub_catch_pull_uniq_process_init` to CLEAR
+    // the catch, with `w1 = 0x50000000` = BATTLE_OBJECT_ID_INVALID, so the same call with a real
+    // id is how the claim is made.
+    //
+    // NOTHING IN THE L2C LAYER EVER SETS A REAL CATCH, which is the point: for every fighter in
+    // the game the engine does it from the collision, in native code keyed on the fighter kind,
+    // and that is exactly the code that does not run for a Pikachu.
+    //
+    // The ids are the engine's own, and the encoding is read rather than assumed:
+    // `get_battle_object_from_id` takes `id >> 28` as a category and `(id >> 16) & 0xfff` as the
+    // index within it, so entry 0 IS the valid id 0x0 and the 0x0 in the last log was not a bug.
+    CatchModule::set_catch(boma, them);
     CaptureModule::capture(vboma, me, *STATUS_KIND_NONE, true, 0);
     let ok = CaptureModule::is_capture(vboma);
     let master = CaptureModule::catch_object_id(vboma) as u32;
+    // BOTH ENDS REPORTED, so the next log says which half took rather than only that the pair
+    // did not. `is_link` is the one that decides whether the victim's own status can do anything:
+    // every branch of SwingGaogaenCatched is behind it.
+    let linked = LinkModule::is_link(vboma, *LINK_NO_CAPTURE);
+    let we_caught = CatchModule::is_catch(boma);
+    let our_claim = CatchModule::capture_object_id(boma, false) as u32;
     crate::victim::request_status(
         vboma,
         *FIGHTER_STATUS_KIND_SWING_GAOGAEN_CATCHED,
