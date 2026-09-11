@@ -88,7 +88,8 @@ for fn in victim_still_ours still_held; do
         inside { print }
         inside && /^}/ { inside = 0 }
     ' $(grep -rl "unsafe fn $fn" "$S") 2>/dev/null)
-    if printf '%s' "$body" | grep -qE "CaptureModule::(is_capture|catch_object_id)|StatusModule::status_kind"; then
+    # Matched in bash rather than through a pipe -- see the note in tools/check.sh step 3j.
+    if [[ "$body" =~ CaptureModule::(is_capture|catch_object_id)|StatusModule::status_kind ]]; then
         own="$own $fn"
     fi
 done

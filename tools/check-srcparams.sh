@@ -22,6 +22,8 @@
 # the prc because Incineroar's are behind him. It catches 0.075 becoming 0.75, which is the failure
 # that actually happens, and does not pretend to check semantics.
 set -uo pipefail
+BODYFILE="$(mktemp)"
+trap "rm -f \"$BODYFILE\"" EXIT
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"; cd "$ROOT"
 DUMP=tools/prc-tool/target/release/prcdump.exe
 LABELS=vendor/param-labels/ParamLabels.csv
@@ -51,6 +53,16 @@ while IFS='|' read -r fighter obj dir what; do
         echo "  FAIL no module at $mod"; fail=1; continue
     fi
     body=$(cat "$mod"/*.rs 2>/dev/null)
+    # THE MODULE TEXT GOES TO A FILE, AND EVERY MATCH BELOW READS THE FILE.
+    #
+    # It used to be `printf %s "$body" | grep -q ...`, which is a SIGPIPE trap under `pipefail`:
+    # `grep -q` exits the instant it matches, `printf` is then killed writing the rest, and the
+    # PIPELINE reports the printf failure -- so a param whose value is present FAILS the check.
+    # Whether it happens depends on where in the text the match lands relative to the pipe buffer,
+    # which made this silently nondeterministic. It appeared the moment one module grew past 64 KB,
+    # and it reported seven real params as missing and then three different ones on a re-run with
+    # no source change at all. A file has no pipe and no buffer.
+    printf "%s" "$body" > "$BODYFILE"
 
     # TWO SHAPES, and assuming one of them reported a whole object as missing.
     #
@@ -88,17 +100,19 @@ while IFS='|' read -r fighter obj dir what; do
         # hiding it. `NOT MODELLED: <param>` is now its own answer: declared, reported, and not
         # counted as reproduced. Anything mentioned any other way is claimed as used and has its
         # value checked.
-        if printf '%s' "$body" | grep -qE "NOT MODELLED:.*\b$name\b"; then
+        if grep -qE "NOT MODELLED:.*\b$name\b" "$BODYFILE"; then
             declined=$((declined+1)); declined_list="$declined_list $name"; continue
         fi
-        if ! printf '%s' "$body" | grep -q "\b$name\b"; then
+        if ! grep -q "\b$name\b" "$BODYFILE"; then
             unnamed=$((unnamed+1)); missing="$missing $name=$value"; continue
         fi
         named=$((named+1))
         # The prc prints integers without a decimal point; Rust f32 literals carry one. Accept
         # either spelling, plus the bare decimal for fractional values.
-        if printf '%s' "$body" | grep -qE "(^|[^0-9.])$(printf '%s' "$value" | sed 's/[.]/\\./g')([^0-9]|$)" \
-           || printf '%s' "$body" | grep -qF "$value.0"; then
+        # `--` before the pattern: a value like `-24` otherwise looks like a bundle of grep short
+        # options, which is where the "grep: unknown option -- ." in the old output came from.
+        if grep -qE -- "(^|[^0-9.])$(printf "%s" "$value" | sed "s/[.]/\\./g")([^0-9]|$)" "$BODYFILE" \
+           || grep -qF -- "$value.0" "$BODYFILE"; then
             continue
         fi
         echo "  FAIL $what: $name is $value in $fighter's vl.prc but that value is not in $dir/"

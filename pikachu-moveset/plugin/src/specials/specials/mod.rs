@@ -366,6 +366,13 @@ unsafe fn drive_victim(boma: *mut BattleObjectModuleAccessor, frames_since: i32)
     }
     let Some(vboma) = victim_boma(entry) else { return };
 
+    // THE FLIGHT IS HAND-DRIVEN, SO THE ENGINE MUST LET GO FIRST.
+    //
+    // The hold phase hands them to the engine -- see `take_captive` -- and the model constraint
+    // that keeps them in the grip would fight every `add_pos` below. Idempotent: after the first
+    // frame the capture is gone and this is two virtual calls that answer no.
+    crate::victim::cut_capture(entry, "the whip's rope flight is driven by hand");
+
     // BEHIND HIM, NOT IN FRONT, AND THE PARAMS SAY SO IN EVERY SIGN.
     //
     //   special_s_lariat_offset_x1/x2      -24
@@ -407,6 +414,66 @@ unsafe fn drive_victim(boma: *mut BattleObjectModuleAccessor, frames_since: i32)
     // throw -- they are not meant to be self-propelled while it runs.
     KineticModule::clear_speed_all(vboma);
     PostureModule::add_pos(vboma, &Vector3f { x: step * lr, y: 0.0, z: 0.0 });
+}
+
+/// Hands the victim to the ENGINE, which is what a CATCH collision would have done if Pikachu's
+/// native catch handler recognised this move.
+///
+/// WHY THE CATCH NEVER REGISTERED, and why that mattered more than it looked. The per-frame trace
+/// said so all along and it was read as noise: `cap=0x50000000` is BATTLE_OBJECT_ID_INVALID, and
+/// the victim's side said `cap=false`. The ACMD's CATCH collision connects -- `GrabModule::is_grab`
+/// goes true -- but the capture BOOKKEEPING is done by fighter-kind-specific native code that
+/// never runs for a Pikachu. So the victim was put into SWING_GAOGAEN_CATCHED with no capture
+/// behind it, and that status spends its whole first frame asking about a capture:
+///
+///   LinkModule::is_link(LINK_NO_CAPTURE)          -> false, so no model constraint
+///   LinkModule::get_parent_lr(LINK_NO_CAPTURE)    -> skipped, so they never face the right way
+///   LinkModule::get_parent_id(LINK_NO_CAPTURE)    -> nothing, so the accessor is NULL and the
+///                                                    twelve param_special_s reads never happen
+///   ControlModule::start_clatter(frame, ...)      -> started from a frame count of 0
+///
+/// and `status_SwingGaogaenCatched_Main` is one test: when `get_clatter_time` reaches 0 it changes
+/// them to FIGHTER_STATUS_KIND_CAPTURE_CUT. A clatter of zero frames expires on the frame it
+/// starts. Playtest: "the opponent can still attack while the grab is happening."
+///
+/// THE CALL IS THE GAME'S, argument for argument. `status_MiifighterCounterThrown` is the only
+/// place in lua2cpp_common that captures from a script, and it does exactly this:
+///
+///   LinkModule::unlink(boma, lua_const[0x4e4])            ; LINK_NO_CAPTURE
+///   CaptureModule::capture(boma, parent_id, lua_const[0x250], true, 0)
+///
+/// with lua_const[0x250] resolving through vendor/ssbu-status/lua_dict.txt to STATUS_KIND_NONE.
+/// The module is reached at `boma + 0x138` and the call is vtable slot 0x78 -- `capture(p1, p2,
+/// bool p3, p4)` in the public decomp's CaptureModule.h -- on the CAPTURED object's own module, so
+/// the accessor is the VICTIM's and the id is OURS. `STATUS_KIND_NONE` means "do not change their
+/// status", which is why the status request stays here rather than being folded into the argument.
+///
+/// WHAT THIS BUYS, all of it native and none of it ours to get wrong: the model constraint that
+/// holds them in the grip, their facing, the twelve params read off us through src/params, and an
+/// 85-frame clatter they have to mash out of.
+///
+/// `crate::victim::release` performs the other half -- `CaptureModule::capture_cut` -- from the
+/// one place every path goes through.
+unsafe fn take_captive(
+    boma: *mut BattleObjectModuleAccessor,
+    vboma: *mut BattleObjectModuleAccessor,
+    entry: usize,
+) {
+    let me = (*boma).battle_object_id;
+    CaptureModule::capture(vboma, me, *STATUS_KIND_NONE, true, 0);
+    let ok = CaptureModule::is_capture(vboma);
+    let master = CaptureModule::catch_object_id(vboma) as u32;
+    crate::victim::request_status(
+        vboma,
+        *FIGHTER_STATUS_KIND_SWING_GAOGAEN_CATCHED,
+        "whip catch",
+    );
+    crate::telemetry::sink::diag(format!(
+        "[rat] WHIP p{entry} capture requested on {:#x}: is_capture={ok} master={master:#x} \
+         (ours is {me:#x}) -- if master is ours the victim's own status will read our \
+         param_special_s and pin them for special_s_catch_clatter_frame",
+        (*vboma).battle_object_id
+    ));
 }
 
 /// An attack or special press this frame. SmashWiki says "an attack button", and in practice both
@@ -635,9 +702,7 @@ unsafe extern "C" fn pikachu_specials_main_loop(fighter: &mut L2CFighterCommon) 
     }
     if caught.is_none() && ((15.0..=35.0).contains(&mframe) || pullin_edge) {
         if let Some((id, vboma)) = find_victim_in_range(boma) {
-            StatusModule::change_status_request_from_script(
-                vboma, *FIGHTER_STATUS_KIND_SWING_GAOGAEN_CATCHED, false
-            );
+            take_captive(boma, vboma, entry);
             caught = Some((id, "in-range"));
         }
     }
@@ -863,6 +928,16 @@ unsafe fn pin_victim(boma: *mut BattleObjectModuleAccessor, entry: usize) {
     let Some(vboma) = victim_boma(entry) else {
         return;
     };
+    // IF THE ENGINE IS HOLDING THEM, DO NOTHING -- it is already doing this better than we can.
+    //
+    // `take_captive` establishes a real capture, and the victim's own `SwingGaogaenCatched` then
+    // runs `LinkModule::set_model_constraint_pos_ort` with CONSTRAINT_FLAG_POSITION and
+    // CONSTRAINT_FLAG_ORIENTATION every frame: they are attached to the grip by the same code
+    // that attaches anyone Incineroar grabs. Writing their posture on top of that is two writers
+    // fighting over one transform, which is the mistake `shoulder::hold_victim` already paid for.
+    if crate::victim::engine_holds(entry, vboma) {
+        return;
+    }
     // The catch ends on THEIR side: `status_SwingGaogaenCatched_Main` escapes the moment
     // `ControlModule::get_clatter_time` hits zero, and that clock is started from OUR
     // `special_s_catch_clatter_frame` -- 85 for Incineroar, 0 for a Pikachu without

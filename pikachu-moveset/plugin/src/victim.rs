@@ -157,6 +157,17 @@ pub unsafe fn release(entry: usize, why: &str) {
     if entry >= 8 || HELD_ID[entry] == 0 {
         return;
     }
+    // THE ENGINE'S HALF OF THE RELEASE, from the one place every path goes through.
+    //
+    // Anything that established a real capture -- `specials::take_captive` for the whip, Pikachu's
+    // own grab for the cargo -- has to undo it, or the victim stays captured after we have
+    // forgotten them. The call is the game's: `FighterStatusUniqProcessCaptureMasterhand_exit_status`
+    // and its siblings all cut with `CaptureModule::capture_cut(boma, false, false, false)` on the
+    // CAPTURED object's own module.
+    //
+    // Guarded by who the engine says owns them, so this can never cut somebody else's grab: the
+    // captured object reports its captor through `catch_object_id`, and it has to be us.
+    cut_capture(entry, why);
     crate::telemetry::sink::crumb(format!(
         "[rat] HOLD p{entry} released {:#x} after {}f: {why}",
         HELD_ID[entry], HELD_FOR[entry]
@@ -340,3 +351,47 @@ pub fn untrace(entry: usize) {
 }
 
 static mut LAST_SEEN: [Option<(i32, bool, u32, bool)>; 8] = [None; 8];
+
+/// Cuts an engine capture we established, and only one we established.
+///
+/// Called from [`release`], so every path that lets go performs both halves -- and separately by
+/// Alolan Whip when its hand-driven flight starts, because the engine's model constraint and a
+/// `PostureModule::set_pos` every frame are two writers fighting over one transform. That was the
+/// leading suspect for the cargo's unexplained Instruction Abort and the lesson is written into
+/// `shoulder::hold_victim`: whoever is placing the victim, it must be exactly one of us.
+///
+/// The guard is the ENGINE's opinion of who owns them, not ours. A captured object reports its
+/// captor through `CaptureModule::catch_object_id`, and it has to be us -- so this can never cut
+/// another fighter's grab, which matters because Pikachu's own throw uses the same machinery.
+///
+/// Returns whether anything was cut, so a caller can log the difference between "released the
+/// engine's hold" and "there was nothing to release".
+pub unsafe fn cut_capture(entry: usize, why: &str) -> bool {
+    if entry >= 8 || HELD_ID[entry] == 0 {
+        return false;
+    }
+    let id = HELD_ID[entry];
+    let Some(vboma) = boma(id) else { return false };
+    if !CaptureModule::is_capture(vboma) {
+        return false;
+    }
+    if CaptureModule::catch_object_id(vboma) as u32 != id_of_entry(entry as u32) {
+        return false;
+    }
+    CaptureModule::capture_cut(vboma, false, false, false);
+    crate::telemetry::sink::crumb(format!(
+        "[rat] HOLD p{entry} cut the engine capture on {id:#x}: {why}"
+    ));
+    true
+}
+
+/// Is the engine holding them for us right now?
+///
+/// The question every cross-object position write has to ask first. While this is true the
+/// victim's own `SwingGaogaenCatched` is running the model constraint, their facing and their
+/// clatter, and the correct thing for this plugin to do about their position is nothing.
+pub unsafe fn engine_holds(entry: usize, vboma: *mut BattleObjectModuleAccessor) -> bool {
+    entry < 8
+        && CaptureModule::is_capture(vboma)
+        && CaptureModule::catch_object_id(vboma) as u32 == id_of_entry(entry as u32)
+}

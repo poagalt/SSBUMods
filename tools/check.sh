@@ -226,18 +226,30 @@ echo; echo "== 3d. no replaced move plays one of Pikachu's own animations =="
 # shipped motion_list names a different file than vanilla), LOCKED OUT (only reachable through a
 # status src/specials/lockout bounces out of), or GAP -- and only GAP fails.
 VAR="$ROOT/tools/motion-patch/target/release/variants.exe"
-"$VAR" "$ROOT/extracted" "$M" 2>/dev/null | tail -2
-if "$VAR" "$ROOT/extracted" "$M" 2>/dev/null | grep -q 'GAP --'; then
-  echo "  FAIL a replaced move still plays one of Pikachu's own animations"; rc=1
-fi
+# RUN ONCE, MATCHED IN BASH, and never piped into `grep -q`.
+#
+# `producer | grep -q PATTERN` is a SIGPIPE trap under `pipefail`, and in THIS direction it fails
+# the dangerous way: grep exits the instant it matches, the producer is killed writing the rest,
+# `pipefail` reports the producer's death, and the `if` concludes there was NO match. A real GAP
+# would have been reported as a pass. tools/check-srcparams.sh had the same bug in the harmless
+# direction and it cost a debugging round; this one would have cost a wrong answer.
+variants=$("$VAR" "$ROOT/extracted" "$M" 2>/dev/null)
+printf "%s
+" "$variants" | tail -2
+case "$variants" in
+  *"GAP --"*)
+    echo "  FAIL a replaced move still plays one of Pikachu's own animations"; rc=1 ;;
+esac
 # THE INVERSE, which is the check that had never existed: a motion the SOURCE has in a ported
 # family and we have no entry for is a variant of the move that simply is not reproduced. That is
 # how the airborne Alolan Whip and airborne Revenge went unnoticed -- six and three motions each,
 # with the grounded animation and grounded hitboxes played in their place. Verified non-tautological
 # by running it against vanilla Pikachu's list, where it reports all 22 synthesised entries.
-if ! "$VAR" "$ROOT/extracted" "$M" 2>/dev/null | grep -q '^0 source motion'; then
-  echo "  FAIL a ported move has a variant on the source fighter that this moveset does not have"; rc=1
-fi
+case "$variants" in
+  *"0 source motion"*) ;;
+  *)
+    echo "  FAIL a ported move has a variant on the source fighter that this moveset does not have"; rc=1 ;;
+esac
 
 echo; echo "== 3k. no synthesised motion runs one of Pikachu's own scripts =="
 # THE BUG THAT MADE THE UP-B INVISIBLE, and it was thirty-eight entries wide.
