@@ -160,22 +160,27 @@ states are verified to build clean and it is a one-line flip.
 `tools/check-srcparams.sh` enumerates all of it and the modules carry a `NOT MODELLED:` line for
 each with the reasoning. In rough order of what a player would notice:
 
-- **Revenge hard-stops on entry.** Incineroar keeps 60% of his horizontal speed and 70% of his
-  vertical (`special_lw_start_x_mul`, `special_air_lw_speed_y_mul`); this port uses
-  `GROUND_STOP` / `AIR_STOP`, so a running or rising Revenge plants where his drifts. None of his
-  four Revenge ACMDs contains a speed call, so both are applied by his C++ and the param names are
-  all there is to go on. **A playtest settles it** -- telemetry logs `moved x` and `peak` per
-  motion, so run into a grounded Revenge and rise into an air one, then do the same with
-  Incineroar.
-- **No re-grab protection on Alolan Whip.** `special_s_invalid_capture_frame` is 60. This is the
-  one absence that is a balance problem rather than a fidelity one.
+- ~~**Revenge hard-stops on entry.**~~ DONE. `START_X_MUL` 0.6 and `AIR_SPEED_Y_MUL` 0.7 are
+  applied to the entering speed in `speciallw/mod.rs`, on MOTION energy with the control energy
+  cleared. The playtest observable stands as a check: telemetry logs `moved x` and `peak` per
+  motion, so running into a grounded Revenge should now carry 60% of the speed rather than
+  planting.
+- ~~**No re-grab protection on Alolan Whip.**~~ NOW NATIVE, and it took no new code.
+  `FighterStatusCapture_set_invalid_capture_SwingGaogaen` in lua2cpp_common reads
+  FIGHTER_STATUS_SWING_GAOGAEN_WORK_INT_INVALID_CAPTURE_FRAME off the VICTIM, and the victim's own
+  catch status copies that from the captor's `special_s_invalid_capture_frame` -- which is 60 for us
+  now, through `src/params`. It needed the capture to exist before any of it could run; see
+  `specials::take_captive`.
 - **Revenge does not build from shield damage.** `special_lw_revenge_shield_damage_mul` is 0.2.
-- **The carry does not speed Pikachu up.** DK walks 1.1x faster while carrying
-  (`param_lifting_walk`), and the API is a 1:1 match -- `sv_kinetic_energy::mul_x_accel_mul`,
-  `mul_x_accel_add`, `mul_x_speed_max`. Not done because they multiply IN PLACE and the carry
-  spans status changes: once at carry start is wiped by the first WAIT -> WALK, every frame
-  compounds to 1.1^n. Needs a per-status-change hook, in the one module whose failure mode is a
-  stuck grab.
+- **The carry does not speed Pikachu up -- BUT THE STATED REASON WAS WRONG.** This said the
+  multipliers have to be applied in place and would compound to 1.1^n across status changes, so it
+  needed a per-status-change hook. Donkey Kong does not do it that way at all:
+  `FighterSpecializer_Donkey::apply_lift_param` -- exported, and already called by
+  `shoulder::begin` -- sets the COMMON instance flag FIGHTER_INSTANCE_WORK_ID_FLAG_LIGHT_WEIGHT
+  (0x20000058, index 88, inside Pikachu's 232) and the engine reads the flag. Nothing compounds
+  and nothing needs a hook. What is NOT established is whether that flag alone reproduces
+  `param_lifting_walk`'s 1.1x, since `apply_lift_param` reads no params itself. **The observable
+  is the walk speed while carrying**, against Donkey Kong's.
 - **The whip's bands are read as lines, not capsules.** Each is really `x1,y1 -> x2,y2` with a
   radius on `top`; this module reads only x1. It holds while `drive_victim` moves the victim along
   x only, and stops holding the moment the airborne whip lets them separate vertically.
@@ -184,8 +189,9 @@ each with the reasoning. In rough order of what a player would notice:
   either. The observable is how much horizontal control the rise has -- compare against Game &
   Watch directly before writing code for it.
 - Smaller: `special_air_s_catch_speed_y_max` (0.05, vertical drift cap while holding in the air),
-  `special_lw_hit_stop_mul` (1.5x hitlag on the counter hit), the lariat's 1x-2x motion rate, and
-  reduced air control after the whip.
+  `special_lw_hit_stop_mul` (1.5x hitlag on the counter hit), and
+  reduced air control after the whip. (The lariat's 1x-2x motion rate is DONE -- see
+  `specials::lariat_rate`.)
 - Presentation, deferred with the rest of the visual layer: both KO cinematics, Revenge's emissive
   glow scaling and voice pitch.
 

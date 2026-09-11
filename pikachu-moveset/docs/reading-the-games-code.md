@@ -278,3 +278,92 @@ explicitly declined to guess at.
 **The lesson is procedural.** Six rounds were spent reconstructing logic that a public
 decompilation already had a map for, and nobody searched for it. Look for the community artifact
 before building the tool: the tool was still worth building, but it would have been aimed better.
+
+---
+
+## 5. `vendor/ssbu-status/lua_dict.txt` — the constant table, which unblocked everything else
+
+19,310 `offset:NAME` lines, and it was in the tree for rounds before anyone read it.
+
+**The problem it solves.** Every fighter's compiled status code reads its constants out of ONE i32
+array — `lua2cpp::L2CAgentGeneratedBase::const_value_table__` — so a status kind, a work id, a
+flag and a link number all look the same in a disassembly:
+
+    ldr w1, [x23, #0x4e4]
+
+and carry no name at all. `CaptureModule::capture`'s third argument was `lua_const[0x250]` for this
+whole project, and chasing it is what the executable dump existed for — three crashes' worth.
+
+    0x250   STATUS_KIND_NONE
+    0x4e4   LINK_NO_CAPTURE
+    0x9cc   FIGHTER_STATUS_KIND_CAPTURE_CUT
+
+`tools/disasm` now annotates every `ldr wN, [xM, #off]` with the name, marked `~lua_const` because
+it is a hint: any struct field read at the same offset gets a name it has nothing to do with.
+
+**Three cross-checks, so it is trusted for a reason.** `0x38` is
+LUA_SCRIPT_STATUS_FUNC_STATUS_PRE, which matches the anchor derived independently from
+`sv_set_status_func` call sites. `0xb57c` is FIGHTER_GAOGAEN_STATUS_KIND_FINAL_DASH, which is
+exactly the first constant the decompiled `create_agent_fighter_status_script_gaogaen` names.
+`0x4e4` is LINK_NO_CAPTURE, which matches the link number derived from `SpecialSThrow`'s
+`send_event_nodes` calls.
+
+**Two dead ends, recorded so nobody pays for them twice.** The table is filled at load by
+`construct_bind_const_value_table`, which walks 19,469 precomputed 64-bit hashes in
+lua2cpp_common's `.rodata` and looks each one up. Inverting that hash does not work: main +
+0x399f660 loads all five XXH64 primes and dispatches on `cmp len, #0x20`, but neither XXH3-64 nor
+XXH64 with seed 0 reproduces a single one of the 19,469 values, and the registrar hashes
+`"<namespace>:<name>"` with a 0x3a separator rather than the bare name. Neither does ORDER: main
+registers 40,338 constants by name — `luaconst --order` extracts that whole sequence — while the
+table holds a 19,469-entry subset, so index N is not registration N.
+
+## 6. hash40, from three sources, behind one tool
+
+    bash tools/hash40.sh 0x8af9b3d1d      -> shoulder
+    bash tools/hash40.sh shoulder         -> 0x8af9b3d1d
+    bash tools/hash40.sh --len 19         every known 19-character name
+
+The other half of what status code passes around is a hash40 and nothing else.
+`LinkModule::send_event_nodes(boma, LINK_NO_CAPTURE, 0x8af9b3d1d, 0)` is how Donkey Kong tells the
+fighter on his shoulder to be carried, and the call cannot be reproduced until that constant has a
+name.
+
+    vendor/Hashes.txt + the prc labels   149,871 community names: paths, motions, params
+    the dumped vanilla ACMD scripts      every `Hash40::new("...")` literal, 14,629 names
+    vendor/main/hash40-dict.txt          47,856 hashes of every identifier-like string in main's
+                                         .rodata and .text, from `luaconst --hashdict`
+
+The third is the one nothing else replaces. Donkey Kong's carry `check_dmg` reads two keys out of
+the damage table and they are `owner_object_id_` and `reaction_max_` — C++ member names with
+trailing underscores, exposed into an L2C table. No community list has those.
+
+A hash in none of the three was baked by the L2C compiler from a string that never reaches the
+executable or the archive. Those are guessable, because the naming is regular and a guess is
+CONFIRMED by hash rather than argued for — `--len` narrows it, since hash40 carries the length in
+its top byte. `gaogaen_swing_throw` fell on the first attempt that way.
+`vendor/main/hash40-confirmed.txt` records each one with the constant it was matched against.
+
+## 7. Three `tools/disasm` modes worth knowing about
+
+    --got [slot]        what global an `adrp`+`ldr` pair reads, by relocation symbol. This is what
+                        named `const_value_table__` and made section 5 possible. Slot addresses are
+                        MODULE-RELATIVE: the pair at Ghidra 0x710052d8e0 reads slot 0x80b578.
+    --dataxref <addr>   who references a data address, by tracking `adrp` pages and matching the
+                        `add`/`ldr` that completes the pair. How a string in `.rodata` becomes the
+                        function that uses it.
+    --flat <text.bin>   a raw image plus an external symbol table, for `main`. Pair it with
+                        RAT_SYMS=vendor/main/symbols-merged.txt.
+
+## 8. `tools/check-nativecalls.sh` — the gap list, kept honest
+
+Compares the engine calls each source status makes against the calls this port makes, across all 21
+ported statuses. Every grab bug this month was a call the port simply did not make — not a wrong
+value, not a wrong status graph, a missing line — and each was found by reading one decompiled
+function closely AFTER the symptom appeared. This is that reading done mechanically, in advance.
+
+It exits 0 on purpose: a missing call can be entirely correct, since half of what these statuses do
+is presentation this project defers by design. The value is that the list is complete.
+
+It strips comments before matching, because the first thing it caught was itself: a doc comment
+explaining why a call is not made names that call, and a plain text search counts it as made. The
+same lesson `tools/check-srcparams.sh` learned with `NOT MODELLED:`.
