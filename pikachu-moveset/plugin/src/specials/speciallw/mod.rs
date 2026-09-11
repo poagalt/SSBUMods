@@ -52,6 +52,7 @@
 // FLAG_MTRANS_SMPL_MOTION_END. That class of collision is exactly what tools/reach deforeign
 // exists to strip, and it is the same reason the ported d-air was writing Pikachu's FLAG_PAUSE.
 // The George mod uses per-entry statics for the same reason.
+use super::status::*;
 use {
     smash::{
         lua2cpp::*,
@@ -82,6 +83,11 @@ const WINDOW_FRAMES: i32 = 26;
 const START_X_MUL: f32 = 0.6;
 /// `special_air_lw_speed_y_mul` -- fraction of vertical speed the airborne one keeps.
 const AIR_SPEED_Y_MUL: f32 = 0.7;
+/// `special_air_lw_hit_accel_y` from the same object: the airborne stance keeps falling at this
+/// accel rather than hanging in place. Recovered by reverse-looking-up the hash40 the real
+/// helper passes to `WorkModule::get_param_float` -- it is not a number anyone would have
+/// guessed was involved.
+const AIR_HIT_ACCEL_Y: f32 = 0.02;
 
 // WHAT THIS PORT DOES NOT REPRODUCE, enumerated because tools/check-srcparams.sh asks and because
 // "we did not know" and "we decided not to" should not look the same in six months.
@@ -99,9 +105,10 @@ const AIR_SPEED_Y_MUL: f32 = 0.7;
 // "the damage comes out before the hit lands". Listing it as unmodelled was correct until the
 // freeze existed to multiply.
 //
-// NOT MODELLED: special_air_lw_hit_accel_y
-//   0.02 downward acceleration during the airborne counter. Small, and it does not change
-//   whether the move works.
+// `special_air_lw_hit_accel_y` IS NOW MODELLED, at 0.02, and it arrived the same way the two
+// above did: `tools/disasm` naming the calls in Incineroar own FUN_7100013e50, then reversing
+// the hash40 it passes to `get_param_float` against ParamLabels. It is the airborne stance own
+// downward accel, applied to the MOTION energy alongside them.
 //
 // NOT MODELLED: special_lw_revenge_shield_damage_mul special_lw_revenge_rate_correct_max
 // NOT MODELLED: special_lw_revenge_rate_max_team
@@ -494,35 +501,94 @@ unsafe extern "C" fn pikachu_speciallw_main(fighter: &mut L2CFighterCommon) -> L
     };
     MotionModule::change_motion(boma, Hash40::new(motion), 0.0, 1.0, false, 0.0, false, false);
 
-    // THE NATIVE MOVE DOES NOT DO THIS, AND THAT IS EVIDENCE, NOT INFERENCE.
-    //
-    // `_pre` above sets FIGHTER_KINETIC_TYPE_UNIQ, which is what Incineroar's own SPECIAL_LW uses
-    // -- confirmed against HewDraw Remix's `fighters/gaogaen/src/status/special_lw.rs`, which
-    // overrides only the Pre and reproduces it as UNIQ with GROUND_CLIFF_CHECK_KIND_NONE and
-    // FIGHTER_STATUS_ATTR_START_TURN. Ours matched. Then `_main` immediately threw it away and
-    // forced GROUND_STOP / AIR_STOP, which is where "Revenge plants where Incineroar drifts"
-    // came from: a hard stop is not a 0.6x multiplier on entering speed, it is zero.
-    //
-    // With UNIQ kept, `special_lw_start_x_mul` (0.6) and `special_air_lw_speed_y_mul` (0.7) are
-    // applicable as what their names say -- what fraction of the entering speed survives -- and
-    // the momentum question in the header stops being unanswerable.
     let air = fighter.global_table[0x16] != *SITUATION_KIND_GROUND;
-    let sx = KineticModule::get_sum_speed_x(boma, *KINETIC_ENERGY_RESERVE_ATTRIBUTE_MAIN);
-    let sy = KineticModule::get_sum_speed_y(boma, *KINETIC_ENERGY_RESERVE_ATTRIBUTE_MAIN);
     GroundModule::correct(
         boma,
         GroundCorrectKind(if air { *GROUND_CORRECT_KIND_AIR } else { *GROUND_CORRECT_KIND_GROUND_CLIFF_STOP }),
     );
-    // `gaogaen param_special_lw` special_lw_start_x_mul = 0.6, special_air_lw_speed_y_mul = 0.7.
-    sv_kinetic_energy!(
-        set_speed, fighter, *FIGHTER_KINETIC_ENERGY_ID_CONTROL,
-        sx * START_X_MUL, if air { sy * AIR_SPEED_Y_MUL } else { 0.0 }
-    );
+    revenge_kinetics(fighter, air);
+    fighter.sub_shift_status_main(L2CValue::Ptr(pikachu_speciallw_main_loop as *const () as _))
+}
+
+/// Incineroar's `FUN_7100013e50`, the movement setup both SpecialLw and SpecialLwHit call.
+///
+/// THIS IS WHY HE DOES NOT SLIDE, AND WHY WE DID.
+///
+/// The old code put the entering speed on `FIGHTER_KINETIC_ENERGY_ID_CONTROL`. Control energy is
+/// the PLAYER'S energy -- the thing the stick drives -- so writing a speed into it does not damp
+/// anything, it hands the stance straight back to the controller. Playtest, exactly:
+/// "allows the player to slide around rather than killing their momentum and locking them in
+/// place until revenge is over".
+///
+/// `tools/disasm` on lua2cpp_gaogaen.nro resolves what the real helper does, in order:
+///
+///   KineticModule::get_sum_speed_x / _y            the momentum he arrives with
+///   WorkModule::get_param_float x3                 the three multipliers, below
+///   KineticModule::change_kinetic(UNIQ)            ground and air variants
+///   KineticUtility::clear_unable_energy            TWICE -- this is the part that locks him
+///   sv_kinetic_energy::reset_energy(MOTION, ...)
+///   sv_kinetic_energy::set_speed / set_accel       on MOTION, not CONTROL
+///   KineticModule::enable_energy(MOTION)
+///
+/// and the three params, reverse-looked-up from their hash40s against ParamLabels and then read
+/// out of `gaogaen/param/vl.prc` so the values are the game's own rather than remembered:
+///
+///   special_lw_start_x_mul       0.6     fraction of entering horizontal speed kept
+///   special_air_lw_speed_y_mul   0.7     fraction of entering vertical speed kept
+///   special_air_lw_hit_accel_y   0.02    the airborne stance's own downward accel
+///
+/// So the stance is a one-shot MOTION impulse that decays, with the control energy explicitly
+/// disabled. `clear_unable_energy` is what makes the stick inert; setting MOTION is what makes
+/// the 0.6 mean "keeps 60% of what he came in with" instead of "is handed 60% as a new walk
+/// speed".
+unsafe fn revenge_kinetics(fighter: &mut L2CFighterCommon, air: bool) {
+    let boma = fighter.module_accessor;
+    let sx = KineticModule::get_sum_speed_x(boma, *KINETIC_ENERGY_RESERVE_ATTRIBUTE_MAIN);
+    let sy = KineticModule::get_sum_speed_y(boma, *KINETIC_ENERGY_RESERVE_ATTRIBUTE_MAIN);
+
+    KineticModule::change_kinetic(boma, *FIGHTER_KINETIC_TYPE_UNIQ);
+    // The two energies the player would otherwise still be driving. Incineroar clears twice; the
+    // ids are CONTROL and its no-stop twin, which is the pair that survives a hitstop.
+    KineticUtility::clear_unable_energy(*FIGHTER_KINETIC_ENERGY_ID_CONTROL, boma);
+    KineticUtility::clear_unable_energy(*FIGHTER_KINETIC_ENERGY_ID_CONTROL_NO_STOP, boma);
+
+    let vx = sx * START_X_MUL;
+    let vy = if air { sy * AIR_SPEED_Y_MUL } else { 0.0 };
+    sv_kinetic_energy!(set_speed, fighter, *FIGHTER_KINETIC_ENERGY_ID_MOTION, vx, vy);
+    if air {
+        // `special_air_lw_hit_accel_y` -- he keeps falling, slowly, rather than hanging.
+        sv_kinetic_energy!(
+            set_accel, fighter, *FIGHTER_KINETIC_ENERGY_ID_MOTION, 0.0, -AIR_HIT_ACCEL_Y
+        );
+    }
+    KineticModule::enable_energy(boma, *FIGHTER_KINETIC_ENERGY_ID_MOTION);
+
     crate::telemetry::probe::event(format!(
-        "[rat] REVENGE start air={air} speed ({sx:.2},{sy:.2}) -> ({:.2},{:.2}) via \
-         start_x_mul {START_X_MUL} / air_speed_y_mul {AIR_SPEED_Y_MUL}; {}",
-        sx * START_X_MUL,
-        if air { sy * AIR_SPEED_Y_MUL } else { 0.0 },
+        "[rat] REVENGE kinetics air={air} entering ({sx:.2},{sy:.2}) -> MOTION ({vx:.2},{vy:.2}); \
+         control energy cleared (start_x_mul {START_X_MUL}, air_speed_y_mul {AIR_SPEED_Y_MUL}, \
+         air_hit_accel_y {AIR_HIT_ACCEL_Y}); {}",
+        crate::telemetry::probe::ctx(boma)
+    ));
+}
+
+/// Revenge's RETALIATION status. Incineroar's `SpecialLwHit`: identical shape to SpecialLw, same
+/// UNIQ kinetic and the same movement helper, differing only in the motion it plays.
+unsafe extern "C" fn pikachu_speciallwhit_pre(fighter: &mut L2CFighterCommon) -> L2CValue {
+    pikachu_speciallw_pre(fighter)
+}
+
+unsafe extern "C" fn pikachu_speciallwhit_main(fighter: &mut L2CFighterCommon) -> L2CValue {
+    let boma = fighter.module_accessor;
+    let air = fighter.global_table[0x16] != *SITUATION_KIND_GROUND;
+    let motion = if air { "special_air_lw" } else { "special_lw" };
+    MotionModule::change_motion(boma, Hash40::new(motion), 0.0, 1.0, false, 0.0, false, false);
+    GroundModule::correct(
+        boma,
+        GroundCorrectKind(if air { *GROUND_CORRECT_KIND_AIR } else { *GROUND_CORRECT_KIND_GROUND_CLIFF_STOP }),
+    );
+    revenge_kinetics(fighter, air);
+    crate::telemetry::probe::event(format!(
+        "[rat] REVENGE retaliation status entered, motion '{motion}'; {}",
         crate::telemetry::probe::ctx(boma)
     ));
     fighter.sub_shift_status_main(L2CValue::Ptr(pikachu_speciallw_main_loop as *const () as _))
@@ -617,8 +683,17 @@ pub unsafe extern "C" fn pikachu_revenge_frame(fighter: &mut L2CFighterCommon) {
             RATE[entry],
             crate::telemetry::probe::ctx(boma)
         ));
+        // A DEDICATED STATUS, BECAUSE REQUESTING THE ONE YOU ARE ALREADY IN IS A NO-OP.
+        //
+        // This asked for FIGHTER_STATUS_KIND_SPECIAL_LW from inside SPECIAL_LW. The engine drops
+        // a transition to the current status, so `main` never ran again, the motion stayed on
+        // the stance, and `game_speciallw`s fire hitbox never existed -- "Revenge does not seem
+        // to cause the fire counter damage on hit". PHASE_COUNTER was set correctly and had
+        // nothing to act on it.
+        //
+        // Incineroar has SpecialLwHit as a real status for exactly this. So do we now.
         StatusModule::change_status_request_from_script(
-            boma, *FIGHTER_STATUS_KIND_SPECIAL_LW, false
+            boma, RAT_STATUS_KIND_SPECIAL_LW_HIT, false
         );
         return;
     }
@@ -731,6 +806,9 @@ pub fn install() {
         .status(Pre,  *FIGHTER_STATUS_KIND_SPECIAL_LW, pikachu_speciallw_pre)
         .status(Main, *FIGHTER_STATUS_KIND_SPECIAL_LW, pikachu_speciallw_main)
         .status(End,  *FIGHTER_STATUS_KIND_SPECIAL_LW, pikachu_speciallw_end)
+        .status(Pre,  RAT_STATUS_KIND_SPECIAL_LW_HIT, pikachu_speciallwhit_pre)
+        .status(Main, RAT_STATUS_KIND_SPECIAL_LW_HIT, pikachu_speciallwhit_main)
+        .status(End,  RAT_STATUS_KIND_SPECIAL_LW_HIT, pikachu_speciallw_end)
         .on_line(Main, pikachu_revenge_frame)
         .install();
 }

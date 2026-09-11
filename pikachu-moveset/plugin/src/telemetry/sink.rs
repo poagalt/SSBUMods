@@ -21,9 +21,17 @@ use std::sync::Mutex;
 const CANDIDATES: &[&str] = &["sd:/", "sdmc:/", ""];
 /// Where the log lands once a prefix works.
 const NAME: &str = "rat-telemetry.log";
-/// Flush at least this often, in frames. 120 is two seconds -- frequent enough that a crash loses
-/// little, rare enough that the write cost is irrelevant.
-const FLUSH_FRAMES: u32 = 120;
+/// Flush at least this often, in frames.
+///
+/// IT WAS 120, AND A CRASH THEREFORE LOST THE MOVE THAT CAUSED IT. The session that crashed on
+/// the Alolan Whip's rope throw left a 365-byte log: the install lines and nothing else. Two
+/// seconds of buffer is two seconds of exactly the frames worth reading, and the crash reports
+/// had to carry the whole diagnosis alone.
+///
+/// Eight frames is an eighth of a second. A few hundred bytes appended eight times a second is
+/// nothing next to what the game is already doing, and it bounds what a crash can destroy to
+/// something smaller than a single move.
+const FLUSH_FRAMES: u32 = 8;
 /// Hard cap so a long session cannot grow the buffer without bound between flushes.
 const MAX_LINES: usize = 2048;
 
@@ -67,6 +75,27 @@ pub fn log(line: String) {
 /// the card tells you how far the plugin got before it died.
 pub fn diag(line: String) {
     println!("{line}");
+    let Ok(mut s) = SINK.lock() else { return };
+    s.lines.push(line);
+    flush_locked(&mut s);
+}
+
+/// A breadcrumb: written to the card BEFORE a call that might not return.
+///
+/// WHY THIS IS NOT JUST ANOTHER LOG LINE. Three of the crashes this project has diagnosed were
+/// the same shape -- we handed a victim, or ourselves, to engine code written for a different
+/// fighter, and it dereferenced something that fighter has and Pikachu does not. The Alolan
+/// Whip's rope throw is the clearest: `SWING_GAOGAEN_THROWN` calls `LinkModule::get_parent_pos`
+/// for Incineroar's ROPE article, unguarded, and there is no rope, so it reads through null.
+///
+/// Every one of those was found from the Atmosphere crash report, which names the engine
+/// function but not WHICH OF OUR CALLS reached it or with what arguments. A crumb written
+/// immediately before the call closes that gap: if the game dies, the last line in the log is
+/// the thing we were about to do and to whom.
+///
+/// Deliberately unbuffered and deliberately not on the TCP log -- the point is the bytes being
+/// on the card before control leaves our code.
+pub fn crumb(line: String) {
     let Ok(mut s) = SINK.lock() else { return };
     s.lines.push(line);
     flush_locked(&mut s);

@@ -98,8 +98,23 @@ pub const RAT_STATUS_KIND_THROW_F_LW: i32 = 0x200;
 // worth having without them; the jump transition is suppressed instead, so the input does
 // nothing rather than doing something wrong.
 
+/// Revenge's RETALIATION, which Incineroar runs as its own status and we were trying to run as a
+/// re-entry into SPECIAL_LW.
+///
+/// THAT RE-ENTRY IS WHY THE FIRE NEVER CAME OUT. The counter was detected, the boost was banked,
+/// and then `change_status_request_from_script(SPECIAL_LW)` was issued from inside SPECIAL_LW --
+/// a request to enter the status you are already in, which the engine drops. `PHASE_COUNTER` was
+/// set so the next `main` WOULD have picked the `special_lw` attack motion, but no `main` ever
+/// ran, so the stance animation carried on and the hitbox never existed.
+///
+/// Incineroar does not do this: `lua2cpp_gaogaen.nro` has `SpecialLwHit` as a real status with
+/// its own pre, main, main_loop and end, identical in shape to SpecialLw -- same
+/// FIGHTER_KINETIC_TYPE_UNIQ, same GROUND_CORRECT_KIND_KEEP, and the same FUN_7100013e50
+/// movement setup -- differing only in which motion it plays.
+pub const RAT_STATUS_KIND_SPECIAL_LW_HIT: i32 = 0x201;
+
 /// One past the highest id above. Anything new goes here and this moves up.
-pub const RAT_STATUS_KIND_NUM: i32 = 0x201;
+pub const RAT_STATUS_KIND_NUM: i32 = 0x202;
 
 // Two things that must stay true, checked at compile time rather than trusted:
 //   * every id above Pikachu's own NUM, so none of them shadows one of his statuses;
@@ -108,7 +123,7 @@ pub const RAT_STATUS_KIND_NUM: i32 = 0x201;
 // is a runtime lazy static and cannot be used in a const context.
 const _: () = {
     let first = RAT_STATUS_KIND_SPECIAL_HI_CLOSE;
-    let last = RAT_STATUS_KIND_THROW_F_LW;
+    let last = RAT_STATUS_KIND_SPECIAL_LW_HIT;
     assert!(first >= 0x1F0);
     assert!(last < RAT_STATUS_KIND_NUM);
 };

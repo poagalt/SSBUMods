@@ -82,7 +82,7 @@ if [ -s "$R" ]; then
 
     echo
     echo "== 4. what each move did =="
-    for tag in WHIP REVENGE CARGO UPB PROBE; do
+    for tag in WHIP REVENGE CARGO SHOULDER UPB PROBE; do
         n=$(grep -c "\[rat\] $tag " "$R")
         printf '  %-8s %s line(s)\n' "$tag" "$n"
         [ "$n" != "0" ] && grep "\[rat\] $tag " "$R" | head -25 | sed 's/^/      /'
@@ -91,6 +91,25 @@ if [ -s "$R" ]; then
     echo
     echo "== 5. status timeline (transitions only) =="
     grep "status .* -> " "$R" | sed 's/^/  /' | tail -40
+
+    echo
+    echo "== 5b. THE LAST THING THE PLUGIN DID, and any breadcrumbs =="
+    # A CRASH IS DIAGNOSED FROM THE END OF THE LOG, and that was the one view this script did not
+    # offer. Section 6b shows the tail of the PREVIOUS session, which is right for "it crashed,
+    # then I restarted and played more" -- and wrong for "it crashed and I stopped", where the
+    # crashed run IS the current log. Both now print.
+    #
+    # Crumbs are the lines written unbuffered immediately before a call that might not return
+    # (telemetry/sink.rs). If the game died inside one, the crumb naming it is the last line here.
+    n=$(grep -cE "about to |REFUSED |validated, about to|stays in status" "$R")
+    if [ "$n" != "0" ]; then
+        echo "  $n breadcrumb(s); the last 8:"
+        grep -E "about to |REFUSED |validated, about to|stays in status" "$R" | tail -8 | sed 's/^/    /'
+    else
+        echo "  no breadcrumbs -- no risky cross-fighter call was reached this session"
+    fi
+    echo "  final 10 lines of this session's log:"
+    tail -10 "$R" | sed 's/^/    /'
 
     echo
     echo "== 6. motions that ran, longest first =="
@@ -128,10 +147,26 @@ if [ -z "$remote" ]; then
     echo "  none on the card"
 else
     newest=""
-    for f in $remote; do
+    # ONLY THE NEWEST FEW, AND WITH RETRIES.
+    #
+    # This used to try every report it did not already have locally -- twenty-odd of them, each a
+    # fresh FTP connection. sys-ftpd wedges after a handful of connections in quick succession
+    # (measured in tools/deploy.sh: one directory listing in five picks up the connection and
+    # never sends data), so the run after a crash reported TWENTY consecutive zero-byte pulls and
+    # dropped every one, including the three that mattered. The crashes had to be fetched by hand.
+    #
+    # Old reports are not interesting: a crash from a build that no longer exists cannot be
+    # diagnosed. Four is enough to cover "it crashed a few times in one session", and three
+    # attempts with a pause covers the wedge.
+    for f in $(printf '%s\n' $remote | tail -4); do
         if [ ! -f "$L/crash/$f" ]; then
-            bash tools/ftpq.sh get "/atmosphere/crash_reports/$f" > "$L/crash/$f" 2>/dev/null
-            got=$(stat -c%s "$L/crash/$f" 2>/dev/null || echo 0)
+            got=0
+            for attempt in 1 2 3; do
+                bash tools/ftpq.sh get "/atmosphere/crash_reports/$f" > "$L/crash/$f" 2>/dev/null
+                got=$(stat -c%s "$L/crash/$f" 2>/dev/null || echo 0)
+                [ "$got" -ge 1000 ] && break
+                sleep 2
+            done
             # A ZERO-BYTE PULL IS NOT A REPORT. sys-ftpd drops about one transfer in eighty, and
             # keeping the empty file would mark it "already have it" forever -- so the one report
             # that mattered would be permanently invisible. Delete and try again next run.

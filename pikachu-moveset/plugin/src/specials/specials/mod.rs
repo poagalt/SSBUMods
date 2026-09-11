@@ -184,19 +184,7 @@ static mut SINCE_THROW: [i32; 8] = [-1; 8];
 unsafe fn other_fighters(
     boma: *mut BattleObjectModuleAccessor,
 ) -> Vec<(u32, *mut BattleObjectModuleAccessor)> {
-    let me = (*boma).battle_object_id;
-    let mut out = Vec::new();
-    for e in 0..8u32 {
-        let id = e << 16;
-        if id == me || sv_battle_object::is_null(id) {
-            continue;
-        }
-        let vboma = sv_battle_object::module_accessor(id);
-        if !vboma.is_null() {
-            out.push((id, vboma));
-        }
-    }
-    out
+    crate::victim::others((*boma).battle_object_id)
 }
 
 /// The fighter our command grab just caught, and how we know.
@@ -324,16 +312,10 @@ unsafe fn reset(boma: *mut BattleObjectModuleAccessor) {
 }
 
 /// The cached victim's module accessor, or None if they are gone.
+/// Validated through `crate::victim`, which additionally requires the accessor to agree about
+/// its own battle object id -- see that module for why an id-shaped check is not enough.
 unsafe fn victim_boma(entry: usize) -> Option<*mut BattleObjectModuleAccessor> {
-    let id = VICTIM[entry];
-    if id == *BATTLE_OBJECT_ID_INVALID as u32 || sv_battle_object::is_null(id) {
-        return None;
-    }
-    let vboma = sv_battle_object::module_accessor(id);
-    if vboma.is_null() {
-        return None;
-    }
-    Some(vboma)
+    crate::victim::boma(VICTIM[entry])
 }
 
 /// Horizontal distance from Pikachu to the cached victim, or None if there is no live victim.
@@ -685,17 +667,36 @@ unsafe extern "C" fn pikachu_specialsthrow_main_loop(fighter: &mut L2CFighterCom
             || HELD_FOR[entry] >= THROW_ROPE_FALLBACK_FRAME;
         if thrown {
             SINCE_THROW[entry] = 0;
-            // Hand the victim to the engine's own swing sequence. All of SWING_GAOGAEN_THROWN,
-            // _ATTACH_ROPE and _RETURN are common statuses, so the outbound leg, the bounce and
-            // the return are the game's code, not ours.
-            let id = VICTIM[entry];
-            if id != *BATTLE_OBJECT_ID_INVALID as u32 && !sv_battle_object::is_null(id) {
-                let vboma = sv_battle_object::module_accessor(id);
-                if !vboma.is_null() {
-                    StatusModule::change_status_request_from_script(
-                        vboma, *FIGHTER_STATUS_KIND_SWING_GAOGAEN_THROWN, false
-                    );
-                }
+            // THE VICTIM STAYS IN SWING_GAOGAEN_CATCHED. HANDING THEM TO THE ENGINE'S ROPE
+            // SEQUENCE IS A CONFIRMED CRASH.
+            //
+            // This used to request SWING_GAOGAEN_THROWN, on the reasoning that the outbound leg,
+            // the bounce and the return are all engine-common statuses and therefore the game's
+            // code rather than ours. The Atmosphere report says what that actually did:
+            //
+            //   Data Abort, fault address 0
+            //     L2CFighterCommon::status_SwingGaogaenThrown + 0xf8
+            //     -> app::lua_bind::LinkModule__get_parent_pos_impl
+            //
+            // `tools/disasm` on lua2cpp_common.nro, pulled from the running game, shows the
+            // instruction: `get_parent_pos` returns the position of the LINKED PARENT -- for
+            // Incineroar, always his ROPE article -- and the next three instructions read x, y
+            // and z straight off the returned pointer with no null check. Pikachu has no rope,
+            // so there is no link, so the pointer is null.
+            //
+            // It was never salvageable by giving the victim a different status either: all three
+            // rope statuses are the rope. So the trajectory is driven from here, which the
+            // header already explains was necessary anyway -- Pikachu's vl.prc has no
+            // param_special_s for those statuses to read their speeds out of. See src/victim.rs
+            // for the refusal list; CATCHED is safe because it guards every parent access behind
+            // LinkModule::is_link.
+            if let Some(vboma) = crate::victim::boma(VICTIM[entry]) {
+                crate::telemetry::sink::crumb(format!(
+                    "[rat] WHIP p{entry} rope moment: victim {:#x} stays in status {:#x}, \
+                     trajectory driven by drive_victim",
+                    VICTIM[entry],
+                    StatusModule::status_kind(vboma),
+                ));
             }
         } else if HELD_FOR[entry] >= CATCH_CLATTER_FRAME {
             // special_s_catch_clatter_frame: the victim mashed out before the whip.

@@ -101,6 +101,9 @@ static mut CARRY_FRAMES: [i32; 8] = [0; 8];
 /// The carried fighter. Cached because `CatchModule::capture_object_id` stops answering once they
 /// move into a shouldered status, and the throw still has to address them.
 static mut VICTIM: [u32; 8] = [0; 8];
+/// The last id `CatchModule::capture_object_id` gave that was actually plausible. Latched every
+/// frame because the handoff reads it at the worst possible moment -- see pikachu_cargo_frame.
+static mut LAST_CAPTURED: [u32; 8] = [0; 8];
 
 unsafe fn entry_of(boma: *mut BattleObjectModuleAccessor) -> usize {
     let e = WorkModule::get_int(boma, *FIGHTER_INSTANCE_WORK_ID_INT_ENTRY_ID) as usize;
@@ -151,16 +154,13 @@ unsafe fn tell_victim(entry: usize, status: i32) {
         ));
         return;
     }
-    if id == *BATTLE_OBJECT_ID_INVALID as u32 || sv_battle_object::is_null(id) {
-        probe::event(format!("[rat] CARGO p{entry} victim id {id:#x} invalid, not telling it {}",
-                             probe::st(status)));
+    let Some(vboma) = crate::victim::boma(id) else {
+        probe::event(format!(
+            "[rat] CARGO p{entry} victim id {id:#x} does not resolve to a live accessor, not \n             telling it {}",
+            probe::st(status)
+        ));
         return;
-    }
-    let vboma = sv_battle_object::module_accessor(id);
-    if vboma.is_null() {
-        probe::event(format!("[rat] CARGO p{entry} victim {id:#x} has a null boma"));
-        return;
-    }
+    };
     // FLUSHED BEFORE THE CALL, deliberately. If this is what kills the game, the last line in the
     // file names it -- which is the whole reason the previous round could not place the crash.
     probe::event(format!("[rat] CARGO p{entry} -> victim {id:#x} status {}", probe::st(status)));
@@ -170,15 +170,10 @@ unsafe fn tell_victim(entry: usize, status: i32) {
 
 /// What the victim is actually doing, for the carry probe. Returns -1 when unreadable.
 unsafe fn victim_status(entry: usize) -> i32 {
-    let id = VICTIM[entry];
-    if id == *BATTLE_OBJECT_ID_INVALID as u32 || sv_battle_object::is_null(id) {
-        return -1;
+    match crate::victim::boma(VICTIM[entry]) {
+        Some(vboma) => StatusModule::status_kind(vboma),
+        None => -1,
     }
-    let vboma = sv_battle_object::module_accessor(id);
-    if vboma.is_null() {
-        return -1;
-    }
-    StatusModule::status_kind(vboma)
 }
 
 // Which cargo throw the stick asks for. Unlike Alolan Whip's follow-up mapping, this one is NOT
@@ -207,12 +202,50 @@ pub unsafe extern "C" fn pikachu_cargo_frame(fighter: &mut L2CFighterCommon) {
     let motion = MotionModule::motion_kind(boma);
     let status = StatusModule::status_kind(boma);
 
+    // WHO WE ARE HOLDING, TRACKED CONTINUOUSLY RATHER THAN READ AT THE HANDOFF.
+    //
+    // This used to read `CatchModule::capture_object_id` at the instant `throw_f` ENDS, which is
+    // the one moment it is least likely to answer: the engine's throw has run to completion by
+    // then and the capture bookkeeping is being torn down. A stale or invalid id handed to
+    // `sv_battle_object::module_accessor` yields a pointer that is not an accessor, and the first
+    // virtual call through it is an Instruction Abort at a garbage address -- which is the
+    // shape of the cargo crash report.
+    //
+    // So the id is latched every frame it is valid, throughout the grab, and the handoff uses
+    // the last good one. `crate::victim::plausible` is what "good" means: not the invalid
+    // sentinel, and shaped like `entry << 16`.
+    let cap = CatchModule::capture_object_id(boma, false) as u32;
+    if crate::victim::plausible(cap) {
+        LAST_CAPTURED[entry] = cap;
+    }
+
     // The cargo grab is DK's throw_f. Once its motion finishes, the victim is still caught
     // (ATTACK_ABS of CATCH kind, not THROW kind), so this is the moment the carry begins.
     if !CARRYING[entry] && motion == smash::hash40("throw_f") && MotionModule::is_end(boma) {
         CARRYING[entry] = true;
         CARRY_FRAMES[entry] = 0;
-        VICTIM[entry] = CatchModule::capture_object_id(boma, false) as u32;
+        VICTIM[entry] = LAST_CAPTURED[entry];
+        // A CRUMB, not a buffered line. If the handoff is what kills the game, this is the last
+        // thing in the log and it names the id we are about to act on -- see telemetry/sink.rs.
+        crate::telemetry::sink::crumb(format!(
+            "[rat] CARGO p{entry} grab landed; capture_object_id now {cap:#x}, last valid \
+             {:#x} -> handing to SHOULDER_START",
+            VICTIM[entry],
+        ));
+        // A HANDOFF WITH NOBODY TO CARRY IS NOT A CARRY. Without this the shoulder statuses ran
+        // against an id that never resolved, which looked like "the carry does nothing" at best
+        // and dereferenced a non-accessor at worst. Falling back to DK's own throw is the
+        // behaviour a missed cargo grab should have anyway.
+        if crate::victim::boma(VICTIM[entry]).is_none() {
+            probe::event(format!(
+                "[rat] CARGO p{entry} NO VALID VICTIM at handoff (id {:#x}) -- not entering the \
+                 carry; {}",
+                VICTIM[entry],
+                probe::ctx(boma)
+            ));
+            CARRYING[entry] = false;
+            return;
+        }
         probe::event(format!(
             "[rat] CARGO p{entry} grab landed, victim={:#x} -> handing to SHOULDER_START; {}",
             VICTIM[entry],
@@ -438,14 +471,7 @@ unsafe fn suppress_carry_actions(boma: *mut BattleObjectModuleAccessor) {
 
 /// Whether the carried fighter is still in one of the shouldered statuses.
 unsafe fn victim_still_held(entry: usize) -> bool {
-    let id = VICTIM[entry];
-    if id == *BATTLE_OBJECT_ID_INVALID as u32 || sv_battle_object::is_null(id) {
-        return false;
-    }
-    let vboma = sv_battle_object::module_accessor(id);
-    if vboma.is_null() {
-        return false;
-    }
+    let Some(vboma) = crate::victim::boma(VICTIM[entry]) else { return false };
     let s = StatusModule::status_kind(vboma);
     // WITH TELL_VICTIM_SHOULDERED OFF THEY NEVER REACH A SHOULDERED STATUS, so requiring one
     // ended the carry on its third frame every time. An ordinary capture counts as held too --

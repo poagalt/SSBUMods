@@ -267,6 +267,9 @@ echo; echo "== 4b. fighter_param_motion.prcxml carries Fox's dodge windows =="
   escape_f_hit_normal_frame=9 escape_f_penalty_hit_normal_frame=5 escape_n_cancel_frame=24 \
   escape_n_hit_normal_frame=12 escape_n_penalty_hit_normal_frame=10 || rc=1
 
+echo; echo "== 4d. nothing hands a victim to engine code that needs an article we do not ship =="
+bash "$ROOT/tools/check-victim.sh" || rc=1
+
 echo; echo "== 4c. hand-written code uses no other fighter's constants =="
 bash "$ROOT/tools/check-status.sh" || rc=1
 

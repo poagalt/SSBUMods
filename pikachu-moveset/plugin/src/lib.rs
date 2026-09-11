@@ -24,6 +24,7 @@ mod telemetry;
 mod specials;
 mod sword;
 mod articles;
+mod victim;
 
 #[skyline::main(name = "rat_of_doom")]
 pub fn main() {

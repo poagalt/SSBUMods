@@ -78,12 +78,15 @@ unsafe fn entry_of(boma: *mut BattleObjectModuleAccessor) -> usize {
     if e >= 8 { 0 } else { e }
 }
 
+/// VALIDATED, because a pointer that is not an accessor is the worst crash this project has had.
+///
+/// The old version accepted anything that was not the invalid sentinel and not `is_null`. That
+/// leaves a stale id -- `CatchModule::capture_object_id` read a frame too late -- resolving to a
+/// pointer the engine will happily make a virtual call through, and an Instruction Abort at a
+/// garbage address names no function and no line. `crate::victim::boma` additionally requires the
+/// accessor to agree about its own `battle_object_id`, which a stale or recycled pointer will not.
 unsafe fn victim_boma(entry: usize) -> *mut BattleObjectModuleAccessor {
-    let id = VICTIM[entry];
-    if id == *BATTLE_OBJECT_ID_INVALID as u32 || sv_battle_object::is_null(id) {
-        return std::ptr::null_mut();
-    }
-    sv_battle_object::module_accessor(id)
+    crate::victim::boma(VICTIM[entry]).unwrap_or(std::ptr::null_mut())
 }
 
 /// Put the carried fighter on Pikachu's shoulder, every frame.
@@ -96,6 +99,44 @@ unsafe fn hold_victim(boma: *mut BattleObjectModuleAccessor, entry: usize) {
     if vboma.is_null() {
         return;
     }
+    // ONE CRUMB PER CARRY, NOT PER FRAME. The cargo crash is an Instruction Abort with no
+    // symbol, so the only way to know whether control reached this function at all is for the
+    // log to say so -- but a line every frame at 60fps would bury everything else. So it is
+    // written on the first frame of each carry, which is also the frame the crash happens on.
+    if CARRY_FRAMES[entry] <= 1 {
+        crate::telemetry::sink::crumb(format!(
+            "[rat] SHOULDER p{entry} hold_victim: victim {:#x} validated, about to read joint \
+             'shoulderl' and write their posture",
+            VICTIM[entry]
+        ));
+    }
+    // IF THE ENGINE IS STILL HOLDING THEM, DO NOTHING. THIS IS THE SAFEST VERSION OF THIS
+    // FUNCTION AND ALSO THE MOST FAITHFUL ONE.
+    //
+    // The cargo grab is an ordinary capture that was re-caught rather than released -- DK's
+    // game_throwf uses ATTACK_ABS(FIGHTER_ATTACK_ABSOLUTE_KIND_CATCH). So while the capture link
+    // survives, the engine is already placing the victim every frame: `status_CapturePulled` in
+    // lua2cpp_common.nro calls `CaptureModule::update_node_pos`, `motion` and `motion_lw` and
+    // nothing else -- no LinkModule parent reads, nothing fighter-specific, and Pikachu has the
+    // `Throw` bone it positions against.
+    //
+    // Writing their posture on top of that is two writers fighting over one transform, and it is
+    // the only cross-object write in the whole carry -- which makes it the leading candidate for
+    // an Instruction Abort with no symbol. So it is now the FALLBACK, taken only once the engine
+    // has let go, and the log says which of the two is driving.
+    if CaptureModule::is_capture(vboma)
+        && CaptureModule::catch_object_id(vboma) as u32 == (*boma).battle_object_id
+    {
+        if CARRY_FRAMES[entry] <= 1 {
+            crate::telemetry::sink::crumb(format!(
+                "[rat] SHOULDER p{entry} victim {:#x} is still in the engine's capture and \
+                 naming us as master -- leaving their position to CaptureModule",
+                VICTIM[entry]
+            ));
+        }
+        return;
+    }
+
     let mut pos = Vector3f { x: 0.0, y: 0.0, z: 0.0 };
     ModelModule::joint_global_position(boma, Hash40::new("shoulderl"), &mut pos, true);
     // A joint that did not resolve returns the origin; falling back to the fighter's own position
@@ -110,16 +151,29 @@ unsafe fn hold_victim(boma: *mut BattleObjectModuleAccessor, entry: usize) {
 }
 
 /// True while the victim is still ours to carry.
-unsafe fn still_held(entry: usize) -> bool {
+///
+/// THE CAPTURE LINK COMES FIRST, AND THE STATUS LIST IS THE FALLBACK. Keying this on the victim's
+/// status alone was fragile in a way that shows up as "the carry does nothing": the engine's own
+/// THROW ends when our SHOULDER_START takes over, so the victim leaves THROWN within a frame or
+/// two and every status in the list stops matching. `CaptureModule::catch_object_id` naming us is
+/// the durable fact, and it is the same question `hold_victim` asks.
+unsafe fn still_held(boma: *mut BattleObjectModuleAccessor, entry: usize) -> bool {
     let vboma = victim_boma(entry);
     if vboma.is_null() {
         return false;
+    }
+    if CaptureModule::is_capture(vboma)
+        && CaptureModule::catch_object_id(vboma) as u32 == (*boma).battle_object_id
+    {
+        return true;
     }
     let s = StatusModule::status_kind(vboma);
     s == *FIGHTER_STATUS_KIND_CAPTURE_PULLED
         || s == *FIGHTER_STATUS_KIND_CAPTURE_WAIT
         || s == *FIGHTER_STATUS_KIND_CAPTURE_CUT
         || s == *FIGHTER_STATUS_KIND_THROWN
+        || s == *FIGHTER_STATUS_KIND_SHOULDERED_DONKEY
+        || s == *FIGHTER_STATUS_KIND_SHOULDERED_DONKEY_START
 }
 
 /// Common `pre` for the grounded carry states. DK uses the same shape for all of them and varies
@@ -166,6 +220,16 @@ unsafe extern "C" fn shoulder_start_main(fighter: &mut L2CFighterCommon) -> L2CV
     let boma = fighter.module_accessor;
     let entry = entry_of(boma);
     CARRY_FRAMES[entry] = 0;
+    // CRUMBED, because the cargo crash lands here and the report cannot say why. The Atmosphere
+    // backtrace for it is `rat_of_doom + 0x9cf8` under smashline own line hook with no engine
+    // frame between -- an Instruction Abort, so a branch to an address that is not code. That
+    // rules in a bad function or object pointer and rules out a null field read, and it names
+    // nothing else. These two lines bracket the status handoff so the log says which side of it
+    // the game died on.
+    crate::telemetry::sink::crumb(format!(
+        "[rat] SHOULDER p{entry} START entered, victim={:#x}, about to shift to the carry loop",
+        VICTIM[entry]
+    ));
     crate::telemetry::probe::event(format!(
         "[rat] SHOULDER p{entry} START, victim={:#x}; {}",
         VICTIM[entry],
@@ -181,7 +245,7 @@ unsafe extern "C" fn shoulder_start_loop(fighter: &mut L2CFighterCommon) -> L2CV
     CARRY_FRAMES[entry] += 1;
     hold_victim(boma, entry);
 
-    if !still_held(entry) {
+    if !still_held(boma, entry) {
         fighter.change_status(FIGHTER_STATUS_KIND_WAIT.into(), false.into());
         return 1.into();
     }
@@ -282,7 +346,7 @@ unsafe extern "C" fn shoulder_wait_loop(fighter: &mut L2CFighterCommon) -> L2CVa
     CARRY_FRAMES[entry] += 1;
     hold_victim(boma, entry);
 
-    if !still_held(entry) {
+    if !still_held(boma, entry) {
         crate::telemetry::probe::event(format!(
             "[rat] SHOULDER p{entry} victim lost after {}f; {}",
             CARRY_FRAMES[entry],
@@ -353,7 +417,7 @@ unsafe extern "C" fn shoulder_walk_loop(fighter: &mut L2CFighterCommon) -> L2CVa
     CARRY_FRAMES[entry] += 1;
     hold_victim(boma, entry);
 
-    if !still_held(entry) {
+    if !still_held(boma, entry) {
         fighter.change_status(FIGHTER_STATUS_KIND_WAIT.into(), false.into());
         return 1.into();
     }
@@ -396,7 +460,7 @@ unsafe extern "C" fn shoulder_turn_loop(fighter: &mut L2CFighterCommon) -> L2CVa
     CARRY_FRAMES[entry] += 1;
     hold_victim(boma, entry);
 
-    if !still_held(entry) {
+    if !still_held(boma, entry) {
         fighter.change_status(FIGHTER_STATUS_KIND_WAIT.into(), false.into());
         return 1.into();
     }
@@ -429,7 +493,7 @@ unsafe extern "C" fn shoulder_fall_loop(fighter: &mut L2CFighterCommon) -> L2CVa
     CARRY_FRAMES[entry] += 1;
     hold_victim(boma, entry);
 
-    if !still_held(entry) {
+    if !still_held(boma, entry) {
         fighter.change_status(FIGHTER_STATUS_KIND_FALL.into(), false.into());
         return 1.into();
     }
@@ -460,7 +524,7 @@ unsafe extern "C" fn shoulder_landing_loop(fighter: &mut L2CFighterCommon) -> L2
     CARRY_FRAMES[entry] += 1;
     hold_victim(boma, entry);
 
-    if !still_held(entry) {
+    if !still_held(boma, entry) {
         fighter.change_status(FIGHTER_STATUS_KIND_WAIT.into(), false.into());
         return 1.into();
     }
