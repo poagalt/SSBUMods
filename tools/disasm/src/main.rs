@@ -51,6 +51,10 @@ struct Nro {
     ro_size: u32,
     /// PLT stub address (== file offset) -> imported symbol name.
     plt: HashMap<u64, String>,
+    /// Every GOT slot with a relocation naming a symbol, imported DATA included. A module reads a
+    /// global in `main` as `adrp`+`ldr` through one of these, so this map is how an
+    /// `ldr x23, [xN, #off]` becomes a NAME.
+    got: HashMap<u64, String>,
     /// Locally defined symbol address -> name.
     defined: HashMap<u64, String>,
 }
@@ -143,6 +147,7 @@ impl Nro {
             ro_off: len,
             ro_size: 0,
             plt: HashMap::new(),
+            got: HashMap::new(),
             defined,
             bytes,
         }
@@ -160,6 +165,7 @@ impl Nro {
             ro_off: u32_at(&bytes, 0x28),
             ro_size: u32_at(&bytes, 0x2c),
             plt: HashMap::new(),
+            got: HashMap::new(),
             defined: HashMap::new(),
             bytes,
         };
@@ -283,10 +289,12 @@ impl Nro {
             }
             a += 4;
         }
+        self.got = got;
         eprintln!(
-            "; {} imported PLT stubs, {} defined symbols",
+            "; {} imported PLT stubs, {} defined symbols, {} named GOT slots",
             self.plt.len(),
-            self.defined.len()
+            self.defined.len(),
+            self.got.len()
         );
     }
 
@@ -357,6 +365,79 @@ fn main() {
     //
     // `--xrefs <addr>` walks .text one word at a time and reports every `bl` or `b` whose resolved
     // target is that address. Fixed-width instructions make that exhaustive rather than heuristic.
+    // WHO REFERENCES A DATA ADDRESS, which `--xrefs` cannot answer because a data reference is
+    // not a branch.
+    //
+    // AArch64 reaches a global in two instructions -- `adrp xN, <page>` then an `add xN, xN, #lo`
+    // or an `ldr`/`ldrb`/`str` with `#lo` -- so a reference is a PAIR, and neither half means
+    // anything alone. This tracks the page each register was last given and reports the second
+    // instruction that resolves to the address asked for.
+    //
+    // It is how a string in `.rodata` becomes the function that uses it. The lua_const name
+    // strings live in main's .rodata; the code that turns one into the 64-bit hash the const
+    // table is keyed by is whatever references it.
+    //
+    // Register tracking is a sliding window and deliberately naive: an `adrp` is matched against
+    // the next few instructions on the same register and nothing is followed across a branch.
+    // False negatives are possible, false positives are not -- every hit is a real pair.
+    if mode == "--dataxref" {
+        // The target is taken as a RAW ADDRESS and not resolved to a file offset: the whole point
+        // is to find references to `.rodata` and `.data`, which a `--flat` image of `.text` does
+        // not contain.
+        let target = {
+            let s = a[2].trim_start_matches("0x");
+            let v = u64::from_str_radix(s, 16).expect("bad target address");
+            if v >= GHIDRA_BASE() { v } else { GHIDRA_BASE() + v }
+        };
+        let window: usize = a.get(3).and_then(|s| s.parse().ok()).unwrap_or(12);
+        let decoder = InstDecoder::default();
+        let mut page: [Option<u64>; 32] = [None; 32];
+        let mut age: [usize; 32] = [0; 32];
+        let mut hits = 0;
+        let mut off = 0usize;
+        while off + 4 <= nro.text_size as usize {
+            let pc = GHIDRA_BASE() + off as u64;
+            let mut reader = U8Reader::new(&nro.bytes[off..off + 4]);
+            if let Ok(inst) = decoder.decode(&mut reader) {
+                let text = format!("{inst}");
+                if let Some(rd) = adrp_dest(&text) {
+                    page[rd] = Some((pc & !0xfff).wrapping_add(adrp_page(&text).unwrap_or(0)));
+                    age[rd] = 0;
+                } else {
+                    for (rn, lo) in low_uses(&text) {
+                        if age[rn] <= window {
+                            if let Some(p) = page[rn] {
+                                if p.wrapping_add(lo) == target {
+                                    let owner = nro
+                                        .defined
+                                        .iter()
+                                        .filter(|(k, _)| **k <= pc - GHIDRA_BASE())
+                                        .max_by_key(|(k, _)| **k)
+                                        .map(|(k, v)| {
+                                            format!(
+                                                "{} + {:#x}",
+                                                short_name(v),
+                                                (pc - GHIDRA_BASE()) - k
+                                            )
+                                        })
+                                        .unwrap_or_else(|| "<no symbol>".into());
+                                    println!("{pc:#x}  {text}   in {owner}");
+                                    hits += 1;
+                                }
+                            }
+                        }
+                    }
+                }
+                for r in 0..32 {
+                    age[r] += 1;
+                }
+            }
+            off += 4;
+        }
+        eprintln!("; {hits} data reference(s)");
+        return;
+    }
+
     if mode == "--xrefs" {
         let target = GHIDRA_BASE() + nro.resolve(&a[2]) as u64;
         let decoder = InstDecoder::default();
@@ -388,6 +469,42 @@ fn main() {
             off += 4;
         }
         eprintln!("; {hits} call site(s)");
+        return;
+    }
+
+    // WHAT GLOBAL AN `adrp`+`ldr` PAIR IS READING, BY NAME.
+    //
+    // The lua_const array is the reason this exists. Every fighter NRO reads its constants as
+    // `ldr wN, [xTABLE, #off]` where xTABLE came from `adrp xT, <page>; ldr xT, [xT, #slot]` --
+    // a GOT load -- and the OFFSETS are all a disassembly can see. `CaptureModule::capture`'s
+    // third argument is `lua_const[0x250]` and has been unnamed for that whole reason.
+    //
+    // But the GOT slot has a relocation, and the relocation names a symbol. So the pointer is
+    // identifiable even though the array contents are not in any file: name it here, look the
+    // name up in `main`'s own symbol table, and the array's address is known exactly -- no
+    // signature scan, no dump.
+    //
+    // Takes the SLOT address, which is (adrp page) + (ldr offset). With no argument it lists every
+    // named slot, which is how you find out what a module imports at all.
+    if mode == "--got" {
+        match a.get(2) {
+            None => {
+                let mut all: Vec<_> = nro.got.iter().collect();
+                all.sort();
+                for (slot, name) in all {
+                    println!("{slot:#x}  {name}");
+                }
+                eprintln!("; {} named GOT slot(s)", nro.got.len());
+            }
+            Some(spec) => {
+                let want = u64::from_str_radix(spec.trim_start_matches("0x"), 16)
+                    .expect("bad slot address");
+                match nro.got.get(&want) {
+                    Some(name) => println!("{want:#x}  {name}"),
+                    None => println!("{want:#x}  (no relocation names this slot)"),
+                }
+            }
+        }
         return;
     }
 
@@ -492,6 +609,7 @@ fn main() {
         let note = target
             .and_then(|t| nro.name_of(t - GHIDRA_BASE()).map(|n| format!("   ; {n}")))
             .or_else(|| target.map(|t| format!("   ; {t:#x}")))
+            .or_else(|| lua_const_note(&text))
             .unwrap_or_default();
         if calls_only {
             if text.starts_with("bl ") {
@@ -519,4 +637,139 @@ fn parse_branch_target(rest: &str, pc: u64) -> Option<u64> {
     };
     let v = i64::from_str_radix(hex.trim_start_matches("0x"), 16).ok()?;
     Some((pc as i64 + sign * v) as u64)
+}
+
+// ---------------------------------------------------------------------------------------------
+// The three text helpers `--dataxref` needs. Parsing the disassembler's own output rather than
+// re-decoding the instruction fields: the printer has already normalised the shifts and scales,
+// so `ldr x8, [x8, #0x920]` carries the BYTE offset and not the encoded imm12.
+// ---------------------------------------------------------------------------------------------
+
+/// `x8` -> 8, `w1` -> 1. `sp`, `xzr` and anything else -> None, which drops them from tracking
+/// rather than aliasing them onto x31.
+fn reg_num(r: &str) -> Option<usize> {
+    let r = r.trim();
+    let (x, n) = r.split_at(1);
+    if x != "x" && x != "w" {
+        return None;
+    }
+    n.parse::<usize>().ok().filter(|n| *n < 32)
+}
+
+fn reg_num_s(r: &str) -> Option<usize> {
+    reg_num(r)
+}
+
+/// `#0x920` -> 0x920, `#20` -> 20.
+fn imm_val(s: &str) -> Option<u64> {
+    let s = s.trim().strip_prefix('#')?;
+    if let Some(hex) = s.strip_prefix("0x") {
+        u64::from_str_radix(hex, 16).ok()
+    } else {
+        s.parse::<u64>().ok()
+    }
+}
+
+/// `adrp x8, $+0x4d29000` -> Some(8)
+fn adrp_dest(t: &str) -> Option<usize> {
+    let rest = t.strip_prefix("adrp ")?;
+    reg_num(rest.split(',').next()?)
+}
+
+/// The signed page offset out of `adrp xN, $+0x...`, to be added to the PC's page.
+fn adrp_page(t: &str) -> Option<u64> {
+    let rest = t.strip_prefix("adrp ")?;
+    let (_, imm) = rest.split_once(", ")?;
+    let imm = imm.trim();
+    let neg = imm.starts_with("$-");
+    let hex = imm
+        .trim_start_matches("$+")
+        .trim_start_matches("$-")
+        .trim_start_matches("0x");
+    let v = u64::from_str_radix(hex, 16).ok()?;
+    Some(if neg { (v as i64).wrapping_neg() as u64 } else { v })
+}
+
+/// Every `(base register, byte offset)` an instruction uses, from both `add xN, xM, #imm` and any
+/// `[xM, #imm]` addressing. Register-offset forms like `[x23, x8]` carry no immediate and are
+/// skipped.
+fn low_uses(t: &str) -> Vec<(usize, u64)> {
+    let mut out = Vec::new();
+    if let Some(rest) = t.strip_prefix("add ") {
+        let p: Vec<&str> = rest.split(", ").collect();
+        if p.len() == 3 {
+            if let (Some(rn), Some(imm)) = (reg_num(p[1]), imm_val(p[2])) {
+                out.push((rn, imm));
+            }
+        }
+    }
+    if let Some(i) = t.find('[') {
+        let inner = &t[i + 1..];
+        if let Some(j) = inner.find(']') {
+            let mut p = inner[..j].split(", ");
+            if let Some(base) = p.next().and_then(reg_num_s) {
+                match p.next() {
+                    None => out.push((base, 0)),
+                    Some(o) => {
+                        if let Some(v) = imm_val(o) {
+                            out.push((base, v));
+                        }
+                    }
+                }
+            }
+        }
+    }
+    out
+}
+
+/// NAMES A lua_const READ, which is the difference between reading a status script and guessing
+/// at it.
+///
+/// Every fighter's compiled status code reads its constants out of one i32 array --
+/// `lua2cpp::L2CAgentGeneratedBase::const_value_table__`, filled at load by
+/// `construct_bind_const_value_table` -- so a status kind, a work id, a flag and a link number
+/// all look like `ldr wN, [x23, #0x4e4]` and carry no name at all. Six rounds of this project's
+/// work stalled on exactly that: `CaptureModule::capture`'s third argument was
+/// `lua_const[0x250]`, and there was no way to read it out of any file.
+///
+/// `vendor/ssbu-status/lua_dict.txt` is that mapping -- 19,310 `offset:NAME` lines -- and it was
+/// already in the tree. Three independent cross-checks say it is the right one:
+///
+///   0x38  LUA_SCRIPT_STATUS_FUNC_STATUS_PRE     matches the anchor derived from sv_set_status_func
+///   0xb57c FIGHTER_GAOGAEN_STATUS_KIND_FINAL_DASH  matches the FIRST constant the decompiled
+///                                             create_agent_fighter_status_script_gaogaen names
+///   0x4e4 LINK_NO_CAPTURE                       matches the link number derived independently
+///                                             from SpecialSThrow's send_event_nodes calls
+///
+/// A HINT, NOT A FACT, and marked as one. Any `ldr wN, [xM, #off]` matches -- a struct field read
+/// at the same offset gets a name it has nothing to do with. What makes it usable anyway is that
+/// the base register is obvious in context: the const table is loaded once per function through a
+/// GOT slot and then read dozens of times.
+fn lua_const_note(text: &str) -> Option<String> {
+    let lo = low_uses(text);
+    if !text.starts_with("ldr w") || lo.len() != 1 {
+        return None;
+    }
+    let off = lo[0].1;
+    let name = lua_dict().get(&off)?;
+    Some(format!("   ; ~lua_const {name}"))
+}
+
+fn lua_dict() -> &'static HashMap<u64, String> {
+    static CELL: std::sync::OnceLock<HashMap<u64, String>> = std::sync::OnceLock::new();
+    CELL.get_or_init(|| {
+        let path = std::env::var("RAT_LUA_DICT")
+            .unwrap_or_else(|_| "vendor/ssbu-status/lua_dict.txt".into());
+        let mut m = HashMap::new();
+        if let Ok(s) = std::fs::read_to_string(&path) {
+            for line in s.lines() {
+                if let Some((off, name)) = line.trim().split_once(':') {
+                    if let Ok(v) = u64::from_str_radix(off.trim_start_matches("0x"), 16) {
+                        m.insert(v, name.to_string());
+                    }
+                }
+            }
+        }
+        m
+    })
 }

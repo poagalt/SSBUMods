@@ -1,0 +1,14 @@
+[package]
+name = "luaconst"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]
+xxhash-rust = { version = "0.8", features = ["xxh3", "xxh64", "xxh32"] }
+
+[[bin]]
+name = "luaconst"
+path = "src/main.rs"
+
+[profile.release]
+opt-level = 2
