@@ -243,6 +243,15 @@ unsafe extern "C" fn shoulder_start_loop(fighter: &mut L2CFighterCommon) -> L2CV
     let boma = fighter.module_accessor;
     let entry = entry_of(boma);
     CARRY_FRAMES[entry] += 1;
+    // THE SECOND HALF OF THE CARGO CRASH BRACKET. shoulder_start_main writes a crumb saying it is
+    // about to shift into this loop; this one says the loop was reached. If the log ends on the
+    // first crumb and never shows the second, the game died inside sub_shift_status_main -- which
+    // is what the Instruction Abort backtrace suggests and what no symbol in it can confirm.
+    if CARRY_FRAMES[entry] == 1 {
+        crate::telemetry::sink::crumb(format!(
+            "[rat] SHOULDER p{entry} START loop reached, frame 1"
+        ));
+    }
     hold_victim(boma, entry);
 
     if !still_held(boma, entry) {
@@ -264,6 +273,10 @@ unsafe extern "C" fn shoulder_wait_pre(fighter: &mut L2CFighterCommon) -> L2CVal
 
 unsafe extern "C" fn shoulder_wait_main(fighter: &mut L2CFighterCommon) -> L2CValue {
     let boma = fighter.module_accessor;
+    crate::telemetry::sink::crumb(format!(
+        "[rat] SHOULDER p{} WAIT entered, about to change motion to shoulder_wait",
+        entry_of(boma)
+    ));
     MotionModule::change_motion(boma, Hash40::new("shoulder_wait"), 0.0, 1.0, false, 0.0, false, false);
     fighter.sub_shift_status_main(L2CValue::Ptr(shoulder_wait_loop as *const () as _))
 }

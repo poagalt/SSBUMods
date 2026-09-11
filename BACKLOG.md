@@ -1278,3 +1278,59 @@ extraction. A feature filed as blocked on a console session was entirely local w
 3. Hitbox `size` scaling (4–20% small) — needs hardware to settle whether the engine folds in the
    anchor bone's inherited scale.
 4. DK's `_PASS` (carrying through a soft platform).
+
+---
+
+## Round 5 (builds d03c990 -> b2a82ba): three crashes diagnosed from the game's own binary
+
+This round is the first where the diagnosis came from reading the game rather than from
+reasoning about it, so the entries below cite instructions rather than symptoms. See
+`pikachu-moveset/docs/reading-the-games-code.md` for the four sources and
+`docs/adr/0004-never-hand-a-victim-to-another-fighters-code.md` for the rule they produced.
+
+### Fixed
+
+| Symptom | Actual cause | Evidence |
+| --- | --- | --- |
+| Alolan Whip crashes at the rope throw | `status_SwingGaogaenThrown + 0xf8` is `LinkModule::get_parent_pos` followed by three unguarded loads. The parent is Incineroar's ROPE article. | Atmosphere report + `disasm` on `lua2cpp_common.nro`, instruction for instruction |
+| Revenge does no fire damage | the counter requested `SPECIAL_LW` from inside `SPECIAL_LW`; the engine drops a transition to the current status, so no `main` ran and the hitbox never existed | `SpecialLwHit` exists as a real status in the decomp |
+| Revenge lets the player slide | the entering speed went to `FIGHTER_KINETIC_ENERGY_ID_CONTROL`, which is the energy the STICK drives | `FUN_7100013e50`: `change_kinetic(UNIQ)`, `clear_unable_energy` twice, `set_speed` on MOTION |
+| (not reported, found while reading) Revenge left Pikachu on 0.4x damage with no flinch, permanently | `End` did nothing; `SpecialLw_end` is three unconditional reverts | decomp, `SpecialLw/end.c` |
+| (not reported) the whip could hold a victim who had mashed out | position was written every frame with no check that they were still caught | `status_SwingGaogaenCatched_Main` reads `get_clatter_time` and releases them itself |
+| 25 of 30 added animations UNRESOLVED, nondeterministically | the directory was 38% over vanilla, almost all of it tracks for bones and meshes Pikachu does not have | 77 of 123 transform nodes foreign; growth 3673 -> 637 KiB and zero hitboxes moved |
+
+### Open, instrumented rather than guessed
+
+**The cargo throw crash.** An Instruction Abort with no symbol —
+`rat_of_doom + 0x9cf8` under smashline's line hook with no engine frame between, which rules in a
+bad code or object pointer and names nothing else. Four things changed that each remove a
+candidate: the victim id is latched every frame it is valid instead of read at the instant
+`throw_f` ends, a handoff with no valid victim declines, `hold_victim` leaves the position to
+`CaptureModule` while the engine's capture still names us master, and every cross-object handle
+goes through `crate::victim::boma`. Plus a crumb bracket: `SHOULDER START entered` before the
+status shift and `START loop reached` after it, unbuffered, so the next report says which side of
+`sub_shift_status_main` the game died on.
+
+### Ready to implement, deliberately not started
+
+**Carrying and jumping.** DK has eleven shoulder statuses and this port has six. The four missing
+ones are read and the settings are in hand:
+
+    ShoulderJumpSquat   SITUATION_GROUND  KINETIC_TYPE_MOTION       GROUND_CORRECT_GROUND
+    ShoulderJump        SITUATION_AIR     KINETIC_TYPE_JUMP         GROUND_CORRECT_AIR
+    ShoulderPass        SITUATION_AIR     KINETIC_TYPE_MOTION_FALL  GROUND_CORRECT_KEEP
+    ShoulderJumpSquatB  (the reversed variant)
+
+`FUN_7100022d00` is JumpSquat's main: `change_motion`, `StopModule::is_stop`, then a loop reading
+`ControlModule::check_button_off` and `get_stick_y` against `get_param_float` — the ordinary
+short-hop / full-hop decision — and on motion end it goes to SHOULDER_JUMP. `ShoulderJump_main_loop`
+calls `FUN_7100022520`, the same throw-input helper the grounded states use, so **throws are
+available in the air**, and falls through to SHOULDER_FALL on motion end.
+
+Held because the carry itself still crashes. Four more statuses on top of a crashing feature is
+the wrong order; the sequence is stabilise, confirm, then extend.
+
+**Neutral B / Ptooie.** Unchanged: step 1 of the experiment in `src/articles/mod.rs` has now
+passed many times over — clone OFF, card repaired, Pikachu loads and plays. Step 2 is one flag.
+It is held for one reason only: if the clone does crash on load, nothing at all is testable, and
+three fixes are waiting on a playtest. It goes first in the round after they are confirmed.
