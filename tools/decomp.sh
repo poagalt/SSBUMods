@@ -97,46 +97,38 @@ cmd //c "$(cygpath -w "$G/support/analyzeHeadless.bat")" "$(cygpath -w work/ghid
 # hashed name. Both are mechanical to resolve and both are the difference between reading the
 # logic and decoding it.
 ANN="${OUT%.c}.annotated.c"
-awk -v dict="$ROOT/vendor/ssbu-status/lua_dict.txt" -v names="$ROOT/work/hash40-names.txt" '
+awk -v dict="$ROOT/vendor/ssbu-status/lua_dict.txt" '
 BEGIN {
     while ((getline l < dict) > 0) {
-        n = index(l, ":");
+        n = index(l, ":")
         if (n > 0) { LC[tolower(substr(l, 1, n-1))] = substr(l, n+1) }
     }
-    # hash40 = crc32 of the name with the byte length in the top byte; build the table once.
-    for (i = 0; i < 256; i++) {
-        c = i
-        for (k = 0; k < 8; k++) { c = (c % 2) ? xor(int(c/2), 3988292384) : int(c/2) }
-        T[i] = c
-    }
-    while ((getline nm < names) > 0) {
-        if (length(nm) < 2) continue
-        c = 4294967295
-        for (i = 1; i <= length(nm); i++) {
-            b = ord(substr(nm, i, 1))
-            c = xor(T[and(xor(c, b), 255)], int(c/256))
-        }
-        H[sprintf("0x%x%08x", length(nm), xor(c, 4294967295))] = nm
-    }
 }
-function ord(ch) { return ORD[ch] ? ORD[ch] : _ord(ch) }
-function _ord(ch,  i) { for (i = 0; i < 256; i++) { ORD[sprintf("%c", i)] = i } return ORD[ch] }
 {
     line = $0
-    # lua_const reads: the array is reached through one GOT-loaded pointer per function.
-    while (match(line, /lRam[0-9a-f]+ \+ 0x[0-9a-f]+/)) {
+
+    # THE L2CValue MARSHALLING IS NOISE. Every constant in a status script is wrapped into an
+    # L2CValue before it is used, so the mangled constructors outnumber the real engine calls
+    # about three to one and the logic is invisible between them.
+    gsub(/_ZN3lib8L2CValueC1E[A-Za-z0-9_]*/, "L2CValue", line)
+    gsub(/_ZNK?3lib8L2CValue[0-9]+/, "L2CValue::", line)
+    gsub(/_ZN3app8lua_bind[0-9]+/, "", line)
+    gsub(/_ZN7lua2cpp[0-9]+/, "", line)
+    gsub(/_implEPNS_26BattleObjectModuleAccessorE[A-Za-z0-9_]*/, "", line)
+    gsub(/EPNS_26BattleObjectModuleAccessorE[A-Za-z0-9_]*/, "", line)
+
+    # lua_const reads. Ghidra puts the table pointer in a local and reads through it, so the
+    # `lVarN + 0xNNN` form is as common as the direct one -- and it is what every work id, status
+    # kind and flag in a status function looks like. Only 4-byte reads through a local count, and
+    # only when the offset is actually IN the dictionary, which stops a struct field at the same
+    # offset from being renamed after a constant it has nothing to do with.
+    while (match(line, /\*\(undefined4 \*\)\((lVar|lRam|puVar)[0-9a-zA-Z_]* \+ 0x[0-9a-f]+\)/)) {
         m = substr(line, RSTART, RLENGTH)
-        sub(/.*\+ 0x/, "", m)
-        key = tolower(m)
-        rep = (key in LC) ? "lua_const[" LC[key] "]" : "lua_const[+0x" m "]"
-        line = substr(line, 1, RSTART-1) rep substr(line, RSTART+RLENGTH)
-    }
-    # hash40 immediates, which is how every motion and event name arrives.
-    n = 0
-    while (match(line, /0x[0-9a-f]{9,11}\b/) && n++ < 8) {
-        m = substr(line, RSTART, RLENGTH)
-        rep = (m in H) ? "hash40(\"" H[m] "\")" : m
-        if (rep == m) { break }
+        off = m
+        sub(/.*\+ 0x/, "", off)
+        sub(/\)$/, "", off)
+        key = tolower(off)
+        rep = (key in LC) ? "lua_const[" LC[key] "]" : "lua_const[+0x" off "]"
         line = substr(line, 1, RSTART-1) rep substr(line, RSTART+RLENGTH)
     }
     print line
