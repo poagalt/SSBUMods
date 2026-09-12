@@ -750,13 +750,30 @@ unsafe fn whip_update_areas(fighter: &mut L2CFighterCommon) {
         WorkModule::off_flag(boma, *FIGHTER_GAOGAEN_STATUS_SPECIAL_S_FLAG_LARIAT_AREA);
     }
 
-    // Past the end line, coming home: this is what closes the lariat window.
-    if off > lariat_end_x {
-        WorkModule::on_flag(boma, *FIGHTER_GAOGAEN_STATUS_SPECIAL_S_FLAG_LARIAT_END_AREA);
+    // BOTH OF THESE ARE GATED ON HAVING BEEN OUT THERE FIRST, and writing them ungated was a bug
+    // I introduced and caught by re-reading my own code rather than by testing it.
+    //
+    // The areas sit at captor-relative x of -24, -10 and -6, and the victim STARTS the throw right
+    // next to the captor at off ~ 0. So `off > failure_x` (-6) is true on the very first frame,
+    // and ungated it would raise FLAG_FAILURE_AREA immediately -- the THROW loop checks that
+    // before anything else and changes status to SPECIAL_S_END, so the whole throw would have
+    // ended on frame one. `off > lariat_end_x` (-10) is true on frame one for the same reason,
+    // which would close the lariat window before it ever opened and make the lariat unreachable.
+    //
+    // The interval only means anything on the way BACK. `been_out` records that the victim has
+    // reached the lariat area at least once; until then neither line can fire. That matches the
+    // shape of the move -- thrown out to the ropes, then the window is open on the return trip,
+    // then past -10 it closes and past -6 it is a whiff.
+    if in_lariat {
+        state::set_lariat_been_out(entry, true);
     }
-    // All the way back: the whiff.
-    if off > failure_x {
-        WorkModule::on_flag(boma, *FIGHTER_GAOGAEN_STATUS_SPECIAL_S_FLAG_FAILURE_AREA);
+    if state::lariat_been_out(entry) && !in_lariat {
+        if off > lariat_end_x {
+            WorkModule::on_flag(boma, *FIGHTER_GAOGAEN_STATUS_SPECIAL_S_FLAG_LARIAT_END_AREA);
+        }
+        if off > failure_x {
+            WorkModule::on_flag(boma, *FIGHTER_GAOGAEN_STATUS_SPECIAL_S_FLAG_FAILURE_AREA);
+        }
     }
 }
 

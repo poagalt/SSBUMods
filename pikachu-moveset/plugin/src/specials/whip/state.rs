@@ -76,6 +76,20 @@ static mut LARIAT_AREA_HIT_POS_X: [f32; MAX] = [0.0; MAX];
 static mut LARIAT_BUTTON_PUSH_POS_X: [f32; MAX] = [0.0; MAX];
 static mut LARIAT_AREA_LENGTH: [f32; MAX] = [0.0; MAX];
 
+/// NOT ONE OF INCINEROAR'S IDS -- a port-only latch, and the only slot in this file that is.
+///
+/// `whip_update_areas` needs to know whether the victim has reached the lariat area at least once.
+/// The three areas sit BEHIND the captor (x of -24, -10 and -6) and the victim starts the throw
+/// beside him at roughly 0, so "past the end line" and "past the failure line" are both TRUE on
+/// the first frame. Ungated, FLAG_FAILURE_AREA would be raised immediately and the THROW loop --
+/// which tests it before anything else -- would end the whole throw on frame one.
+///
+/// Incineroar needs no equivalent, which is why there is no constant to name this after: the rope
+/// article raises his area flags from real collisions, so he never has to infer "on the way back"
+/// from a coordinate. This latch belongs to the ADR 0004 substitution rather than to the
+/// transcription, and it is named for what it does.
+static mut LARIAT_BEEN_OUT: [bool; MAX] = [false; MAX];
+
 /// Clears every slot, for the frame a whip begins.
 ///
 /// Incineroar does not need this: his work lives in an array the engine zeroes when the fighter is
@@ -88,6 +102,7 @@ pub fn reset(entry: usize) {
     unsafe {
         SWING_THROWN_FIGHTER[entry] = *BATTLE_OBJECT_ID_INVALID as u32;
         INVALID_SPECIAL_AIR_S[entry] = false;
+        LARIAT_BEEN_OUT[entry] = false;
         LARIAT_AREA_HIT_POS_X[entry] = 0.0;
         LARIAT_BUTTON_PUSH_POS_X[entry] = 0.0;
         LARIAT_AREA_LENGTH[entry] = 0.0;
@@ -126,6 +141,13 @@ slot!(
     invalid_special_air_s,
     set_invalid_special_air_s,
     INVALID_SPECIAL_AIR_S,
+    bool,
+    false
+);
+slot!(
+    lariat_been_out,
+    set_lariat_been_out,
+    LARIAT_BEEN_OUT,
     bool,
     false
 );
