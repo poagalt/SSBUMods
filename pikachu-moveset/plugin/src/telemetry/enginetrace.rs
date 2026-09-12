@@ -69,7 +69,17 @@ unsafe fn who(boma: *mut BattleObjectModuleAccessor) -> String {
     // The object id carries the entry: `(id >> 16) & 0xfff`, read out of
     // `get_battle_object_from_id` rather than assumed.
     let id = (*boma).battle_object_id;
-    format!("{tag}{}", (id >> 16) & 0xfff)
+    // THE STATUS IS PART OF THE IDENTITY, because the questions this instrument answers are about
+    // branchy code. `FUN_710001d4b0`, the kinetic setup all six of Incineroar's side-B statuses
+    // call, dispatches on the current status and then again on the situation -- and which branch
+    // runs cannot be read reliably out of 748 lines of decompiled C with confidence, but it is
+    // obvious the moment each call says which status it came from.
+    format!(
+        "{tag}{} st={:#x} mot={:#x}",
+        (id >> 16) & 0xfff,
+        StatusModule::status_kind(boma),
+        MotionModule::motion_kind(boma)
+    )
 }
 
 unsafe fn rec(line: String) {
@@ -252,11 +262,50 @@ pub fn install() {
         send_event_nodes_hook,
         send_event_nodes_throw_hook,
         unlink_hook,
-        start_clatter_hook
+        start_clatter_hook,
+        change_kinetic_hook,
+        enable_energy_hook,
+        unable_energy_hook
     );
     sink::diag(
         "[rat] TRACE engine capture tracer ARMED -- play the SOURCE fighter and every call that \
          changes capture state will be recorded with its caller and arguments"
             .to_string(),
     );
+}
+
+// ---- the kinetics ---------------------------------------------------------------------------
+//
+// WHY THESE, AND WHY LATE. The whip's movement is one function -- `FUN_710001d4b0` at gaogaen
+// 0x710001d4b0 -- that every one of Incineroar's six side-B statuses calls. It is 62 engine calls
+// and no instance-work writes, so it is transcribable in principle, and it dispatches on the
+// current status and then on the situation through a nest of conditions that cannot be read out of
+// 748 lines of Ghidra output with any confidence.
+//
+// ADR 0006 says a transcription must be a copy, and a copy of a branch tree I have guessed at is
+// the reimplementation this whole rewrite exists to stop. Which branch RUNS is not a deduction
+// though -- it is a recording, and that is what solved the capture. So: hook the kinetic calls,
+// tag each with the status it came from, play one side-B, and transcribe the executed path.
+//
+// `sv_kinetic_energy::reset_energy` and friends are deliberately absent: they are called through
+// the lua stack, so a hook on them sees a `lua_State` and none of the arguments. The direct
+// module calls below carry theirs, and the reset TYPE is visible in the static source where the
+// branch structure is not.
+
+#[skyline::hook(replace = KineticModule::change_kinetic)]
+unsafe fn change_kinetic_hook(boma: *mut BattleObjectModuleAccessor, kind: i32) -> u64 {
+    rec(format!("{} KineticModule::change_kinetic({kind:#x})", who(boma)));
+    original!()(boma, kind)
+}
+
+#[skyline::hook(replace = KineticModule::enable_energy)]
+unsafe fn enable_energy_hook(boma: *mut BattleObjectModuleAccessor, id: i32) -> u64 {
+    rec(format!("{} KineticModule::enable_energy({id:#x})", who(boma)));
+    original!()(boma, id)
+}
+
+#[skyline::hook(replace = KineticModule::unable_energy)]
+unsafe fn unable_energy_hook(boma: *mut BattleObjectModuleAccessor, id: i32) -> u64 {
+    rec(format!("{} KineticModule::unable_energy({id:#x})", who(boma)));
+    original!()(boma, id)
 }
