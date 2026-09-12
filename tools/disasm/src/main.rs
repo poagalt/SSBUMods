@@ -472,6 +472,14 @@ fn main() {
         return;
     }
 
+    // EVERY STATUS FUNCTION AN NRO REGISTERS -- see `status_map`.
+    if mode == "--statusmap" {
+        let start = nro.resolve(a.get(2).expect("--statusmap needs the create_agent address"));
+        let span: usize = a.get(3).and_then(|s| s.parse().ok()).unwrap_or(20000);
+        status_map(&nro, start, span);
+        return;
+    }
+
     // A READABLE TRACE OF A STATUS FUNCTION -- see `is_noise` and `hash40_names` for why.
     if mode == "--trace" {
         let start = nro.resolve(a.get(2).expect("--trace needs an address"));
@@ -928,4 +936,122 @@ fn hash40_names() -> &'static HashMap<u64, String> {
         }
         m
     })
+}
+
+// ---------------------------------------------------------------------------------------------
+// EVERY STATUS FUNCTION A FIGHTER NRO REGISTERS: which status, which line, and where the code is.
+//
+// A fighter NRO exports exactly ONE symbol for its status scripts --
+// `create_agent_fighter_status_script_<name>` -- and every status function it installs is an
+// internal static with no symbol at all. That is why reading Incineroar's side-B meant reading
+// `vendor/ssbu-status`'s pre-decompiled tree and hoping it was complete, and why there is no such
+// tree for `lua2cpp_common`.
+//
+// The registration recovers all of it. `create_agent` is a long run of:
+//
+//     mov  w8, #0xb57c ; ldr w1, [x23, x8]      the STATUS KIND, as a lua_const offset
+//     ldr  w1, [x23, #0x34]                     the LINE, as a lua_const offset
+//     adrp x3, <page> ; add x3, x3, #<lo>       the FUNCTION
+//     bl   L2CAgentBase::sv_set_status_func
+//
+// so walking it yields `(status, line, address)` for every function the fighter has, with both
+// names resolved through lua_dict. Feed the addresses to `tools/decomp.sh` and the whole status
+// tree decompiles.
+//
+// This is the same recovery `vendor/ssbu-status`'s Ghidra script performed, done here so it can be
+// run against any NRO -- including the ones that tree does not cover.
+fn status_map(nro: &Nro, start: usize, span: usize) {
+    // NO STOPPING AT THE FIRST `ret`. `create_agent` has several, because it is generated code
+    // with early returns, and the registrations continue well past the first one -- which is why
+    // a plain disassembly of it looks like it ends after a few hundred bytes.
+    let decoder = InstDecoder::default();
+    let mut page: [u64; 32] = [0; 32];
+    let mut full: [u64; 32] = [0; 32];
+    let mut imm: [u64; 32] = [0; 32];
+    // The last two lua_const offsets seen, which are the status kind and then the line.
+    let mut consts: Vec<u64> = Vec::new();
+    let dict = lua_dict();
+    let mut found = 0;
+
+    let mut off = start;
+    while off + 4 <= nro.text_size as usize {
+        let pc = GHIDRA_BASE() + off as u64;
+        let mut reader = U8Reader::new(&nro.bytes[off..off + 4]);
+        let Ok(inst) = decoder.decode(&mut reader) else {
+            off += 4;
+            continue;
+        };
+        let text = format!("{inst}");
+
+        if let Some(rd) = adrp_dest(&text) {
+            page[rd] = adrp_page(&text).unwrap_or(0).wrapping_add(pc & !0xfff);
+            full[rd] = 0;
+        } else if let Some(rest) = text.strip_prefix("add ") {
+            let p: Vec<&str> = rest.split(", ").collect();
+            if p.len() == 3 {
+                if let (Some(rd), Some(rn), Some(v)) = (reg_num(p[0]), reg_num(p[1]), imm_val(p[2]))
+                {
+                    if page[rn] != 0 {
+                        full[rd] = page[rn] + v;
+                    }
+                }
+            }
+        } else if let Some(rest) = text.strip_prefix("mov ") {
+            let p: Vec<&str> = rest.split(", ").collect();
+            if p.len() == 2 {
+                if let (Some(rd), Some(v)) = (reg_num(p[0]), imm_val(p[1])) {
+                    imm[rd] = v;
+                }
+            }
+        } else if text.starts_with("ldr w") {
+            // `ldr w1, [x23, #0x34]` -- a lua_const read with an immediate, or
+            // `ldr w1, [x23, x8]` -- one whose offset was built in a register first.
+            if let Some(i) = text.find('[') {
+                let inner = &text[i + 1..];
+                if let Some(j) = inner.find(']') {
+                    let mut parts = inner[..j].split(", ");
+                    let _base = parts.next();
+                    match parts.next() {
+                        Some(o) if o.starts_with('#') => {
+                            if let Some(v) = imm_val(o) {
+                                consts.push(v);
+                            }
+                        }
+                        Some(o) => {
+                            if let Some(r) = reg_num(o) {
+                                if imm[r] != 0 {
+                                    consts.push(imm[r]);
+                                }
+                            }
+                        }
+                        None => {}
+                    }
+                    while consts.len() > 2 {
+                        consts.remove(0);
+                    }
+                }
+            }
+        } else if text.starts_with("bl ") {
+            let target = text
+                .split_once(' ')
+                .and_then(|(_, rest)| parse_branch_target(rest, pc));
+            let name = target.and_then(|t| nro.name_of(t - GHIDRA_BASE()));
+            let is_reg = name.as_deref().map_or(false, |n| n.contains("sv_set_status_func"));
+            if is_reg && consts.len() == 2 {
+                let unknown = "?".to_string();
+                let status = dict.get(&consts[0]).unwrap_or(&unknown);
+                let line = dict.get(&consts[1]).unwrap_or(&unknown);
+                println!("{:#x}  {:<46} {}", full[3], status, line);
+                found += 1;
+                consts.clear();
+            } else if is_reg {
+                consts.clear();
+            }
+        }
+        off += 4;
+        if off >= start + span * 4 {
+            break;
+        }
+    }
+    eprintln!("; {found} status function(s) registered");
 }
