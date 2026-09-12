@@ -463,6 +463,11 @@ unsafe fn whip_release(fighter: &mut L2CFighterCommon) -> bool {
             LinkModule::unlink(boma, link);
         }
     }
+    // The whip is over: stop tracing and forget the victim, so a stale id cannot make the next
+    // whip's `whip_victim_held` watchdog answer about the previous one's victim.
+    let entry = entry_of(boma);
+    crate::victim::untrace(entry);
+    state::set_swing_thrown_fighter(entry, *BATTLE_OBJECT_ID_INVALID as u32);
     true
 }
 
@@ -758,6 +763,15 @@ unsafe fn whip_update_areas(fighter: &mut L2CFighterCommon) {
 unsafe extern "C" fn special_s_throw_main_loop(fighter: &mut L2CFighterCommon) -> L2CValue {
     let boma = fighter.module_accessor;
     let entry = entry_of(boma);
+
+    // THE VICTIM'S OWN STATE, ONE LINE PER CHANGE. `crate::victim::trace` is the instrument the
+    // cargo has used since round four and the whip never did -- which is why three rounds of whip
+    // reports were about the victim while every log line was about us. It answers the question the
+    // last playtest could not: whether the forced SWING_GAOGAEN_CATCHED actually takes, and
+    // whether their clatter starts at our `special_s_catch_clatter_frame` of 85 or at zero.
+    if let Some(vb) = crate::victim::boma(state::swing_thrown_fighter(entry)) {
+        crate::victim::trace(entry, vb, "whip");
+    }
 
     // NOT PART OF THE TRANSCRIPTION -- the rope would be doing this. See `whip_update_areas`.
     whip_update_areas(fighter);

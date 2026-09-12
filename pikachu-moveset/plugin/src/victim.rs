@@ -287,9 +287,26 @@ pub unsafe fn request_status(
         return false;
     }
     crate::telemetry::sink::crumb(format!(
-        "[rat] about to request status {status:#x} on victim from {who}"
+        "[rat] about to force status {status:#x} on victim from {who}"
     ));
-    StatusModule::change_status_request_from_script(vboma, status, false);
+    // FORCED, BECAUSE AN UNFORCED REQUEST FROM ANOTHER FIGHTER'S SCRIPT DOES NOT ARRIVE.
+    //
+    // This was `change_status_request_from_script(vboma, status, false)`, and the whip's victim
+    // ended up captured but never transitioned: the playtest reported Mario "stuck to pikachu's
+    // feet" through movement and jumping until an attack freed him, and the diagnostic agreed --
+    //
+    //     caught 0x10000: is_capture=true ours_link=true their_is_link=true their_st=0x0
+    //
+    // `their_st=0x0` is FIGHTER_STATUS_KIND_WAIT. He was constrained to the captor (hence sitting
+    // at the captor's ORIGIN, which is between the feet) with his own status untouched, so nothing
+    // drove his motion, nothing started his clatter, and nothing could release him.
+    //
+    // A `_from_script` request is the polite form: it is queued and the engine may decline it
+    // against the victim's own transition table, and WAIT -> SWING_GAOGAEN_CATCHED is not a
+    // transition any fighter's own script is expected to make. When the engine performs a real
+    // catch it does not ask -- it changes the victim's status itself. Since this path exists
+    // precisely because the engine declined to do that, it has to be equally direct.
+    StatusModule::change_status_force(vboma, status, false);
     true
 }
 

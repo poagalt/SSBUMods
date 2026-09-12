@@ -1001,6 +1001,20 @@ fn status_map(nro: &Nro, start: usize, span: usize) {
             if p.len() == 2 {
                 if let (Some(rd), Some(v)) = (reg_num(p[0]), imm_val(p[1])) {
                     imm[rd] = v;
+                } else if let (Some(rd), Some(rs)) = (reg_num(p[0]), reg_num(p[1])) {
+                    // REGISTER-TO-REGISTER MOVES MUST CARRY THE COMPUTED ADDRESS, and not doing so
+                    // made this whole mode return nothing for `lua2cpp_common`.
+                    //
+                    // The fighter NROs build the function pointer straight into x3 --
+                    // `adrp x3, ..` then `add x3, x3, #imm` -- so tracking `adrp`/`add` alone was
+                    // enough for gaogaen (98 functions) and donkey (178). Common builds it into a
+                    // scratch register and copies: `adrp x8 / add x8 / .. / mov x3, x8`. `full[3]`
+                    // was therefore never written and every one of its 2,374 registrations printed
+                    // an address of 0x0 -- the names resolved, so it looked like a lua_dict problem
+                    // rather than a register-tracking one.
+                    full[rd] = full[rs];
+                    page[rd] = page[rs];
+                    imm[rd] = imm[rs];
                 }
             }
         } else if text.starts_with("ldr w") {
@@ -1041,7 +1055,15 @@ fn status_map(nro: &Nro, start: usize, span: usize) {
                 let unknown = "?".to_string();
                 let status = dict.get(&consts[0]).unwrap_or(&unknown);
                 let line = dict.get(&consts[1]).unwrap_or(&unknown);
-                println!("{:#x}  {:<46} {}", full[3], status, line);
+                // THE CALL SITE IS PRINTED TOO, because a resolved-to-zero address is not a dead
+                // end. `lua2cpp_common` registers its 2,374 status functions from many separate
+                // functions rather than one `create_agent` -- its
+                // `create_agent_fighter_status_script_common` is literally `mov x0, xzr; ret` --
+                // and it builds the pointer in a way this tracker does not follow, so `full[3]`
+                // comes out 0. With the site in hand the pointer can be read off a disassembly of
+                // those few instructions by hand, which is how the victim-side SWING_GAOGAEN_*
+                // statuses were finally located.
+                println!("{:#x}  {:<46} {:<40} site={:#x}", full[3], status, line, pc);
                 found += 1;
                 consts.clear();
             } else if is_reg {

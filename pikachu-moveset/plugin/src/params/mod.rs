@@ -131,8 +131,43 @@ unsafe fn announce(seen: *mut u16, i: usize, name: &str, value: f32) {
 static mut SEEN_INT: u16 = 0;
 static mut SEEN_FLOAT: u16 = 0;
 
+/// `FIGHTER_GAOGAEN_INSTANCE_WORK_ID_FLAG_SPECIAL_S_GENERATED_ROPE`, which the VICTIM reads OFF US.
+///
+/// THE VICTIM'S OWN NATIVE STATUS ASKS THE CAPTOR WHETHER A ROPE EXISTS, and answers it for itself.
+/// `L2CFighterCommon::status_SwingGaogaenCatched` in `lua2cpp_common` (0x710028a510) resolves the
+/// captor through `LinkModule::get_parent_id(LINK_NO_CAPTURE)` and then reads, off the captor:
+///
+///     is_flag(FIGHTER_GAOGAEN_INSTANCE_WORK_ID_FLAG_SPECIAL_S_GENERATED_ROPE)
+///       if OFF  -> special_s_through_target_cancel_frame_no_rope
+///                  special_s_through_target_speed_no_rope
+///       if ON   -> special_s_through_target_cancel_frame / _speed / _speed_over_rope
+///                  and get_float(FIGHTER_GAOGAEN_STATUS_SPECIAL_S_FLOAT_ROPE_X)
+///
+/// So the game HAS a first-class no-rope path and the victim selects it automatically -- which is
+/// exactly the situation ADR 0004 puts this port in permanently. It just has to answer honestly.
+///
+/// IT CANNOT ANSWER BY WRITING THE FLAG. That id is 0x200000EA and Pikachu's
+/// FIGHTER_PIKACHU_INSTANCE_WORK_ID_FLAG_TERM is 0x200000E8, so it is TWO PAST THE END of his
+/// instance-flag array -- not an alias of some other flag, genuinely out of bounds. `off_flag`
+/// there would be an out-of-bounds write, and leaving it alone means the victim's `is_flag` reads
+/// whatever sits past the array and may well decide a rope exists. That is the ADR 0004 crash
+/// arriving from the one direction the port cannot reach: the victim's code, reading our state.
+///
+/// So the read is intercepted instead, which is the same move `get_param_*` above already makes
+/// and for the same reason: the engine asks a question about a Pikachu that only this plugin knows
+/// the answer to. `false` is not a guess -- this port ships no rope, by decision.
+const GENERATED_ROPE: i32 = 0x2000_00EA;
+
+#[skyline::hook(replace = WorkModule::is_flag)]
+unsafe fn is_flag_hook(boma: *mut BattleObjectModuleAccessor, id: i32) -> bool {
+    if id == GENERATED_ROPE && is_pikachu(boma) {
+        return false;
+    }
+    original!()(boma, id)
+}
+
 pub fn install() {
-    skyline::install_hooks!(get_param_int_hook, get_param_float_hook);
+    skyline::install_hooks!(get_param_int_hook, get_param_float_hook, is_flag_hook);
 }
 
 // Two things that must stay true, checked at compile time rather than trusted: the whip module's

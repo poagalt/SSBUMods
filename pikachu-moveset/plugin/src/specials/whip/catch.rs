@@ -223,8 +223,30 @@ pub unsafe fn try_catch(fighter: &mut L2CFighterCommon) -> bool {
         return false;
     }
 
-    let found = find_caught_victim(boma).or_else(|| find_victim_in_range(boma));
-    let Some((them, vboma)) = found else {
+    // THE ENGINE FIRST, AND IF IT CAUGHT THEM WE TOUCH NOTHING.
+    //
+    // This used to be `find_caught_victim(boma).or_else(|| find_victim_in_range(boma))` feeding a
+    // single `take_captive`, which meant the port re-ran the whole claim -- `LinkModule::link`,
+    // `CaptureModule::capture`, a forced status change -- ON TOP of a capture the engine had
+    // already built correctly. That is a good way to break a working catch.
+    //
+    // And the engine's catch is NOT kind-keyed, which the earlier rounds of this move assumed it
+    // was. `macros::CATCH(agent, id, bone, .., status, mask)` takes the victim's target status AS
+    // AN ARGUMENT, so the handler is generic: the reason HewDraw Remix's Incineroar does nothing
+    // special to put the victim in SWING_GAOGAEN_CATCHED is that the macro is sufficient. What is
+    // kind-keyed is the captor's own SPECIAL_S -> SPECIAL_S_THROW transition, which is why
+    // `special_s_main_loop` still has to ask.
+    //
+    // So: if the engine did it, adopt it and get out of the way. Only substitute when it declined.
+    if let Some((them, _)) = find_caught_victim(boma) {
+        state::set_swing_thrown_fighter(entry, them);
+        crate::telemetry::sink::diag(format!(
+            "[rat] WHIP p{entry} ENGINE caught {them:#x} -- adopting, no port-side claim"
+        ));
+        return true;
+    }
+
+    let Some((them, vboma)) = find_victim_in_range(boma) else {
         // INSTRUMENTED, BECAUSE THE FIRST PLAYTEST OF THE REWRITE PRODUCED NO WHIP LINES AT ALL.
         // "Doesn't grab even at point blank" and "no log line" have several possible causes and
         // guessing between them is what the last two rounds of this move were made of: the loop
