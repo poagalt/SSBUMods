@@ -36,7 +36,7 @@ use {
     smash::{
         lua2cpp::*,
         phx::*,
-        app::{lua_bind::*, *},
+        app::{lua_bind::*, KineticUtility, *},
         lib::{lua_const::*, L2CValue},
     },
     smashline::{*, Priority::*},
@@ -60,10 +60,12 @@ unsafe fn entry_of(boma: *mut BattleObjectModuleAccessor) -> usize {
 ///             | FIGHTER_LOG_MASK_FLAG_ACTION_TRIGGER_ON,
 ///         <status attr>, FIGHTER_POWER_UP_ATTACK_BIT_SPECIAL_S, 0)
 ///
-/// THE KINETIC TYPE IS **UNIQ**, WHICH THE OLD MODULE NEVER USED. It passed MOTION for some of
-/// these and GROUND_STOP for others, on the reasoning that the animation should carry him. UNIQ
-/// means the status owns its energy outright, and it is what makes the lunge and the throw move
-/// the way they do rather than the way an animation's root motion does.
+/// THE KINETIC TYPE HERE IS UNIQ, AND IT DOES NOT SURVIVE THE FRAME. `init_settings` declares
+/// FIGHTER_KINETIC_TYPE_UNIQ for all six of these statuses, and then `whip_kinetics_enter`
+/// immediately overrides it with GROUND_STOP on the ground or FALL in the air -- which is not
+/// visible in this function at all, and was only established by recording Incineroar playing the
+/// move. Transcribing this `pre` faithfully and stopping there would have produced a move on the
+/// wrong kinetic type, which is worth remembering the next time a status looks fully understood.
 ///
 /// Only the status attribute differs between the six, so it is the one parameter: the catch passes
 /// FIGHTER_STATUS_ATTR_START_TURN and the throw passes FIGHTER_STATUS_ATTR_DISABLE_TURN_DAMAGE.
@@ -96,6 +98,97 @@ unsafe fn whip_pre(fighter: &mut L2CFighterCommon, status_attr: i32) -> L2CValue
         0,
     );
     0.into()
+}
+
+/// The whip's kinetic setup, transcribed from the RECORDED sequence rather than the source tree.
+///
+/// WHY A RECORDING AND NOT THE SOURCE, since ADR 0006 says transcribe. The source exists: every
+/// one of Incineroar's six side-B statuses calls `FUN_710001d4b0` at gaogaen 0x710001d4b0, which
+/// is 62 kinetic calls over 748 lines of decompiled C. But it dispatches on the current status
+/// through a six-deep nest of inverted conditions and then on the situation and on a bool
+/// argument, and it contains TWO `change_kinetic(GROUND_STOP)` sites in different branches that
+/// produce an identical observable. Reading which one runs out of that is not transcription, it is
+/// reconstruction, and a reconstruction is what the module this replaces was made of.
+///
+/// So the branch was measured instead. `src/telemetry/enginetrace.rs` hooks change_kinetic,
+/// enable_energy and clear_unable_energy and tags each call with the status and motion it came
+/// from; `KineticUtility::clear_unable_energy` is the decisive one because it passes its argument
+/// directly rather than through the lua stack. Incineroar's own side-B, on the ground and in the
+/// air, then prints its kinetic setup in execution order:
+///
+///   GROUND, mot=special_s_start                 AIR, mot=special_air_s_start
+///   ----------------------------------          ----------------------------------
+///   change_kinetic(GROUND_STOP)                 change_kinetic(FALL)
+///                                               enable_energy(STOP)
+///   clear_unable_energy(MOTION)                 clear_unable_energy(MOTION)
+///   clear_unable_energy(CONTROL)                clear_unable_energy(CONTROL)
+///   enable_energy(MOTION)                       enable_energy(MOTION)
+///   clear_unable_energy(GRAVITY)                clear_unable_energy(GRAVITY)
+///   clear_unable_energy(CONTROL)                clear_unable_energy(CONTROL)
+///   clear_unable_energy(STOP)                   clear_unable_energy(STOP)
+///
+/// identical across every repetition, and the air path is the ground path with two calls swapped
+/// in at the front. This function IS that table.
+///
+/// AND IT CORRECTS SOMETHING THE OLD MODULE HAD WRONG IN EVERY STATUS. `init_settings` declares
+/// FIGHTER_KINETIC_TYPE_UNIQ for all six of these statuses -- that much was transcribed from the
+/// source correctly -- and then this setup immediately overrides it with GROUND_STOP on the ground
+/// and FALL in the air. The old module passed MOTION for some statuses and GROUND_STOP for others,
+/// reasoning about which one "should" carry him, and never enabled the STOP energy at all. That is
+/// most of what "the timing is messed up" was.
+///
+/// `sv_kinetic_energy::reset_energy` and `set_speed_mul` are NOT here. They are called through the
+/// lua stack, so the tracer cannot see them, and their arguments in the matching static block
+/// depend on which block ran -- the exact thing that could not be established. They are the
+/// remaining gap in this function and it is named rather than guessed: see the module header.
+unsafe fn whip_kinetics_enter(fighter: &mut L2CFighterCommon) {
+    let boma = fighter.module_accessor;
+
+    if fighter.global_table[0x16] == *SITUATION_KIND_GROUND {
+        KineticModule::change_kinetic(boma, *FIGHTER_KINETIC_TYPE_GROUND_STOP);
+    } else {
+        KineticModule::change_kinetic(boma, *FIGHTER_KINETIC_TYPE_FALL);
+        KineticModule::enable_energy(boma, *FIGHTER_KINETIC_ENERGY_ID_STOP);
+    }
+
+    KineticUtility::clear_unable_energy(*FIGHTER_KINETIC_ENERGY_ID_MOTION, boma);
+    KineticUtility::clear_unable_energy(*FIGHTER_KINETIC_ENERGY_ID_CONTROL, boma);
+    KineticModule::enable_energy(boma, *FIGHTER_KINETIC_ENERGY_ID_MOTION);
+    KineticUtility::clear_unable_energy(*FIGHTER_KINETIC_ENERGY_ID_GRAVITY, boma);
+    KineticUtility::clear_unable_energy(*FIGHTER_KINETIC_ENERGY_ID_CONTROL, boma);
+    KineticUtility::clear_unable_energy(*FIGHTER_KINETIC_ENERGY_ID_STOP, boma);
+}
+
+/// The same, for SPECIAL_S_THROW. Recorded, `mot=special_s_throw` and `special_air_s_throw` alike:
+///
+///   clear_unable_energy(MOTION)
+///   clear_unable_energy(GRAVITY)
+///   clear_unable_energy(CONTROL)
+///   enable_energy(STOP)
+///
+/// NO `change_kinetic` AT ALL, on the ground or in the air -- the throw inherits whatever the
+/// catch left, which is why its `init_settings` passes GROUND_CORRECT_KIND_KEEP.
+unsafe fn whip_kinetics_throw(fighter: &mut L2CFighterCommon) {
+    let boma = fighter.module_accessor;
+    KineticUtility::clear_unable_energy(*FIGHTER_KINETIC_ENERGY_ID_MOTION, boma);
+    KineticUtility::clear_unable_energy(*FIGHTER_KINETIC_ENERGY_ID_GRAVITY, boma);
+    KineticUtility::clear_unable_energy(*FIGHTER_KINETIC_ENERGY_ID_CONTROL, boma);
+    KineticModule::enable_energy(boma, *FIGHTER_KINETIC_ENERGY_ID_STOP);
+}
+
+/// The follow-ups -- SHOULDER, LARIAT and FAILURE. Recorded, and identical for all three:
+///
+///   enable_energy(MOTION)
+///   clear_unable_energy(GRAVITY)
+///   clear_unable_energy(CONTROL)
+///   clear_unable_energy(STOP)
+#[allow(dead_code)]
+unsafe fn whip_kinetics_followup(fighter: &mut L2CFighterCommon) {
+    let boma = fighter.module_accessor;
+    KineticModule::enable_energy(boma, *FIGHTER_KINETIC_ENERGY_ID_MOTION);
+    KineticUtility::clear_unable_energy(*FIGHTER_KINETIC_ENERGY_ID_GRAVITY, boma);
+    KineticUtility::clear_unable_energy(*FIGHTER_KINETIC_ENERGY_ID_CONTROL, boma);
+    KineticUtility::clear_unable_energy(*FIGHTER_KINETIC_ENERGY_ID_STOP, boma);
 }
 
 unsafe extern "C" fn special_s_pre(fighter: &mut L2CFighterCommon) -> L2CValue {
@@ -147,6 +240,8 @@ unsafe extern "C" fn special_s_main(fighter: &mut L2CFighterCommon) -> L2CValue 
             boma, Hash40::new("special_air_s_start"), 0.0, 1.0, false, 0.0, false, false,
         );
     }
+
+    whip_kinetics_enter(fighter);
 
     fighter.sub_shift_status_main(L2CValue::Ptr(special_s_main_loop as *const () as _))
 }
@@ -204,6 +299,8 @@ unsafe extern "C" fn special_s_throw_main(fighter: &mut L2CFighterCommon) -> L2C
             boma, Hash40::new("special_air_s_throw"), 0.0, 1.0, false, 0.0, false, false,
         );
     }
+
+    whip_kinetics_throw(fighter);
 
     fighter.sub_shift_status_main(L2CValue::Ptr(special_s_throw_main_loop as *const () as _))
 }
