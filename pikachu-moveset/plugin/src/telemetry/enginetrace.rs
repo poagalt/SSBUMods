@@ -34,7 +34,7 @@
 //
 // OFF BY DEFAULT. It is an instrument, not telemetry: flip ENABLED, deploy, play the SOURCE
 // fighter, and read the log.
-use smash::app::{lua_bind::*, utility, BattleObjectModuleAccessor};
+use smash::app::{lua_bind::*, utility, BattleObjectModuleAccessor, KineticUtility};
 use smash::lib::lua_const::*;
 use smash::phx::Hash40;
 
@@ -265,7 +265,8 @@ pub fn install() {
         start_clatter_hook,
         change_kinetic_hook,
         enable_energy_hook,
-        unable_energy_hook
+        unable_energy_hook,
+        clear_unable_energy_hook
     );
     sink::diag(
         "[rat] TRACE engine capture tracer ARMED -- play the SOURCE fighter and every call that \
@@ -308,4 +309,29 @@ unsafe fn enable_energy_hook(boma: *mut BattleObjectModuleAccessor, id: i32) -> 
 unsafe fn unable_energy_hook(boma: *mut BattleObjectModuleAccessor, id: i32) -> u64 {
     rec(format!("{} KineticModule::unable_energy({id:#x})", who(boma)));
     original!()(boma, id)
+}
+
+/// The call that DISAMBIGUATES THE BRANCH, which is the only reason it is hooked.
+///
+/// `FUN_710001d4b0` contains two `change_kinetic(GROUND_STOP)` sites in different branches of its
+/// bool argument, and a recording of `change_kinetic` alone cannot say which one fired -- both
+/// produce the same kinetic type from the same status. Picking one would be assembling the move
+/// rather than copying it, which ADR 0006 exists to forbid.
+///
+/// The two blocks differ in their `clear_unable_energy` signature, and that is decisive:
+///
+///     0x710001dbfc..dc84   MOTION, GRAVITY, CONTROL
+///     0x710001e408..e490   GRAVITY, CONTROL, STOP
+///
+/// So one recorded triple names the block outright. `KineticUtility::clear_unable_energy` takes
+/// its arguments directly rather than through the lua stack, which is what makes it readable where
+/// `sv_kinetic_energy::reset_energy` is not -- and once the block is known, the reset types and
+/// speeds in it are already legible in the static source.
+///
+/// Note the argument order: the energy id comes FIRST and the accessor second, which is the
+/// opposite of every other call in this file.
+#[skyline::hook(replace = KineticUtility::clear_unable_energy)]
+unsafe fn clear_unable_energy_hook(id: i32, boma: *mut BattleObjectModuleAccessor) {
+    rec(format!("{} KineticUtility::clear_unable_energy({id:#x})", who(boma)));
+    original!()(id, boma)
 }
