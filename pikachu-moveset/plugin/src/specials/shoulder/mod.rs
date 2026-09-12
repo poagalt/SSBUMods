@@ -241,9 +241,6 @@ unsafe extern "C" fn shoulder_start_main(fighter: &mut L2CFighterCommon) -> L2CV
     let boma = fighter.module_accessor;
     let entry = entry_of(boma);
     CARRY_FRAMES[entry] = 0;
-    // DK's own three calls, from ShoulderStart_init. In his Init line rather than Main; ours goes
-    // here because Main runs once per entry too and the port does not register Init for these.
-    enter_carry(boma, entry);
     // CRUMBED, because the cargo crash lands here and the report cannot say why. The Atmosphere
     // backtrace for it is `rat_of_doom + 0x9cf8` under smashline own line hook with no engine
     // frame between -- an Instruction Abort, so a branch to an address that is not code. That
@@ -738,19 +735,30 @@ pub unsafe fn begin(fighter: &mut L2CFighterCommon, victim: u32) {
 }
 
 pub fn install() {
+    // `Init` AND `Exit` ARE REGISTERED NOW, which is where DK's carry actually lives. See
+    // `docs/the-carry.md`: his eleven carry statuses share one `EXIT_STATUS` and his lift setup is
+    // an `INIT_STATUS`, and this module previously had ELEVEN `Main` and TEN `Pre` hooks and none
+    // of these. The bodies were already right; only their line was wrong.
     Agent::new("pikachu")
+        .status(Init, RAT_STATUS_KIND_SHOULDER_START,   shoulder_start_init)
         .status(Pre,  RAT_STATUS_KIND_SHOULDER_START,   shoulder_start_pre)
         .status(Main, RAT_STATUS_KIND_SHOULDER_START,   shoulder_start_main)
+        .status(Exit, RAT_STATUS_KIND_SHOULDER_START,   shoulder_exit)
         .status(Pre,  RAT_STATUS_KIND_SHOULDER_WAIT,    shoulder_wait_pre)
         .status(Main, RAT_STATUS_KIND_SHOULDER_WAIT,    shoulder_wait_main)
+        .status(Exit, RAT_STATUS_KIND_SHOULDER_WAIT,    shoulder_exit)
         .status(Pre,  RAT_STATUS_KIND_SHOULDER_WALK,    shoulder_walk_pre)
         .status(Main, RAT_STATUS_KIND_SHOULDER_WALK,    shoulder_walk_main)
+        .status(Exit, RAT_STATUS_KIND_SHOULDER_WALK,    shoulder_exit)
         .status(Pre,  RAT_STATUS_KIND_SHOULDER_TURN,    shoulder_turn_pre)
         .status(Main, RAT_STATUS_KIND_SHOULDER_TURN,    shoulder_turn_main)
+        .status(Exit, RAT_STATUS_KIND_SHOULDER_TURN,    shoulder_exit)
         .status(Pre,  RAT_STATUS_KIND_SHOULDER_FALL,    shoulder_fall_pre)
         .status(Main, RAT_STATUS_KIND_SHOULDER_FALL,    shoulder_fall_main)
+        .status(Exit, RAT_STATUS_KIND_SHOULDER_FALL,    shoulder_exit)
         .status(Pre,  RAT_STATUS_KIND_SHOULDER_LANDING, shoulder_landing_pre)
         .status(Main, RAT_STATUS_KIND_SHOULDER_LANDING, shoulder_landing_main)
+        .status(Exit, RAT_STATUS_KIND_SHOULDER_LANDING, shoulder_exit)
         .status(Pre,  RAT_STATUS_KIND_THROW_F_F,  throw_pre)
         .status(Main, RAT_STATUS_KIND_THROW_F_F,  throw_ff_main)
         .status(Pre,  RAT_STATUS_KIND_THROW_F_B,  throw_pre)
@@ -876,6 +884,19 @@ fn throw_motion(status: i32) -> Option<&'static str> {
 }
 
 /// `ShoulderStart_init`, call for call.
+/// DK's `SHOULDER_START` `INIT_STATUS`, donkey `0x71000083e0`, as an `Init` line rather than a call
+/// from `Main`.
+///
+/// `INIT_STATUS` RUNS BEFORE `PRE`. Running this from `Main` put the carry's setup two status
+/// functions later than the engine expects it -- `IGNORE_CATCHING` and the lift invincibility were
+/// not in place while `pre` and the engine's own status entry ran. That ordering is not something
+/// this port gets to choose.
+unsafe extern "C" fn shoulder_start_init(fighter: &mut L2CFighterCommon) -> L2CValue {
+    let boma = fighter.module_accessor;
+    enter_carry(boma, entry_of(boma));
+    0.into()
+}
+
 unsafe fn enter_carry(boma: *mut BattleObjectModuleAccessor, entry: usize) {
     if linked_victim(boma, entry, "carry start") {
         LinkModule::send_event_nodes(boma, *LINK_NO_CAPTURE, Hash40::new("shoulder"), 0);
@@ -919,12 +940,58 @@ unsafe fn carry_change(fighter: &mut L2CFighterCommon, entry: usize, next: i32, 
     if !crate::victim::allow_shift(entry, why) {
         return 0.into();
     }
-    // DK does this in the status EXIT line, which smashline supports -- but every one of these
-    // transitions already funnels through here, and one place that knows both the old and the new
-    // status is easier to keep honest than ten registered exits.
-    leave_carry(fighter.module_accessor, entry, next);
+    // `leave_carry` USED TO BE CALLED HERE, and the reasoning for that was wrong in one specific
+    // way. The old comment said: "DK does this in the status EXIT line, which smashline supports --
+    // but every one of these transitions already funnels through here, and one place that knows
+    // both the old and the new status is easier to keep honest than ten registered exits."
+    //
+    // "Every one of these transitions" is only true of the transitions THE PORT DRIVES. Getting
+    // hit, being grabbed, dying, falling off the stage -- the engine changes status without ever
+    // passing through `carry_change`, and the teardown then never ran at all: the victim stayed
+    // attached and `CATCH_WAIT_WORK_INT_MOTION_KIND` was never written. DK's `EXIT_STATUS` at
+    // `0x7100004df0` runs on EVERY exit, which is the entire reason it is an exit line and not a
+    // call at the top of each transition.
+    //
+    // It is now registered as `Exit` on all six statuses (see `install`), so it covers this
+    // transition too -- calling it here as well would run the teardown twice.
     fighter.change_status(next.into(), false.into());
     1.into()
+}
+
+/// DK's shared `SHOULDER_*` `EXIT_STATUS`, gaogaen -- no, donkey `0x7100004df0`, registered on all
+/// eleven of his carry statuses and now on all six of ours.
+///
+/// IT DECIDES BY THE STATUS BEING ENTERED, read from `global_table[0xb]`:
+///
+///   * one of the four `THROW_F_*` -> write that throw's motion into
+///     `FIGHTER_STATUS_CATCH_WAIT_WORK_INT_MOTION_KIND`, which is the work id the port's own
+///     `pikachu_throw_main` already reads back
+///   * another `SHOULDER_*` -> do nothing; the carry continues and there is nothing to tear down
+///   * anything else -> the carry is being lost, so write `invalid`
+///
+/// `leave_carry` already reproduced this body call for call. All that was wrong was where it ran.
+unsafe extern "C" fn shoulder_exit(fighter: &mut L2CFighterCommon) -> L2CValue {
+    let boma = fighter.module_accessor;
+    let entry = entry_of(boma);
+    // `global_table[0xb]` is the incoming status. `specialhi` already reads it this way.
+    let next = fighter.global_table[0xb].get_i32();
+    if is_carry_status(next) {
+        // Still carrying: DK's helper jumps straight past the teardown for this case.
+        return 0.into();
+    }
+    leave_carry(boma, entry, next);
+    0.into()
+}
+
+/// The six statuses that mean "still carrying", so `shoulder_exit` can tell a carry-to-carry
+/// transition from losing the carry. DK tests all eleven of his; these are the six this port has.
+fn is_carry_status(kind: i32) -> bool {
+    kind == RAT_STATUS_KIND_SHOULDER_START
+        || kind == RAT_STATUS_KIND_SHOULDER_WAIT
+        || kind == RAT_STATUS_KIND_SHOULDER_WALK
+        || kind == RAT_STATUS_KIND_SHOULDER_TURN
+        || kind == RAT_STATUS_KIND_SHOULDER_FALL
+        || kind == RAT_STATUS_KIND_SHOULDER_LANDING
 }
 
 /// Is there actually a fighter on the capture link, and says so once per carry.

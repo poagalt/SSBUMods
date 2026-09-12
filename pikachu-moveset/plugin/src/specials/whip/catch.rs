@@ -194,6 +194,23 @@ pub unsafe fn try_catch(fighter: &mut L2CFighterCommon) -> bool {
 
     let found = find_caught_victim(boma).or_else(|| find_victim_in_range(boma));
     let Some((them, vboma)) = found else {
+        // INSTRUMENTED, BECAUSE THE FIRST PLAYTEST OF THE REWRITE PRODUCED NO WHIP LINES AT ALL.
+        // "Doesn't grab even at point blank" and "no log line" have several possible causes and
+        // guessing between them is what the last two rounds of this move were made of: the loop
+        // might not be running, the motion frame might never reach the window, `victim::others`
+        // might be returning nothing, or the range test might be rejecting a fighter who is right
+        // there. One line on three frames of the window distinguishes all four.
+        if frame == CATCH_FIRST_FRAME || frame == 26.0 || frame == CATCH_LAST_FRAME {
+            let others = crate::victim::others((*boma).battle_object_id).len();
+            let nearest = find_victim_in_range(boma).is_some();
+            crate::telemetry::sink::diag(format!(
+                "[rat] WHIP p{} f{frame} no catch: others={others} in_range={nearest} \
+                 mot={:#x} st={:#x}",
+                super::entry_of(boma),
+                MotionModule::motion_kind(boma),
+                StatusModule::status_kind(boma)
+            ));
+        }
         return false;
     };
     take_captive(fighter, them, vboma);

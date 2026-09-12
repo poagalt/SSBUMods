@@ -504,6 +504,15 @@ unsafe extern "C" fn special_s_main(fighter: &mut L2CFighterCommon) -> L2CValue 
     state::set_swing_thrown_fighter(entry, *BATTLE_OBJECT_ID_INVALID as u32);
     state::set_invalid_special_air_s(entry, true);
 
+    // ONE LINE PER WHIP, so a playtest that reports nothing can be told apart from a playtest
+    // where the status never ran. The first test of this rewrite produced no WHIP lines at all and
+    // that was indistinguishable from the module not being installed.
+    crate::telemetry::sink::diag(format!(
+        "[rat] WHIP p{entry} SPECIAL_S main: ground={} move_start={}",
+        fighter.global_table[0x16] == *SITUATION_KIND_GROUND,
+        WorkModule::is_flag(boma, *FIGHTER_GAOGAEN_STATUS_SPECIAL_S_FLAG_MOVE_START)
+    ));
+
     if fighter.global_table[0x16] == *SITUATION_KIND_GROUND {
         GroundModule::correct(boma, GroundCorrectKind(*GROUND_CORRECT_KIND_GROUND_CLIFF_STOP));
         MotionModule::change_motion(
@@ -544,13 +553,38 @@ unsafe extern "C" fn special_s_main(fighter: &mut L2CFighterCommon) -> L2CValue 
 
 /// SPECIAL_S's own per-frame loop, gaogaen `0x71000239d0`.
 ///
-/// THE ADDRESS IN THE OLD COMMENT HERE WAS WRONG, and the mistake is worth recording because it
-/// sent a whole pass down the wrong hole. It read `0x7100023970 -> FUN_7100023730`, i.e. it took
-/// the MOVE-flag toggler for the loop. `0x7100023730` is a helper SPECIAL_S main calls when
-/// `StopModule::is_stop` is true (now `whip_move_flags`); the actual loop pointer is built by the
-/// `adrp`+`add` pair at `0x71000043d0`, which resolves to `0x71000239d0` -- a different function,
-/// and one that turns out to be the SAME SKELETON as the four follow-ups.
+/// I OVERWROTE A CORRECT COMMENT HERE WITH A WRONG ONE. The note that used to be at this spot read
+/// `0x7100023970 -> FUN_7100023730` and I replaced it with a claim that this was a misreading of
+/// the loop address. It was not. BOTH functions are real and both matter:
+///
+///   `0x71000239d0`  the main_loop, handed to `sub_shift_status_main` by the adrp+add at
+///                   `0x71000043d0` -- the generic skeleton, same as the four follow-ups
+///   `0x7100023970`  a wrapper that calls the MOVE-flag toggler, INSTALLED AS A CALLBACK by
+///                   `table[0x15] = <ptr>` at `0x7100004380`-`0x7100004384`
+///
+/// So the old note had hold of the callback and I had hold of the loop, and I called its address a
+/// mistake instead of checking. `--dataxref 0x7100023970` prints the assignment site in one line
+/// and would have settled it before I wrote anything.
+///
+/// THE CALLBACK IS WHY THE FIRST PLAYTEST OF THIS REWRITE DID NOT MOVE AT ALL. `whip_move_flags`
+/// is the only thing that turns the ACMD's frame-1 `FLAG_MOVE_START` into the steady `FLAG_MOVE`,
+/// and `whip_kinetics` reads `FLAG_MOVE` to decide between holding still and sliding at
+/// `special_s_start_speed_mul`. I transcribed the toggler but only from `main`'s one-shot
+/// `StopModule::is_stop` branch, so on a whip with no hitlag it never ran, `FLAG_MOVE` was never
+/// set, and every frame took the stand-still branch.
+///
+/// CALLED FROM HERE INSTEAD OF FROM A CALLBACK SLOT, and the equivalence is arguable rather than
+/// assumed: `whip_move_flags` acts only when MOVE_START or MOVE_END is set and CLEARS the flag it
+/// acted on, so it is edge-triggered and idempotent. Running it once per frame from the loop is
+/// therefore indistinguishable from the engine running it once per frame from `table[0x15]`, up to
+/// ordering within the frame. Reproducing the callback registration would mean reverse-engineering
+/// what slot 0x15 is and when L2C fires it, which is a deeper hole than the behaviour justifies --
+/// and unlike a guess, this one is checkable: if the slide starts on the right frame, the ordering
+/// did not matter.
 unsafe extern "C" fn special_s_main_loop(fighter: &mut L2CFighterCommon) -> L2CValue {
+    // The per-frame edge conversion the source installs as a callback. Must run before
+    // `whip_followup_loop`, which is where `whip_kinetics` reads FLAG_MOVE.
+    whip_move_flags(fighter, false);
     // THE ONE NON-TRANSCRIBED LINE IN THE WHOLE MOVE, and it is here rather than inside
     // `whip_followup_loop` so that the transcription stays a transcription. Incineroar's status
     // scripts never detect the catch -- the engine does it in native code keyed on fighter kind,
