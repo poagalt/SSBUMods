@@ -165,6 +165,9 @@ unsafe extern "C" fn pikachu_effect_specialairhi(agent: &mut L2CAgentBase) {
 // ---- Alolan Whip lunge (Incineroar) : game_specialsstart ----
 unsafe extern "C" fn pikachu_game_specialsstart(agent: &mut L2CAgentBase) {
     frame(agent.lua_state_agent, 1.0);
+    if macros::is_excute(agent) {
+        WorkModule::on_flag(agent.module_accessor, *FIGHTER_GAOGAEN_STATUS_SPECIAL_S_FLAG_MOVE_START);
+    }
     macros::FT_MOTION_RATE(agent, 0.8);
     frame(agent.lua_state_agent, 11.0);
     macros::FT_MOTION_RATE(agent, 1.0);
@@ -192,6 +195,9 @@ unsafe extern "C" fn pikachu_game_specialsstart(agent: &mut L2CAgentBase) {
         GrabModule::set_rebound(agent.module_accessor, false);
     }
     frame(agent.lua_state_agent, 39.0);
+    if macros::is_excute(agent) {
+        WorkModule::on_flag(agent.module_accessor, *FIGHTER_GAOGAEN_STATUS_SPECIAL_S_FLAG_MOVE_END);
+    }
     frame(agent.lua_state_agent, 44.0);
     macros::FT_MOTION_RATE(agent, 0.8);
     frame(agent.lua_state_agent, 67.0);
@@ -422,6 +428,9 @@ unsafe extern "C" fn pikachu_effect_specialsend(agent: &mut L2CAgentBase) {
 // ---- Alolan Whip AIR lunge (Incineroar) : game_specialairsstart ----
 unsafe extern "C" fn pikachu_game_specialairsstart(agent: &mut L2CAgentBase) {
     frame(agent.lua_state_agent, 1.0);
+    if macros::is_excute(agent) {
+        WorkModule::on_flag(agent.module_accessor, *FIGHTER_GAOGAEN_STATUS_SPECIAL_S_FLAG_MOVE_START);
+    }
     macros::FT_MOTION_RATE(agent, 0.8);
     frame(agent.lua_state_agent, 11.0);
     macros::FT_MOTION_RATE(agent, 1.0);
@@ -450,6 +459,9 @@ unsafe extern "C" fn pikachu_game_specialairsstart(agent: &mut L2CAgentBase) {
         GrabModule::set_rebound(agent.module_accessor, false);
     }
     frame(agent.lua_state_agent, 39.0);
+    if macros::is_excute(agent) {
+        WorkModule::on_flag(agent.module_accessor, *FIGHTER_GAOGAEN_STATUS_SPECIAL_S_FLAG_MOVE_END);
+    }
     frame(agent.lua_state_agent, 44.0);
     macros::FT_MOTION_RATE(agent, 0.8);
     frame(agent.lua_state_agent, 67.0);

@@ -331,6 +331,9 @@ echo; echo "== 4b. fighter_param_motion.prcxml carries Fox's dodge windows =="
 echo; echo "== 4d. nothing hands a victim to engine code that needs an article we do not ship =="
 bash "$ROOT/tools/check-victim.sh" || rc=1
 
+echo; echo "== 4f. a status flag the status code reads still has an ACMD that sets it =="
+bash "$ROOT/tools/check-keepflags.sh" || rc=1
+
 echo; echo "== 4c. hand-written code uses no other fighter's constants =="
 bash "$ROOT/tools/check-status.sh" || rc=1
 

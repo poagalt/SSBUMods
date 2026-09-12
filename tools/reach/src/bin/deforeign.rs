@@ -61,6 +61,31 @@ const SOURCES: &[&str] = &[
 //
 // Anything not listed is still stripped.
 const KEEP_STATUS_IDS: &[&str] = &[
+    // THE TWO BELOW COST THREE PLAYTEST ROUNDS, and the failure mode is worth stating because it
+    // is not a bug in this file -- it is the cost of a keep-list that has to be kept in step by
+    // hand with what the STATUS code reads.
+    //
+    // `FLAG_MOVE_START` (0x2100000C) and `FLAG_MOVE_END` (0x2100000E) are raised by
+    // `game_specialsstart` on frames 1 and 39. Nothing read them until the whip's statuses were
+    // transcribed from Incineroar's, so stripping them was harmless and invisible. Then
+    // `whip_move_flags` arrived -- it converts those two edges into the steady `FLAG_MOVE`
+    // (0x2100000D), and `whip_kinetics` reads `FLAG_MOVE` to choose between holding position and
+    // sliding at `special_s_start_speed_mul`. With both raises stripped the flag was never set,
+    // every frame took the stand-still branch, and the playtest reported "doesn't move and even at
+    // point blank doesn't grab" -- the grab being a consequence, since the catch box only reaches
+    // 10.94 and the lunge is what closes the distance.
+    //
+    // What made it hard to see: the strip leaves the `frame()` marker and deletes the body, so the
+    // generated file grows an EMPTY `frame(39.0);` -- which reads as deliberate. And
+    // `check-acmd-values.sh` passes throughout, because it diffs macro ARGUMENTS and a bare
+    // `WorkModule::on_flag` has none. `tools/check-keepflags.sh` now closes that gap.
+    //
+    // Against the safety check above, in order: (1) SPECIAL_S and its five follow-ups register
+    // Pre/Main/End and the main_loop, so no host line runs in them; (2) 0x0C/0x0D/0x0E are far
+    // inside Pikachu's own status-flag region, which reaches 0x21000019 -- these are the safest
+    // ids on this list, not the most marginal; (3) both are STATUS_ ids.
+    "FIGHTER_GAOGAEN_STATUS_SPECIAL_S_FLAG_MOVE_START",
+    "FIGHTER_GAOGAEN_STATUS_SPECIAL_S_FLAG_MOVE_END",
     // Alolan Whip -- SPECIAL_S and its five follow-up statuses are entirely ours.
     "FIGHTER_GAOGAEN_STATUS_SPECIAL_S_FLAG_THROW_ROPE",
     "FIGHTER_GAOGAEN_STATUS_SPECIAL_S_FLAG_THROW_ROPE_END",
