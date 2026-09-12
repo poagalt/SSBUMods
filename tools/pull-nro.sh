@@ -38,7 +38,27 @@ ROOT="$(cd "$(dirname "$0")/.." && pwd)"; cd "$ROOT"
 OUT=vendor/nro
 mkdir -p "$OUT"
 
-FIGHTERS="gaogaen donkey gamewatch packun pikachu"
+# EVERY SOURCE FIGHTER IN SPEC.md, not just the five with ported STATUS code.
+#
+# The original five were the fighters whose status trees this moveset transcribes. That was the
+# wrong boundary, and it was drawn by accident: SPEC.md lists TWENTY-ONE source fighters, and for
+# the other sixteen the port was assembled from `vendor/SSBU-Dumped-Scripts` (ACMD only -- hitboxes
+# and timing, no status logic) and from param prcs. Those two sources answer "what does the hitbox
+# do"; neither answers "what does the move DO", which is why a question like Little Mac's f-smash
+# super armour or K. Rool's d-air had to be reasoned about rather than read.
+#
+# So the boundary is now SPEC.md's source-fighter column. Cheap -- one arc-pull run, a couple of
+# hundred MB -- and it retires the whole category of "that fighter's code was never available".
+#
+# INTERNAL NAMES, since almost none of them match the character: Mythra is `elight` (Pyra is
+# `eflame`), Kazuya is `demon`, Corrin is `kamui`, Bowser is `koopa`, R.O.B. is `robot`, Ganondorf
+# is `ganon`, Piranha Plant is `packun`, Incineroar is `gaogaen`. Checked against the 96 directory
+# names in vendor/SSBU-Dumped-Scripts/smashline, not guessed.
+#
+# The attribute-only sources in SPEC.md's second table -- Zero Suit Samus, Marth, Jigglypuff, Joker
+# -- are deliberately NOT here. Weight, walk speed and fall speed come out of `fighter_param_vl`,
+# which is a prc, so their NROs would answer nothing.
+FIGHTERS="${*:-gaogaen donkey gamewatch packun pikachu chrom elight falco robot littlemac fox palutena demon cloud kamui krool mewtwo koopa ganon}"
 
 LIST=work/nro-paths.txt
 mkdir -p work

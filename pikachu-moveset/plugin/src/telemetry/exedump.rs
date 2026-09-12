@@ -48,6 +48,27 @@ use skyline::hooks::{getRegionAddress, Region};
 use super::sink;
 
 /// Whether to dump on the next fighter load. A deliberate one-off, not telemetry.
+///
+/// SUPERSEDED BY `memserve.rs`, AND THE DIAGNOSIS IN THIS FILE'S HEADER IS WRONG.
+///
+/// Everything above about Skyline's ~300 KB/s fs throughput and the game needing the SD card
+/// throughout is a plausible story that happens not to be the cause. The real mechanism was found
+/// when the same three-crash pattern reappeared over a TCP socket, with the card untouched and
+/// only 332 KB transferred:
+///
+/// `write_all` was handed `from_raw_parts` slices pointing INTO MAIN'S OWN MAPPED IMAGE. Horizon
+/// transfers a large IPC buffer by map-alias, so the kernel remaps those pages into the fs
+/// service's address space for the duration of the call -- and for those microseconds the game's
+/// own `.text`/`.data` is missing from the game's own address space. Two later crash reports
+/// pinned it exactly: both faulted on an ordinary store to a static `.data` global whose address
+/// lay inside the range being transmitted at that instant.
+///
+/// That is why moving the write to a background thread did not help, why 1 MB chunks with 40 ms
+/// rests did not help, and why the fault always landed in `nus3::audio update` -- the audio
+/// streamer is just the busiest toucher of static memory. The fix is one `copy_from_slice` into a
+/// heap buffer before the I/O call, which `memserve::send_region` now does.
+///
+/// Left disabled because `memserve` does the job better, not because the region dump is unsafe.
 pub const ENABLED: bool = false;
 
 /// WHICH REGIONS TO WRITE, AND WHY ALL OF THEM RATHER THAN JUST `.text`.

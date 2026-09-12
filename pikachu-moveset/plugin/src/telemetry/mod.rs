@@ -33,6 +33,8 @@ pub mod selftest;
 pub mod probe;
 mod buildstamp;
 pub mod exedump;
+// Serves main's mapped regions over TCP -- the sink exedump could not use. See memserve.rs.
+pub mod memserve;
 // Records what the engine does when a REAL fighter holds a victim -- see enginetrace.rs.
 pub mod enginetrace;
 pub mod moves;
@@ -294,6 +296,8 @@ pub fn install() {
     // Armed before any agent, because the calls worth recording happen inside the engine and not
     // inside a status script this plugin owns.
     enginetrace::install();
+    // Its own thread, so a blocking Accept never touches the game thread.
+    memserve::install();
     Agent::new("pikachu")
         .on_line(Main, pikachu_telemetry)
         .install();
