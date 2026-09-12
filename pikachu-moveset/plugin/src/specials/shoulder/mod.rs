@@ -312,9 +312,28 @@ unsafe fn shoulder_the_victim(boma: *mut BattleObjectModuleAccessor, entry: usiz
     );
 }
 
-/// Flip to false to go back to leaving the victim in `CAPTURE_WAIT`. Kept as a switch because this
-/// is the line that crashed once already, and a playtest that crashes on it should cost one edit.
-const SHOULDER_THE_VICTIM: bool = true;
+/// OFF, BECAUSE THE ENGINE ALREADY DOES IT AND ASKING TWICE CRASHED.
+///
+/// The playtest that carried Mario twice and died on the third attempt ends on this function's own
+/// line, and the line answers the whole question:
+///
+///     SHOULDER p0 shouldering 0x10000 on carry frame 2 (their st=0xc5)
+///
+/// `their st` is read BEFORE the request, and 0xc5 IS
+/// `FIGHTER_STATUS_KIND_SHOULDERED_DONKEY_START`. The victim was already in it. The engine moves
+/// them there itself in response to the `hash40("shoulder")` event `enter_carry` sends to
+/// LINK_NO_CAPTURE -- which is exactly the native path, and exactly what `docs/the-recording.md`
+/// shows Donkey Kong doing with that event.
+///
+/// So the port's job was only ever to send the event, and it already did. Forcing a status the
+/// fighter is already in re-runs its entry, and the engine's path for a re-entry is what faulted.
+/// The two carries that worked are the evidence that the native path is sufficient on its own.
+///
+/// Kept rather than deleted because the reasoning above is only legible next to the code it
+/// rejects, and because the earlier crash analysis (the link slot's `+0x58` cached pointer at
+/// main + 0x484da4) is still the right reading of THAT crash -- the frame-2 delay and the node
+/// precondition are what let the first two carries succeed at all.
+const SHOULDER_THE_VICTIM: bool = false;
 
 unsafe extern "C" fn shoulder_start_loop(fighter: &mut L2CFighterCommon) -> L2CValue {
     let boma = fighter.module_accessor;

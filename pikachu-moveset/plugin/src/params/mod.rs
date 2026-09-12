@@ -87,6 +87,13 @@ unsafe fn get_param_int_hook(
             announce(std::ptr::addr_of_mut!(SEEN_INT), i, name, value as f32);
             return value;
         }
+        // A FLOAT-TYPED PARAM ASKED FOR AS AN INT still has an answer. See the note on the float
+        // hook: the prc's type and the caller's accessor are independent, and the engine coerces.
+        if let Some(i) = FLOATS.iter().position(|(k, _, _)| *k == key) {
+            let (_, value, name) = FLOATS[i];
+            announce(std::ptr::addr_of_mut!(SEEN_FLOAT), i, name, value);
+            return value as i32;
+        }
     }
     original!()(boma, object, key)
 }
@@ -102,6 +109,35 @@ unsafe fn get_param_float_hook(
             let (_, value, name) = FLOATS[i];
             announce(std::ptr::addr_of_mut!(SEEN_FLOAT), i, name, value);
             return value;
+        }
+        // THE PRC'S TYPE AND THE CALLER'S ACCESSOR ARE INDEPENDENT, AND MISSING THAT COST THE
+        // WHOLE SECOND HALF OF THE WHIP.
+        //
+        // `special_s_lariat_offset_x1` is stored in the prc as an INT (-24), so the generator put
+        // it in `INTS` -- but Incineroar's own status reads it with `get_param_float`:
+        //
+        //     call WorkModule__get_param_float_impl  ["param_special_s", "special_s_lariat_offset_x1"]
+        //
+        // The engine coerces; this hook did not. It searched only `FLOATS`, missed the key, and
+        // fell through to the real engine, where a Pikachu has no `param_special_s` at all -- so
+        // the answer was 0. The playtest diagnostic said it in one line:
+        //
+        //     WHIP p0 f50 area: off=-18.29 in=false lariat=0 end=0 fail=0
+        //
+        // All three area thresholds zero instead of -24/-10/-6, so the lariat window could never
+        // be entered no matter where the victim flew -- and `off` shows he flew perfectly, +16
+        // held in front then -10, -26, -42 behind. The same bug zeroed
+        // `special_s_lariat_motion_rate_min`/`_max`, which would have given the lariat a motion
+        // rate of 0: a frozen animation.
+        //
+        // Fixed HERE rather than at the five call sites, because the call sites are right. They
+        // are transcriptions of a source that uses `get_param_float`, and changing them to match
+        // the prc's storage type would make the port disagree with the game it copies. The engine
+        // answers either accessor for either storage type, so this provider must too.
+        if let Some(i) = INTS.iter().position(|(k, _, _)| *k == key) {
+            let (_, value, name) = INTS[i];
+            announce(std::ptr::addr_of_mut!(SEEN_INT), i, name, value as f32);
+            return value as f32;
         }
     }
     original!()(boma, object, key)
