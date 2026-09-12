@@ -32,6 +32,8 @@ pub mod lockout;
 pub mod speciallw;
 pub mod acmd_speciallw;
 pub mod specials;
+// The transcribed Alolan Whip, replacing specials/ -- see ADR 0006. Not registered yet.
+pub mod whip;
 pub mod cargo;
 pub mod shoulder;
 pub mod specialhi;
