@@ -201,14 +201,31 @@ pub unsafe fn try_catch(fighter: &mut L2CFighterCommon) -> bool {
         // might be returning nothing, or the range test might be rejecting a fighter who is right
         // there. One line on three frames of the window distinguishes all four.
         if frame == CATCH_FIRST_FRAME || frame == 26.0 || frame == CATCH_LAST_FRAME {
-            let others = crate::victim::others((*boma).battle_object_id).len();
-            let nearest = find_victim_in_range(boma).is_some();
+            // WHY the candidate was rejected, not just that it was. The previous round of this
+            // diagnostic reported `others=1 in_range=false` -- an opponent present and the range
+            // test refusing them at point blank -- which narrows the cause to one of four
+            // conditions in `find_victim_in_range` without saying which. Printing the operands
+            // settles it: `forward` outside [0, 10.94] means geometry (and a NEGATIVE forward
+            // means we are facing away, which is a different bug entirely), `dy` outside +/-12.5
+            // means height, `cap=true` means a capture leaked from an earlier attempt and is
+            // making them permanently ineligible, and an odd `vst` means they are in a state a
+            // grab refuses.
+            let lr = PostureModule::lr(boma);
+            let (mx, my) = (PostureModule::pos_x(boma), PostureModule::pos_y(boma));
+            let mut detail = String::new();
+            for (id, vboma) in crate::victim::others((*boma).battle_object_id) {
+                detail.push_str(&format!(
+                    " [{id:#x} fwd={:.2} dy={:.2} cap={} vst={:#x}]",
+                    (PostureModule::pos_x(vboma) - mx) * lr,
+                    PostureModule::pos_y(vboma) - my,
+                    CaptureModule::is_capture(vboma),
+                    StatusModule::status_kind(vboma)
+                ));
+            }
             crate::telemetry::sink::diag(format!(
-                "[rat] WHIP p{} f{frame} no catch: others={others} in_range={nearest} \
-                 mot={:#x} st={:#x}",
-                super::entry_of(boma),
-                MotionModule::motion_kind(boma),
-                StatusModule::status_kind(boma)
+                "[rat] WHIP p{} f{frame} no catch: lr={lr} reach={CATCH_REACH_Z:.2} \
+                 topy={CATCH_TOP_Y:.2}{detail}",
+                super::entry_of(boma)
             ));
         }
         return false;
