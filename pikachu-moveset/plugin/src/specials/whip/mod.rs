@@ -780,7 +780,27 @@ unsafe fn whip_update_areas(fighter: &mut L2CFighterCommon) {
     // and `whip_release`'s FAILURE path does call `reverse_lr`), or this function is not running
     // during the flight at all. One line every ten frames separates all four, and the victim's own
     // status frame is in it so the 30-frame `MOVE_CANCEL_FRAME` window is visible too.
-    let in_lariat = off >= lariat_x && off <= lariat_end_x;
+    // THE ROPE IS AT THE FAR EDGE (-24), NOT AT THE NEAR ONE, and conflating the two slung the
+    // victim back the instant he passed behind Pikachu.
+    //
+    // The playtest with the thresholds finally non-zero: "alolan whip now immediately slings mario
+    // the opposite direction of the throw against the ropes". The flight in the log is
+    // +16 -> -10.29 (f40) -> -18.29 (f50) -> -26.29 (f60) -> -42 (f70), so the window [-24, -10]
+    // is first touched at its NEAR edge, -10, while he is still travelling OUT. The rebound fired
+    // there, `SwingGaogaenReturn` reversed his facing, and he was thrown back before he had gone
+    // anywhere.
+    //
+    // `special_s_lariat_offset_x1` = -24 is where the ropes are; -10 is
+    // `special_s_lariat_end_offset_x1`, the line past which the window CLOSES on the way home. So
+    // the sequence is: out to -24 (the rope hit), turn, back through [-24, -10] with the window
+    // open, past -10 it shuts, past -6 it is a whiff. `reached_rope` is the rope hit and it is the
+    // only thing that may trigger the rebound; `in_lariat` is the window and only means anything
+    // once he is on his way back.
+    let reached_rope = off <= lariat_x;
+    if reached_rope {
+        state::set_lariat_been_out(entry, true);
+    }
+    let in_lariat = state::lariat_been_out(entry) && off >= lariat_x && off <= lariat_end_x;
     let f = MotionModule::frame(boma) as i32;
     if f % 10 == 0 {
         crate::telemetry::sink::diag(format!(
@@ -847,10 +867,14 @@ unsafe fn whip_update_areas(fighter: &mut L2CFighterCommon) {
     // This is the same substitution as the area flags above and it is the last piece of the rope
     // the move actually needs. What is still missing without the article is the rope's visual and
     // the `_over_rope` case, neither of which is a behaviour the follow-ups read.
-    if state::lariat_been_out(entry) {
+    if reached_rope {
         let id = state::swing_thrown_fighter(entry);
         if let Some(vboma) = crate::victim::boma(id) {
             if StatusModule::status_kind(vboma) == *FIGHTER_STATUS_KIND_SWING_GAOGAEN_THROWN {
+                crate::telemetry::sink::diag(format!(
+                    "[rat] WHIP p{entry} rope hit at off={off:.2} (rope is {lariat_x:.0}) -- \
+                     rebounding {id:#x}"
+                ));
                 crate::victim::request_status(
                     vboma,
                     *FIGHTER_STATUS_KIND_SWING_GAOGAEN_RETURN,

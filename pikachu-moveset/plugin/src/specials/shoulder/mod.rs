@@ -142,17 +142,30 @@ unsafe fn hold_victim(boma: *mut BattleObjectModuleAccessor, entry: usize) {
         return;
     }
 
-    let mut pos = Vector3f { x: 0.0, y: 0.0, z: 0.0 };
-    ModelModule::joint_global_position(boma, Hash40::new("shoulderl"), &mut pos, true);
-    // A joint that did not resolve returns the origin; falling back to the fighter's own position
-    // plus a height is better than dropping the victim through the floor.
-    if pos.x == 0.0 && pos.y == 0.0 {
-        pos.x = PostureModule::pos_x(boma);
-        pos.y = PostureModule::pos_y(boma) + 8.0;
-    }
-    PostureModule::set_pos(vboma, &pos);
-    // Their own momentum must not fight the placement, or they drift off the shoulder.
-    KineticModule::clear_speed_all(vboma);
+    // NO HAND-WRITTEN FALLBACK ANY MORE. If the engine is not holding them, THE CARRY IS OVER.
+    //
+    // This used to read Pikachu's `shoulderl` joint and write the victim's posture, with a further
+    // fallback to the fighter's own position plus 8 when the joint returned the origin. Both are
+    // now removed, and the reason is that the fallback was the bug rather than the safety net:
+    // once the victim mashed out, the port kept positioning a fighter who had escaped, which is
+    // the reported "after some time mario still gets stuck to pikachu's feet".
+    //
+    // The fallback was written when the port never established a capture, so the engine genuinely
+    // was not placing anybody and hand-placement was all there was. That changed: `enter_carry`
+    // now records the capture and links both ends, and the playtest log confirms the engine takes
+    // over -- "leaving their position to CaptureModule" on every frame of a working carry.
+    //
+    // So there are exactly two states, and neither of them wants this code. Held: the engine
+    // places them, the early return above fires. Not held: `still_held` has gone false and the
+    // carry ends. Writing a captured fighter's transform from two places was also the leading
+    // suspect for the cargo Instruction Abort, and this removes the only cross-object write in the
+    // whole carry.
+    let _ = vboma;
+    crate::telemetry::sink::crumb(format!(
+        "[rat] SHOULDER p{entry} victim {:#x} is NOT in our capture -- not positioning them; \
+         still_held will end the carry",
+        VICTIM[entry]
+    ));
 }
 
 /// True while the victim is still ours to carry.
@@ -176,7 +189,43 @@ unsafe fn still_held(boma: *mut BattleObjectModuleAccessor, entry: usize) -> boo
     // grab. The engine's link is still accepted where it exists -- `hold_victim` leans on it to
     // do the positioning for us -- but its absence proves nothing.
     let _ = boma;
-    crate::victim::held(entry).is_some()
+    if crate::victim::held(entry).is_none() {
+        return false;
+    }
+    // THE CLATTER RUNNING OUT IS THE ENGINE'S OWN END-OF-CARRY, AND MISSING IT IS WHY THE VICTIM
+    // ENDED UP AT PIKACHU'S FEET AFTER A WHILE.
+    //
+    // `src/victim.rs` has quoted this condition since round four without anything acting on it:
+    //
+    //     CaptureWaitCommon:  if ControlModule::get_clatter_time(boma) <= 0.0 -> escape
+    //
+    // and the last playtest shows it happening, twice, on the carried fighter:
+    //
+    //     VICTIM p0 cargo: status=0xc6 captured=true clatter=102.0
+    //     VICTIM p0 cargo: status=0xc6 captured=true clatter=0.0      <- mashed out
+    //     VICTIM p0 cargo: status=0xc5 captured=true clatter=86.0     <- and re-entered
+    //
+    // Clatter reaching zero is Mario escaping, which is correct and is the whole point of mashing.
+    // The port did not notice, kept believing it held him, and `hold_victim` fell through to
+    // hand-writing his posture -- which is the reported "after some time mario still gets stuck to
+    // pikachu's feet". The 170-frame ceiling then fired as a backstop and logged
+    // "hold ceiling reached -- something never let go", which was the symptom, not the cause.
+    //
+    // The comment above says the engine's link "absence proves nothing", and that WAS true when
+    // the port never established a capture. It does now -- the same log line says
+    // `captured=true` -- so the engine's answer is load-bearing again and this is the question it
+    // answers.
+    if let Some(vboma) = crate::victim::boma(VICTIM[entry]) {
+        if ControlModule::get_clatter_time(vboma, 0) <= 0.0 {
+            crate::telemetry::sink::diag(format!(
+                "[rat] SHOULDER p{entry} victim {:#x} mashed out (clatter 0) -- ending the carry, \
+                 which is what CaptureWaitCommon does",
+                VICTIM[entry]
+            ));
+            return false;
+        }
+    }
+    true
 }
 
 /// Common `pre` for the grounded carry states. DK uses the same shape for all of them and varies
