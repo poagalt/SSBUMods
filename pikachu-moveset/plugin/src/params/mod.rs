@@ -40,40 +40,31 @@
 // Pikachu's own keys are untouched -- every one of his is `special_s_*_` with a trailing
 // underscore and none collides with Incineroar's -- and any key not in these tables falls through
 // to the game.
+mod table;
+
 use smash::app::{lua_bind::*, utility, BattleObjectModuleAccessor};
 use smash::lib::lua_const::*;
 
 /// `hash40("param_special_s")`, the param OBJECT the victim's status asks for.
 const PARAM_SPECIAL_S: u64 = 0x0f_ea97_fe73;
 
-/// The int keys, and Incineroar's values from `extracted/fighter/gaogaen/param/vl.prc`.
+/// THE WHOLE OBJECT, GENERATED. `table.rs` is written by tools/gen-paramprovider.sh straight from
+/// `extracted/fighter/gaogaen/param/vl.prc`, and the int/float split is the prc's own.
 ///
-/// Each hash is an immediate lifted straight out of `lua2cpp_common.nro` -- the `mov`/`movk`
-/// triple loaded into x1 before a `WorkModule::get_param_int_impl` call inside one of the
-/// `SwingGaogaen*` statuses -- so the pairing of key to GETTER is the game's, not a guess about
-/// whether a prc field is an int or a float.
-static INTS: &[(u64, i32, &str)] = &[
-    // How long the victim is held and mashing. The one that matters most.
-    (0x1d_f2c4_02be, 85, "special_s_catch_clatter_frame"),
-    (0x21_87e5_2777, 5, "special_s_catch_clatter_dec_frame"),
-    (0x2c_271c_b634, 0, "special_s_catch_clatter_damage_mul_frame_add"),
-    // How long after release they cannot be grabbed again.
-    (0x1f_d42d_6134, 60, "special_s_invalid_capture_frame"),
-    // The outbound leg of the throw, with ropes and without.
-    (0x25_21e0_070e, 30, "special_s_through_target_cancel_frame"),
-    (0x2d_dbde_d58f, 30, "special_s_through_target_cancel_frame_no_rope"),
-    // Where their flight animation is pinned as they leave and as they come back.
-    (0x29_1266_e331, 8, "special_s_through_target_motion_frame_fix"),
-    (0x30_fccd_50a3, 8, "special_s_through_target_return_motion_frame_fix"),
-];
-
-/// The float keys, same provenance.
-static FLOATS: &[(u64, f32, &str)] = &[
-    (0x1e_c20e_1e00, 11.2, "special_s_through_target_speed"),
-    (0x25_b2ed_14e5, 2.8, "special_s_through_target_return_speed"),
-    (0x26_7f28_d95d, 1.6, "special_s_through_target_speed_no_rope"),
-    (0x28_dd07_f91b, 1.6, "special_s_through_target_speed_over_rope"),
-];
+/// IT USED TO BE TWELVE KEYS, TYPED BY HAND -- the twelve the VICTIM's status reads, with a
+/// comment arguing that Incineroar's other thirty-eight are read by HIS native code, which never
+/// runs for a Pikachu, so providing them would be a second copy of a number nothing reads.
+///
+/// That stopped being true when the whip became a transcription. `FUN_710001d4b0` -- the kinetic
+/// setup all six of his side-B statuses call -- reads eight more, and a transcription of it
+/// running on a Pikachu reads them off PIKACHU: special_s_start_speed_mul,
+/// special_air_s_start_speed_mul, special_air_s_catch_accel_y, special_air_s_catch_speed_y_max,
+/// special_s_catch_speed_x_mul, special_s_catch_brake_x and both air catch equivalents. Every one
+/// would have come back 0, which in a kinetic setup is a move that does not move.
+///
+/// Generated rather than transcribed because fifty hand-typed floats is fifty chances to typo a
+/// value that then looks like a physics bug.
+use table::{FLOATS, INTS};
 
 /// Is this accessor a Pikachu?
 ///
@@ -148,7 +139,6 @@ pub fn install() {
 // hardcoded copies of these numbers and this table's are the same numbers. They are read from the
 // same prc by tools/check-srcparams.sh, but that checks each against the prc, not against each
 // other -- and the pair that matters is the pair the ENGINE and OUR CODE use for the same throw.
-const _: () = {
-    assert!(INTS[0].1 == crate::specials::specials::CATCH_CLATTER_FRAME);
-    assert!(INTS[4].1 == crate::specials::specials::THROUGH_CANCEL_FRAME);
-};
+// The cross-check the hand-typed table needed is gone: the values now come from the prc by
+// construction, and tools/check.sh step 3e2 verifies every generated row against that same prc,
+// which checks that the GENERATOR RAN rather than that someone typed carefully.
