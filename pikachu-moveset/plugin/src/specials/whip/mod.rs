@@ -362,17 +362,21 @@ unsafe fn whip_move_flags(fighter: &mut L2CFighterCommon, skip: bool) {
 /// characters with every source searched, which means the L2C compiler baked them from strings that
 /// are in neither the executable nor the archive. They are passed as literals, the same way
 /// `docs/the-recording.md` carries `0x2a5eaa0cb9` unresolved. A hash is all the engine wants.
-unsafe fn whip_release(fighter: &mut L2CFighterCommon) {
+/// RETURNS WHETHER IT ACTUALLY RELEASED. The source returns 0 from the path that tore the link
+/// down and 1 from both early bail-outs, and `whip_followup_loop` reads that value -- it clears the
+/// stored victim id only when the teardown really happened. Inverted to a plain `bool` here, since
+/// `true` meaning "released" reads the way the call site uses it.
+unsafe fn whip_release(fighter: &mut L2CFighterCommon) -> bool {
     let boma = fighter.module_accessor;
     let link = *LINK_NO_CAPTURE;
 
     // Guarded on NOT being captured ourselves -- a Pikachu who got grabbed mid-whip must not tear
     // down the grab that is holding him.
     if CaptureModule::is_capture(boma) {
-        return;
+        return false;
     }
     if !LinkModule::is_link(boma, link) {
-        return;
+        return false;
     }
 
     // `link` splices the slot into both the parent and the child list, so the fighter being thrown
@@ -392,6 +396,7 @@ unsafe fn whip_release(fighter: &mut L2CFighterCommon) {
             LinkModule::unlink(boma, link);
         }
     }
+    true
 }
 
 unsafe extern "C" fn special_s_pre(fighter: &mut L2CFighterCommon) -> L2CValue {
@@ -470,19 +475,16 @@ unsafe extern "C" fn special_s_main(fighter: &mut L2CFighterCommon) -> L2CValue 
     fighter.sub_shift_status_main(L2CValue::Ptr(special_s_main_loop as *const () as _))
 }
 
-/// SOURCE, the loop `SPECIAL_S` MAIN shifts to, gaogaen 0x7100023970 -> FUN_7100023730:
+/// SPECIAL_S's own per-frame loop, gaogaen `0x71000239d0`.
 ///
-///     if <not stopped>:
-///         if WorkModule::is_flag(A) { off_flag(A); on_flag(B); FUN_710001d4b0(this) }
-///         if WorkModule::is_flag(C) { off_flag(C); off_flag(D); FUN_710001d4b0(this) }
-///
-/// STILL BEING TRANSCRIBED. The four flags and `FUN_710001d4b0` are the move's own movement
-/// handling -- the helper reads FIGHTER_GAOGAEN_STATUS_SPECIAL_S_FLAG_MOVE_START and
-/// KINETIC_ENERGY_RESERVE_ATTRIBUTE_MAIN -- and transcribing it needs its own pass. Until then
-/// this loop does nothing, which is honest: an empty transcription is visibly incomplete, whereas
-/// a guess at what those flags mean is what the old module was made of.
-unsafe extern "C" fn special_s_main_loop(_fighter: &mut L2CFighterCommon) -> L2CValue {
-    0.into()
+/// THE ADDRESS IN THE OLD COMMENT HERE WAS WRONG, and the mistake is worth recording because it
+/// sent a whole pass down the wrong hole. It read `0x7100023970 -> FUN_7100023730`, i.e. it took
+/// the MOVE-flag toggler for the loop. `0x7100023730` is a helper SPECIAL_S main calls when
+/// `StopModule::is_stop` is true (now `whip_move_flags`); the actual loop pointer is built by the
+/// `adrp`+`add` pair at `0x71000043d0`, which resolves to `0x71000239d0` -- a different function,
+/// and one that turns out to be the SAME SKELETON as the four follow-ups.
+unsafe extern "C" fn special_s_main_loop(fighter: &mut L2CFighterCommon) -> L2CValue {
+    whip_followup_loop(fighter)
 }
 
 unsafe extern "C" fn special_s_throw_pre(fighter: &mut L2CFighterCommon) -> L2CValue {
@@ -529,13 +531,154 @@ unsafe extern "C" fn special_s_throw_main(fighter: &mut L2CFighterCommon) -> L2C
     fighter.sub_shift_status_main(L2CValue::Ptr(special_s_throw_main_loop as *const () as _))
 }
 
-/// STILL BEING TRANSCRIBED -- the rope flight. The source is gaogaen's SpecialSThrow main_loop,
-/// already read once in the previous implementation's notes: CHECK_WALL_MOVE moves the captor
-/// toward FLOAT_GAOGAEN_TARGET_X, FLAG_THROW_ROPE turns into FLAG_THROW_ROPE_END and sends
-/// `hash40("gaogaen_swing_throw")` to LINK_NO_CAPTURE and a second event to the rope, and the
-/// status ends when the motion does and the rope article exists.
-unsafe extern "C" fn special_s_throw_main_loop(_fighter: &mut L2CFighterCommon) -> L2CValue {
+/// THE ROPE FLIGHT AND THE FOLLOW-UP DECISION -- gaogaen `0x71000223b0`.
+///
+/// THIS FUNCTION IS THE ANSWER TO THE EARLY-PRESS BEHAVIOUR, which the port had been approximating
+/// with frame windows for seven rounds. The real rule has nothing to do with frames:
+///
+///   * Attack or special pressed OUTSIDE the lariat area does NOT change status. It only raises
+///     `FLAG_SHOULDER` and the whip carries on.
+///   * When the whip later enters the lariat area, `FLAG_SHOULDER` already being up sends it to
+///     SPECIAL_S_SHOULDER -- the body slam, "thrown into the air".
+///   * A press made INSIDE the lariat area goes to SPECIAL_S_LARIAT instead -- the spin into the
+///     ropes.
+///   * `FLAG_FAILURE_AREA` sends it to SPECIAL_S_END.
+///
+/// So "early press" and "late press" are not two timings of one check; they are two different
+/// checks, and which one fires depends on flags the ACMD script raises as the run progresses.
+///
+/// IT ALSO RECORDS WHERE. On entering the lariat area it stores the VICTIM's `pos_x` into
+/// `LARIAT_AREA_HIT_POS_X`, and on the button press it stores it again into
+/// `LARIAT_BUTTON_PUSH_POS_X`. Those are exactly the two floats `lariat_main`'s motion-rate formula
+/// divides -- so the lariat's animation speed is set by how far along the run the button came, and
+/// the two halves of that mechanism are in different functions.
+///
+/// THE FIRST THING IT DOES IS THE WATCHDOG. If the victim has stopped being a validly held victim,
+/// the rope is retired and the status goes straight to SPECIAL_S_END, whatever else was pending.
+unsafe extern "C" fn special_s_throw_main_loop(fighter: &mut L2CFighterCommon) -> L2CValue {
+    let boma = fighter.module_accessor;
+    let entry = entry_of(boma);
+
+    if !whip_victim_held(boma) {
+        // The rope's own retirement is the one call ADR 0004 removes; the transition is not.
+        fighter.change_status(RAT_STATUS_KIND_SPECIAL_S_END.into(), false.into());
+        return 0.into();
+    }
+
+    // Dragged along the ropes: the ACMD raises CHECK_WALL_MOVE and parks the destination in
+    // FLOAT_GAOGAEN_TARGET_X, and this pins x to it every frame while keeping y and z.
+    if WorkModule::is_flag(boma, *FIGHTER_GAOGAEN_STATUS_SPECIAL_S_FLAG_CHECK_WALL_MOVE) {
+        let mut pos: Vector3f = *PostureModule::pos(boma);
+        pos.x = WorkModule::get_float(
+            boma,
+            *FIGHTER_GAOGAEN_STATUS_SPECIAL_S_FLOAT_GAOGAEN_TARGET_X,
+        );
+        PostureModule::set_pos(boma, &pos);
+    }
+
+    // The throw itself: one event to the victim, one to the rope. The rope event is the only hash
+    // in `docs/the-recording.md` that never resolved, and under ADR 0004 there is no rope article
+    // to receive it, so only the victim's event is sent.
+    if WorkModule::is_flag(boma, *FIGHTER_GAOGAEN_STATUS_SPECIAL_S_FLAG_THROW_ROPE) {
+        WorkModule::off_flag(boma, *FIGHTER_GAOGAEN_STATUS_SPECIAL_S_FLAG_THROW_ROPE);
+        WorkModule::on_flag(boma, *FIGHTER_GAOGAEN_STATUS_SPECIAL_S_FLAG_THROW_ROPE_END);
+        LinkModule::send_event_nodes(
+            boma,
+            *LINK_NO_CAPTURE,
+            Hash40::new("gaogaen_swing_throw"),
+            0,
+        );
+    }
+
+    if !WorkModule::is_flag(boma, *FIGHTER_GAOGAEN_STATUS_SPECIAL_S_FLAG_THROW_ROPE_END) {
+        if WorkModule::is_flag(boma, *FIGHTER_GAOGAEN_STATUS_SPECIAL_S_FLAG_FAILURE_AREA) {
+            fighter.change_status(RAT_STATUS_KIND_SPECIAL_S_END.into(), false.into());
+            return 0.into();
+        }
+
+        let pressed = ControlModule::check_button_on(boma, *CONTROL_PAD_BUTTON_SPECIAL)
+            || ControlModule::check_button_on(boma, *CONTROL_PAD_BUTTON_ATTACK);
+
+        if WorkModule::is_flag(boma, *FIGHTER_GAOGAEN_STATUS_SPECIAL_S_FLAG_LARIAT_AREA)
+            && !WorkModule::is_flag(boma, *FIGHTER_GAOGAEN_STATUS_SPECIAL_S_FLAG_LARIAT_END_AREA)
+        {
+            // First frame inside the area: remember where the victim was.
+            if WorkModule::is_flag(
+                boma,
+                *FIGHTER_GAOGAEN_STATUS_SPECIAL_S_FLAG_LARIAT_AREA_FIRST,
+            ) {
+                WorkModule::off_flag(
+                    boma,
+                    *FIGHTER_GAOGAEN_STATUS_SPECIAL_S_FLAG_LARIAT_AREA_FIRST,
+                );
+                if let Some(x) = victim_pos_x(boma) {
+                    state::set_lariat_area_hit_pos_x(entry, x);
+                }
+            }
+
+            if WorkModule::is_flag(boma, *FIGHTER_GAOGAEN_STATUS_SPECIAL_S_FLAG_SHOULDER) {
+                // The press happened EARLIER, outside the area. This is the body slam.
+                fighter.change_status(RAT_STATUS_KIND_SPECIAL_S_SHOULDER.into(), true.into());
+                return 0.into();
+            }
+            if pressed {
+                // The press happened HERE, inside the area. This is the lariat, and where it
+                // happened sets the animation speed.
+                if let Some(x) = victim_pos_x(boma) {
+                    state::set_lariat_button_push_pos_x(entry, x);
+                }
+                fighter.change_status(RAT_STATUS_KIND_SPECIAL_S_LARIAT.into(), true.into());
+                return 0.into();
+            }
+        }
+
+        // Outside the area a press is REMEMBERED, not acted on. This one line is the whole of
+        // "press early and he slams them instead".
+        if pressed {
+            WorkModule::on_flag(boma, *FIGHTER_GAOGAEN_STATUS_SPECIAL_S_FLAG_SHOULDER);
+        }
+    }
+
+    // The same situation-swap-and-end tail every whip loop has. The source's `is_exist(ROPE)` guard
+    // on the final transition is vacuous here for the ADR 0004 reason, so the motion ending is the
+    // whole condition.
+    if !MotionModule::is_end(boma) {
+        let prev_ground = fighter.global_table[0x17] == *SITUATION_KIND_GROUND;
+        let now_ground = fighter.global_table[0x16] == *SITUATION_KIND_GROUND;
+        if !prev_ground && now_ground {
+            GroundModule::correct(boma, GroundCorrectKind(*GROUND_CORRECT_KIND_GROUND_CLIFF_STOP));
+            MotionModule::change_motion_inherit_frame(
+                boma, Hash40::new("special_s_throw"), -1.0, 1.0, 0.0, false, false,
+            );
+            whip_kinetics(fighter, true);
+        } else if prev_ground && !now_ground {
+            GroundModule::correct(boma, GroundCorrectKind(*GROUND_CORRECT_KIND_AIR));
+            MotionModule::change_motion_inherit_frame(
+                boma, Hash40::new("special_air_s_throw"), -1.0, 1.0, 0.0, false, false,
+            );
+            whip_kinetics(fighter, true);
+        }
+    } else {
+        fighter.change_status(RAT_STATUS_KIND_SPECIAL_S_END.into(), false.into());
+    }
+
     0.into()
+}
+
+/// The held victim's world x, or `None` if there is no live victim.
+///
+/// The source reaches the victim with
+/// `BattleObjectManager::is_active_find_battle_object(get_int(SWING_THROWN_FIGHTER))` and then
+/// `PostureModule::pos_x` on their accessor. Routed through the port's own stored id and
+/// `crate::victim`, which already owns "is this cross-object handle safe to touch" -- see
+/// `tools/check.sh` step 4d, which requires every cross-object handle to go through it.
+unsafe fn victim_pos_x(boma: *mut BattleObjectModuleAccessor) -> Option<f32> {
+    let id = state::swing_thrown_fighter(entry_of(boma));
+    if !sv_battle_object::is_active(id) {
+        return None;
+    }
+    let vboma = crate::victim::boma(id)?;
+    Some(PostureModule::pos_x(vboma))
 }
 
 /// SPECIAL_S `status_end`, gaogaen `0x71000044d0`. It is FOUR INSTRUCTIONS and does nothing:
@@ -764,13 +907,228 @@ unsafe extern "C" fn end_end(_fighter: &mut L2CFighterCommon) -> L2CValue {
     false.into()
 }
 
-/// STILL BEING TRANSCRIBED -- the per-frame loop shared by SHOULDER, LARIAT, FAILURE and END.
+/// IS THE FIGHTER WE CAUGHT STILL THERE? -- gaogaen `0x7100021910`.
 ///
-/// All four of the source's `main_loop`s end the status when the motion does; SHOULDER and LARIAT
-/// additionally drive the victim. Returning 0 leaves the status running until the engine's own
-/// motion-end transition fires, which is the safe half of the behaviour, not all of it.
-unsafe extern "C" fn followup_main_loop(_fighter: &mut L2CFighterCommon) -> L2CValue {
+/// A watchdog, and the reason the whip does not leave a victim welded on when something unusual
+/// happens to them. It re-reads the stored id every frame and asks four separate questions: the id
+/// is not INVALID, the object is not null, the object is active, and it is a FIGHTER currently in
+/// one of the four `SWING_GAOGAEN_*` victim statuses. Anything else and the caller tears the link
+/// down.
+///
+/// ALL FOUR STATUSES ARE TESTED, INCLUDING THE THREE ADR 0004 EXCLUDES. `_ATTACH_ROPE`, `_RETURN`
+/// and `_THROWN` belong to the rope flight this port does not implement, so those comparisons can
+/// never match here -- but they are read-only comparisons, not requests, so this is a literal
+/// transcription and `tools/check-victim.sh` is satisfied by construction: it greps for the
+/// constants inside a `change_status` call, which is the thing that actually crashes.
+unsafe fn whip_victim_held(boma: *mut BattleObjectModuleAccessor) -> bool {
+    let id = state::swing_thrown_fighter(entry_of(boma));
+    if id == *BATTLE_OBJECT_ID_INVALID as u32 {
+        return false;
+    }
+    if sv_battle_object::is_null(id) {
+        return false;
+    }
+    if !sv_battle_object::is_active(id) {
+        return false;
+    }
+    if sv_battle_object::category(id) != *BATTLE_OBJECT_CATEGORY_FIGHTER {
+        return false;
+    }
+    // Through `crate::victim::boma`, which is the ONLY sanctioned way to turn an id into another
+    // object's accessor here -- it re-checks plausibility, null and that the accessor's own
+    // `battle_object_id` matches what was asked for. `tools/check-victim.sh` fails the build on a
+    // raw `sv_battle_object::module_accessor`, and it caught this exact line.
+    let Some(vboma) = crate::victim::boma(id) else {
+        return false;
+    };
+    let st = StatusModule::status_kind(vboma);
+    st == *FIGHTER_STATUS_KIND_SWING_GAOGAEN_CATCHED
+        || st == *FIGHTER_STATUS_KIND_SWING_GAOGAEN_ATTACH_ROPE
+        || st == *FIGHTER_STATUS_KIND_SWING_GAOGAEN_RETURN
+        || st == *FIGHTER_STATUS_KIND_SWING_GAOGAEN_THROWN
+}
+
+/// Hands gravity back, gaogaen `0x710001fc90`. Self-gating on its own flag, so it is safe to call
+/// every frame -- which is what the source does.
+unsafe fn whip_air_gravity(fighter: &mut L2CFighterCommon) {
+    let boma = fighter.module_accessor;
+    if !WorkModule::is_flag(boma, *FIGHTER_GAOGAEN_STATUS_SPECIAL_S_FLAG_ENABLE_GRAVITY) {
+        return;
+    }
+    WorkModule::off_flag(boma, *FIGHTER_GAOGAEN_STATUS_SPECIAL_S_FLAG_ENABLE_GRAVITY);
+    let gravity = *FIGHTER_KINETIC_ENERGY_ID_GRAVITY;
+    // The two situations do DIFFERENT things, not one thing conditionally: in the air gravity is
+    // reset and switched on, on the ground it is only un-disabled. Worth being exact about --
+    // resetting gravity on a grounded fighter is how a move ends up popping him off the floor.
+    if fighter.global_table[0x16] == *SITUATION_KIND_GROUND {
+        KineticUtility::clear_unable_energy(gravity, boma);
+    } else {
+        reset_energy(fighter, gravity, *ENERGY_GRAVITY_RESET_TYPE_GRAVITY, 0.0);
+        KineticModule::enable_energy(boma, gravity);
+    }
+}
+
+/// AFTER A WHIP YOU DRIFT LESS, and this is where that comes from -- gaogaen `0x710001ff80`.
+///
+/// Nothing in the recording hinted at this and nothing about the move's description implies it: the
+/// follow-up restores air control with the fighter's ordinary air stats MULTIPLIED by two
+/// whip-specific params.
+///
+///     accel_x_mul = air_accel_x_mul    * special_s_attack_after_control_speed_x_mul
+///     accel_x_add = air_accel_x_add    * special_s_attack_after_control_speed_x_mul
+///     stable      = air_speed_x_stable * special_s_attack_after_control_speed_x_stable
+///
+/// `air_accel_x_mul`, `air_accel_x_add` and `air_speed_x_stable` are read with NO parent param --
+/// they are the fighter's own attributes out of `fighter_param`, so on a Pikachu they are PIKACHU's
+/// air stats, scaled by Incineroar's after-attack multipliers. That is the correct reading of the
+/// source and also the behaviour this moveset wants: Pikachu's mobility, Incineroar's move.
+unsafe fn whip_air_control(fighter: &mut L2CFighterCommon) {
+    let boma = fighter.module_accessor;
+    if !WorkModule::is_flag(boma, *FIGHTER_GAOGAEN_STATUS_SPECIAL_S_WORK_ID_FLAG_AIR_CONTROL) {
+        return;
+    }
+    // Tested against SITUATION_KIND_AIR explicitly, not "not ground" -- there is a third situation
+    // (CLIFF) and the source does not run this in it.
+    if fighter.global_table[0x16] != *SITUATION_KIND_AIR {
+        return;
+    }
+    let control = *FIGHTER_KINETIC_ENERGY_ID_CONTROL;
+    reset_energy(
+        fighter,
+        control,
+        *ENERGY_CONTROLLER_RESET_TYPE_FALL_ADJUST,
+        0.0,
+    );
+    KineticModule::enable_energy(boma, control);
+
+    let after_mul = WorkModule::get_param_float(
+        boma,
+        hash40("param_special_s"),
+        hash40("special_s_attack_after_control_speed_x_mul"),
+    );
+    let accel_mul = WorkModule::get_param_float(boma, hash40("air_accel_x_mul"), 0) * after_mul;
+    let accel_add = WorkModule::get_param_float(boma, hash40("air_accel_x_add"), 0) * after_mul;
+    fighter.agent.clear_lua_stack();
+    fighter.agent.push_lua_stack(&mut L2CValue::new_num(accel_mul));
+    sv_kinetic_energy::controller_set_accel_x_mul(fighter.lua_state_agent);
+    fighter.agent.clear_lua_stack();
+    fighter.agent.push_lua_stack(&mut L2CValue::new_num(accel_add));
+    sv_kinetic_energy::controller_set_accel_x_add(fighter.lua_state_agent);
+
+    let stable = WorkModule::get_param_float(boma, hash40("air_speed_x_stable"), 0)
+        * WorkModule::get_param_float(
+            boma,
+            hash40("param_special_s"),
+            hash40("special_s_attack_after_control_speed_x_stable"),
+        );
+    fighter.agent.clear_lua_stack();
+    fighter.agent.push_lua_stack(&mut L2CValue::new_int(control as u64));
+    fighter.agent.push_lua_stack(&mut L2CValue::new_num(stable));
+    sv_kinetic_energy::set_stable_speed(fighter.lua_state_agent);
+
+    WorkModule::off_flag(boma, *FIGHTER_GAOGAEN_STATUS_SPECIAL_S_WORK_ID_FLAG_AIR_CONTROL);
+}
+
+/// THE PER-FRAME LOOP SHARED BY SHOULDER, LARIAT, FAILURE AND END.
+///
+/// The game has four of these -- `0x7100021d00`, `0x7100020fc0`, `0x7100020aa0`, `0x710001f770` --
+/// and their heads and tails are instruction-for-instruction identical. They differ only in the two
+/// motion names and in whether they carry a body. So this is one function branching on status, for
+/// the same reason `whip_kinetics` is: four summaries of one shape is how the old implementation
+/// drifted.
+///
+/// THE TRANSITIONS ARE THE GAME'S OWN, WHICH IS THE POINT. `sub_transition_group_check_air_cliff`,
+/// `sub_wait_ground_check_common` and `sub_air_check_fall_common` are `L2CFighterCommon` methods
+/// compiled into the engine; the source calls them and so does this. Nothing here reimplements
+/// "when should the whip end" -- it asks the same three questions in the same order and honours the
+/// same answers.
+///
+/// THE COMMON CHECKS ONLY RUN WHEN THE ANIMATION IS CANCELLABLE. `is_enable_cancel` gates them,
+/// which is not obvious and matters: before that point the fighter cannot be pulled out into wait
+/// or fall no matter what the ground says.
+unsafe fn whip_followup_loop(fighter: &mut L2CFighterCommon) -> L2CValue {
+    let boma = fighter.module_accessor;
+    let status = StatusModule::status_kind(boma);
+
+    // SPECIAL_S's OWN main_loop IS THIS SAME SKELETON -- `0x71000239d0` is instruction-for-
+    // instruction the follow-ups' loop with the start motions, no victim watchdog, and no gravity
+    // restore. Five of the six loops are one function.
+    let (mot_ground, mot_air) = if status == *FIGHTER_STATUS_KIND_SPECIAL_S {
+        ("special_s_start", "special_air_s_start")
+    } else if status == RAT_STATUS_KIND_SPECIAL_S_SHOULDER {
+        ("special_s_shoulder", "special_air_s_shoulder")
+    } else if status == RAT_STATUS_KIND_SPECIAL_S_LARIAT {
+        ("special_s_lariat", "special_air_s_lariat")
+    } else if status == RAT_STATUS_KIND_SPECIAL_S_FAILURE {
+        ("special_s_failure", "special_air_s_failure")
+    } else {
+        ("special_s_end", "special_air_s_end")
+    };
+
+    if fighter.sub_transition_group_check_air_cliff().get_bool() {
+        return 1.into();
+    }
+    if CancelModule::is_enable_cancel(boma) {
+        if fighter.sub_wait_ground_check_common(false.into()).get_bool() {
+            return 1.into();
+        }
+        if fighter.sub_air_check_fall_common().get_bool() {
+            return 1.into();
+        }
+    }
+
+    // SHOULDER and LARIAT only: drop a victim who has stopped being a victim. FAILURE never had
+    // one and END has already let go.
+    if status == RAT_STATUS_KIND_SPECIAL_S_SHOULDER || status == RAT_STATUS_KIND_SPECIAL_S_LARIAT {
+        if LinkModule::is_link(boma, *LINK_NO_CAPTURE)
+            && !WorkModule::is_flag(boma, *FIGHTER_GAOGAEN_STATUS_SPECIAL_S_FLAG_HIT)
+            && !whip_victim_held(boma)
+        {
+            // `whip_release` returns false when it bailed out early and true when it actually tore
+            // the link down; only then is the stored id stale and worth clearing.
+            if whip_release(fighter) {
+                state::set_swing_thrown_fighter(entry_of(boma), *BATTLE_OBJECT_ID_INVALID as u32);
+            }
+        }
+    }
+
+    if !MotionModule::is_end(boma) {
+        // LANDING OR LEAVING THE GROUND MID-ANIMATION swaps to the matching motion and KEEPS THE
+        // FRAME -- `change_motion_inherit_frame`, not `change_motion` -- then re-runs the kinetics
+        // for the new situation. Without this the follow-up restarts its animation on every
+        // transition, which is what "it visually looks like the character models are off" was.
+        let prev_ground = fighter.global_table[0x17] == *SITUATION_KIND_GROUND;
+        let now_ground = fighter.global_table[0x16] == *SITUATION_KIND_GROUND;
+        if !prev_ground && now_ground {
+            GroundModule::correct(boma, GroundCorrectKind(*GROUND_CORRECT_KIND_GROUND_CLIFF_STOP));
+            MotionModule::change_motion_inherit_frame(
+                boma, Hash40::new(mot_ground), -1.0, 1.0, 0.0, false, false,
+            );
+            whip_kinetics(fighter, true);
+        } else if prev_ground && !now_ground {
+            GroundModule::correct(boma, GroundCorrectKind(*GROUND_CORRECT_KIND_AIR));
+            MotionModule::change_motion_inherit_frame(
+                boma, Hash40::new(mot_air), -1.0, 1.0, 0.0, false, false,
+            );
+            whip_kinetics(fighter, true);
+        }
+        // SPECIAL_S calls only the air-control half. The gravity restore is a follow-up thing:
+        // during the catch itself gravity is still being held off deliberately.
+        if status != *FIGHTER_STATUS_KIND_SPECIAL_S {
+            whip_air_gravity(fighter);
+        }
+        whip_air_control(fighter);
+    } else if fighter.global_table[0x16] == *SITUATION_KIND_GROUND {
+        fighter.change_status((*FIGHTER_STATUS_KIND_WAIT).into(), false.into());
+    } else {
+        fighter.change_status((*FIGHTER_STATUS_KIND_FALL).into(), false.into());
+    }
+
     0.into()
+}
+
+unsafe extern "C" fn followup_main_loop(fighter: &mut L2CFighterCommon) -> L2CValue {
+    whip_followup_loop(fighter)
 }
 
 /// All six statuses, pre / main / end, each transcribed from the address named on it.
