@@ -48,6 +48,33 @@ else
 fi
 
 R="$L/rat-resolved.log"
+
+# ==============================================================================================
+# IS THIS LOG EVEN FROM THE BUILD THAT IS ON THE CARD?
+#
+# THIS COST A WHOLE RECORDING SESSION. A Skyline plugin is loaded when the GAME LAUNCHES, so
+# deploying a new .nro to a console that is already running the game changes nothing until it is
+# restarted -- and the playtest that followed produced a log with none of the new instrumentation
+# in it, which looked exactly like "the new code is broken" for half an hour. The card was fine,
+# the build was fine, the session was simply older than the deploy.
+#
+# The plugin stamps every log with the commit and time it was built from, and tools/gen-buildstamp.sh
+# writes the same string into buildstamp.rs, so the two can just be compared. A mismatch is not a
+# warning to be read past; it means every conclusion drawn from this log is about the wrong code.
+WANT="$(sed -n 's/^pub const BUILD: &str = "(.*)";$//p' \n        pikachu-moveset/plugin/src/telemetry/buildstamp.rs 2>/dev/null)"
+GOT="$(sed -n 's/.*plugin BUILD (.*)$//p' "$R" 2>/dev/null | head -1)"
+if [ -n "$WANT" ] && [ -n "$GOT" ] && [ "$WANT" != "$GOT" ]; then
+    echo
+    echo "  !! THIS LOG IS FROM A DIFFERENT BUILD THAN THE ONE BUILT HERE."
+    echo "     log   $GOT"
+    echo "     local $WANT"
+    echo "     The plugin loads when the GAME LAUNCHES. If the game was running when deploy.sh"
+    echo "     ran, it is still running the old plugin -- fully close Smash and relaunch it, then"
+    echo "     redo the round. Nothing below is about the current code."
+    echo
+elif [ -n "$GOT" ]; then
+    echo "  log is from the current build ($GOT)"
+fi
 if [ -s "$R" ]; then
     echo
     echo "== 2. is this log from the CURRENT build? =="

@@ -492,10 +492,17 @@ unsafe fn take_captive(
     // with arguments -- including how they let go -- so the next version of this function is a
     // transcription rather than a fourth guess. Until that recording exists the whip keeps the
     // hand-driven behaviour, which grabs and bounces correctly and only fails to pin the victim.
-    if !crate::telemetry::enginetrace::ENABLED {
-        CatchModule::set_catch(boma, them);
-        CaptureModule::capture(vboma, me, *STATUS_KIND_NONE, true, 0);
-    }
+    // NO `set_catch` CLAIM. The recording settles it: across 533 traced calls the real Donkey
+    // Kong and the real Incineroar call `CatchModule::set_catch` seven times and EVERY ONE passes
+    // 0x50000000 -- BATTLE_OBJECT_ID_INVALID. It is a clear, never a claim, so claiming with it
+    // was an invention. Neither fighter calls `CaptureModule::capture` either; for them the engine
+    // establishes the capture from the collision, in the kind-keyed native code that does not run
+    // for a Pikachu.
+    //
+    // So `capture` stays -- it is the only way in, and it demonstrably works ("is_capture=true
+    // master=0x0") -- and the half that was wrong was never the claim. It was the release; see
+    // `crate::victim::cut_capture`.
+    CaptureModule::capture(vboma, me, *STATUS_KIND_NONE, true, 0);
     let ok = CaptureModule::is_capture(vboma);
     let master = CaptureModule::catch_object_id(vboma) as u32;
     // BOTH ENDS REPORTED, so the next log says which half took rather than only that the pair

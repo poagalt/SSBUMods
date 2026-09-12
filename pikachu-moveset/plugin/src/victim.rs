@@ -378,9 +378,28 @@ pub unsafe fn cut_capture(entry: usize, why: &str) -> bool {
     if CaptureModule::catch_object_id(vboma) as u32 != id_of_entry(entry as u32) {
         return false;
     }
-    CaptureModule::capture_cut(vboma, false, false, false);
+    // THE RELEASE IS `CatchModule::catch_cut` ON US, NOT `capture_cut` ON THEM.
+    //
+    // RECORDED, NOT REASONED. src/telemetry/enginetrace.rs hooks the twelve calls that change
+    // capture state and logs them with their caller; one session of the real Donkey Kong and the
+    // real Incineroar produced 533 of them, and across every grab and every cargo throw:
+    //
+    //   CaptureModule::capture_cut      0 calls by either fighter
+    //   CatchModule::catch_cut          what Donkey Kong ends every carry with, (false, false)
+    //
+    // `capture_cut` was the wrong function entirely, and Ghidra says why it glued rather than
+    // released: `CaptureCut(this, p2, p3, p4)` gates its whole teardown on `p2`, so the
+    // `(false, false, false)` this used to pass skipped the two vtable calls -- 0x3b8 and 0x3c0 --
+    // that undo the capture. The victim's model stayed constrained to our `"throw"` bone, which
+    // is "modified pikachu and mario end up glued together".
+    //
+    // `CatchCut` is four instructions: `this->[0x93] = 1`. It is a REQUEST, and the engine does
+    // the whole teardown itself on its next update, which is exactly why it cannot leave a
+    // constraint behind.
+    let Some(ours) = boma(id_of_entry(entry as u32)) else { return false };
+    CatchModule::catch_cut(ours, false, false);
     crate::telemetry::sink::crumb(format!(
-        "[rat] HOLD p{entry} cut the engine capture on {id:#x}: {why}"
+        "[rat] HOLD p{entry} asked the engine to cut the catch on {id:#x}: {why}"
     ));
     true
 }
