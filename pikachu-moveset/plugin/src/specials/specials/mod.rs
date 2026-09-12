@@ -478,8 +478,24 @@ unsafe fn take_captive(
     // The ids are the engine's own, and the encoding is read rather than assumed:
     // `get_battle_object_from_id` takes `id >> 28` as a category and `(id >> 16) & 0xfff` as the
     // index within it, so entry 0 IS the valid id 0x0 and the 0x0 in the last log was not a bug.
-    CatchModule::set_catch(boma, them);
-    CaptureModule::capture(vboma, me, *STATUS_KIND_NONE, true, 0);
+    // TURNED OFF WHILE THE TRACER IS ARMED, and this is the honest reason: it half works.
+    //
+    // The capture DOES take now -- "[rat] WHIP p0 capture requested on 0x10000: is_capture=true
+    // master=0x0" -- and that is what produced the newest playtest symptom: "modified pikachu and
+    // mario end up glued together after the broken interaction". The engine constrains the
+    // victim's model to the captor's `"throw"` bone when a capture starts
+    // (`set_model_constraint_pos_ort(LINK_NO_CAPTURE, "rot", "throw", POSITION, ORIENTATION)` in
+    // the victim's own status), and `CaptureModule::capture_cut` is evidently not what removes it.
+    //
+    // Guessing at the release is how the last three rounds went. The tracer in
+    // src/telemetry/enginetrace.rs records what the REAL Donkey Kong and Incineroar do, in order,
+    // with arguments -- including how they let go -- so the next version of this function is a
+    // transcription rather than a fourth guess. Until that recording exists the whip keeps the
+    // hand-driven behaviour, which grabs and bounces correctly and only fails to pin the victim.
+    if !crate::telemetry::enginetrace::ENABLED {
+        CatchModule::set_catch(boma, them);
+        CaptureModule::capture(vboma, me, *STATUS_KIND_NONE, true, 0);
+    }
     let ok = CaptureModule::is_capture(vboma);
     let master = CaptureModule::catch_object_id(vboma) as u32;
     // BOTH ENDS REPORTED, so the next log says which half took rather than only that the pair

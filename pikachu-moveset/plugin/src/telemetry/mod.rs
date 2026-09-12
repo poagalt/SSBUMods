@@ -33,6 +33,8 @@ pub mod selftest;
 pub mod probe;
 mod buildstamp;
 pub mod exedump;
+// Records what the engine does when a REAL fighter holds a victim -- see enginetrace.rs.
+pub mod enginetrace;
 pub mod moves;
 
 pub const ENABLED: bool = true;
@@ -289,6 +291,9 @@ pub fn install() {
     // First thing written each boot, so the log always starts with a known marker and a missing
     // file means the sink itself failed rather than the plugin not loading.
     sink::diag(format!("[rat] telemetry installed; plugin BUILD {}", buildstamp::BUILD));
+    // Armed before any agent, because the calls worth recording happen inside the engine and not
+    // inside a status script this plugin owns.
+    enginetrace::install();
     Agent::new("pikachu")
         .on_line(Main, pikachu_telemetry)
         .install();
