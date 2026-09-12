@@ -964,9 +964,42 @@ unsafe fn enter_carry(boma: *mut BattleObjectModuleAccessor, entry: usize) {
             // their status gated behind `is_link` does nothing.
             LinkModule::link(boma, *LINK_NO_CAPTURE, them);
             LinkModule::link(vboma, *LINK_NO_CAPTURE, me);
+            // SHOULDERED_DONKEY_START, NOT CAPTURE_WAIT, AND THE OLD REASONING FOR AVOIDING IT
+            // DOES NOT SURVIVE READING THE CODE.
+            //
+            // This module's header says: "THE VICTIM IS DRIVEN BY HAND, not by SHOULDERED_DONKEY.
+            // Round 3 established that requesting those statuses is the leading suspect for the
+            // freeze -- their code runs on the victim and is written for a carrier that is Donkey
+            // Kong." That was a suspicion, it was never checked, and it cost the move its lift
+            // animation, its pose, its clatter and its camera. What it bought was
+            // "they hang upright rather than sitting", which is the reported
+            // "mario still looking like he's in free-fall instead of being trapped and carried".
+            //
+            // Traced in `lua2cpp_common`, NOTHING in that family is about Donkey Kong:
+            //
+            //   status_ShoulderedDonkeyStart  0x710025b0b0  reads the VICTIM's own
+            //       param_motion/motion_share, add_body_type_hash, change_motion -- the LIFT
+            //   status_ShoulderedDonkey       0x710025bf50  change_motion("shouldered_donkey"),
+            //       start_clatter_motion_rate, set_model_constraint_flag(CONSTRAINT_FLAG_OFFSET_ROT),
+            //       set_constraint_rot_offset_y, CameraModule::set_being_carried
+            //   exec_fix_pos_counter          0x710025b680  the mash-escape decay, which reads the
+            //       CARRIER's situation kind so a carry in the air decays differently
+            //
+            // The only "Donkey" is in the names and in the motion `shouldered_donkey`, which is a
+            // shared motion every fighter has. `FIGHTER_STATUS_SHOULDERED_DONKEY_WORK_INT_START_LR`
+            // is a `FIGHTER_STATUS_` common id, not a `FIGHTER_DONKEY_` one, so there is no
+            // work-id collision to fear. And 0xC5/0xC6 are common status kinds far below Pikachu's
+            // table end of 0x1F0, so every fighter has them.
+            //
+            // The engine's `CaptureModule::capture` above creates the model constraint; these
+            // statuses only adjust its flags. So this supplies the pose, the lift, the clatter and
+            // the camera, and the port's own per-frame positioning stays for now because the
+            // CAPTOR-side joint the carry constrains to is not yet established -- see the note on
+            // `hold_victim`. Two things holding the same victim in the same place is stable; the
+            // wrong pose was not.
             crate::victim::request_status(
                 vboma,
-                *FIGHTER_STATUS_KIND_CAPTURE_WAIT,
+                *FIGHTER_STATUS_KIND_SHOULDERED_DONKEY_START,
                 "cargo carry start",
             );
             crate::telemetry::sink::diag(format!(
