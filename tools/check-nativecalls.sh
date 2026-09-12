@@ -36,12 +36,12 @@ IGNORE='^(EffectModule|SoundModule|CameraModule|ColorBlendModule|VisibilityModul
 
 # source fighter | status directory | our module directory | what it drives
 TABLE="
-gaogaen|SpecialS|specials|Alolan Whip, the lunge and catch
-gaogaen|SpecialSThrow|specials|Alolan Whip, the rope throw
-gaogaen|SpecialSShoulder|specials|Alolan Whip, the back body drop
-gaogaen|SpecialSLariat|specials|Alolan Whip, the lariat
-gaogaen|SpecialSEnd|specials|Alolan Whip, the recovery
-gaogaen|SpecialSFailure|specials|Alolan Whip, the whiff
+gaogaen|SpecialS|whip|Alolan Whip, the lunge and catch
+gaogaen|SpecialSThrow|whip|Alolan Whip, the rope throw
+gaogaen|SpecialSShoulder|whip|Alolan Whip, the back body drop
+gaogaen|SpecialSLariat|whip|Alolan Whip, the lariat
+gaogaen|SpecialSEnd|whip|Alolan Whip, the recovery
+gaogaen|SpecialSFailure|whip|Alolan Whip, the whiff
 gaogaen|SpecialLw|speciallw|Revenge, the stance
 gaogaen|SpecialLwHit|speciallw|Revenge, the retaliation
 donkey|ShoulderStart|shoulder|cargo carry, the lift

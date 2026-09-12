@@ -30,6 +30,77 @@
 // worse than either, so `install` is not called from `specials::install` until every status here
 // is transcribed. The old `specials/specials/mod.rs` still owns the move in the shipped build.
 pub mod state;
+// The catch, which is the one thing Incineroar's own code does not do. See catch.rs.
+mod catch;
+
+// ==== WHAT OF `gaogaen/param_special_s` THIS MODULE DOES NOT USE, AND WHY ====
+//
+// `tools/check-srcparams.sh` requires every param in the source object to be either read or
+// declined here with a reason. These are the declines, grouped by why.
+//
+// READ BY THE VICTIM'S STATUS, NOT BY OURS. `docs/the-recording.md` catches these arriving on the
+// victim: `mario1 ControlModule::start_clatter(85, 0, 5, ...)`, where 85/0/5 are exactly these
+// three off the CAPTOR's param object. Our side never reads them; `src/params` answers them when
+// the victim's status asks, which is the whole point of that module.
+//   NOT MODELLED: special_s_catch_clatter_damage_mul_frame_add
+//   NOT MODELLED: special_s_catch_clatter_dec_frame
+//
+// READ BY THE SOURCE'S PROLOGUE AND USED BY NO BRANCH OF IT. `0x710001d4b0` hoists twelve param
+// reads before its dispatch -- generated code evaluates all its locals up front -- and these two
+// are then never referenced by any of the six branches. Reading a param has no side effect, so
+// omitting them changes nothing.
+//   NOT MODELLED: special_air_s_catch_accel_y
+//   NOT MODELLED: special_air_s_catch_speed_y_max
+//
+// THE CAPSULE DIMENSIONS BEYOND x1. `whip_update_areas` reduces each area to the 1-D interval its
+// x offsets describe, because the victim is carried at our own height for the whole run, so the
+// y span and the radius cannot change the answer. `node` names the bone the capsule hangs off --
+// `top` for all three, which is the corroboration that the offsets are CAPTOR-RELATIVE and is
+// why that function anchors them where it does.
+//   NOT MODELLED: special_s_lariat_node special_s_lariat_size
+//   NOT MODELLED: special_s_lariat_offset_y1 special_s_lariat_offset_x2 special_s_lariat_offset_y2
+//   NOT MODELLED: special_s_lariat_end_node special_s_lariat_end_size
+//   NOT MODELLED: special_s_lariat_end_offset_y1 special_s_lariat_end_offset_x2
+//   NOT MODELLED: special_s_lariat_end_offset_y2
+//   NOT MODELLED: special_s_failure_node special_s_failure_size
+//   NOT MODELLED: special_s_failure_offset_y1 special_s_failure_offset_x2
+//   NOT MODELLED: special_s_failure_offset_y2
+//
+// THE ROPE FLIGHT, AND THIS GROUP IS A LEAD RATHER THAN A DEAD END. These govern how the victim
+// travels to the ropes and back, and the names are worth reading closely:
+//
+//     special_s_through_target_speed              11.2
+//     special_s_through_target_return_speed        2.8
+//     special_s_through_target_cancel_frame        30
+//     special_s_through_target_speed_no_rope       1.6
+//     special_s_through_target_cancel_frame_no_rope 30
+//     special_s_through_target_speed_over_rope     1.6
+//     special_s_through_target_motion_frame_fix    8
+//     special_s_through_target_return_motion_frame_fix 8
+//
+// THE GAME HAS A DEFINED NO-ROPE CASE, which is exactly the case ADR 0004 puts this port in
+// permanently. `_no_rope` and `_over_rope` mean Incineroar's own move already has to cope with
+// there being no ropes to throw into, and the numbers for it are right here. Nothing reads them in
+// the gaogaen NRO, so the code that applies them is the native rope/throw handler -- but the
+// VALUES are the game's answer to the port's own situation, and driving the throw from them is the
+// obvious next step for this move. Declined now because how they are applied is not yet known, and
+// a speed applied the wrong way is worse than a speed not applied.
+//   NOT MODELLED: special_s_through_target_speed special_s_through_target_return_speed
+//   NOT MODELLED: special_s_through_target_cancel_frame special_s_through_target_speed_no_rope
+//   NOT MODELLED: special_s_through_target_cancel_frame_no_rope
+//   NOT MODELLED: special_s_through_target_speed_over_rope
+//   NOT MODELLED: special_s_through_target_motion_frame_fix
+//   NOT MODELLED: special_s_through_target_return_motion_frame_fix
+//
+// THE ONCE-PER-AIRTIME LOCKOUT. `state::invalid_special_air_s` is the flag this frame count feeds,
+// and nothing in the NRO reads the param -- the engine enforces it. `src/specials/lockout.rs`
+// already owns the port's version of this rule.
+//   NOT MODELLED: special_s_invalid_capture_frame
+//
+// FINAL SMASH CAMERA. Present in every `param_special_*` object in the game and nothing to do with
+// this move.
+//   NOT MODELLED: critical_frame critical_slow_rate critical_zoom_rate critical_zoom_in_frame
+//   NOT MODELLED: critical_camera_offset_x critical_camera_offset_y critical_1_on_1
 
 use super::status::*;
 use {
@@ -228,10 +299,6 @@ unsafe fn whip_kinetics(fighter: &mut L2CFighterCommon, flag: bool) {
     let control = *FIGHTER_KINETIC_ENERGY_ID_CONTROL;
     let stop = *FIGHTER_KINETIC_ENERGY_ID_STOP;
 
-    let param = |name: &str| {
-        WorkModule::get_param_float(boma, hash40("param_special_s"), hash40(name))
-    };
-
     if status == *FIGHTER_STATUS_KIND_SPECIAL_S {
         // The catch itself. Two paths, chosen by the MOVE flag that `whip_move_flags` toggles:
         // before the slide starts (and after it ends) the body is held still; during the slide the
@@ -262,10 +329,10 @@ unsafe fn whip_kinetics(fighter: &mut L2CFighterCommon, flag: bool) {
             }
             if ground {
                 reset_energy(fighter, motion, *ENERGY_MOTION_RESET_TYPE_GROUND_TRANS, 0.0);
-                set_speed_mul(fighter, motion, param("special_s_start_speed_mul"));
+                set_speed_mul(fighter, motion, WorkModule::get_param_float(boma, hash40("param_special_s"), hash40("special_s_start_speed_mul")));
             } else {
                 reset_energy(fighter, motion, *ENERGY_MOTION_RESET_TYPE_AIR_TRANS, 0.0);
-                set_speed_mul(fighter, motion, param("special_air_s_start_speed_mul"));
+                set_speed_mul(fighter, motion, WorkModule::get_param_float(boma, hash40("param_special_s"), hash40("special_air_s_start_speed_mul")));
             }
             KineticModule::enable_energy(boma, motion);
             KineticUtility::clear_unable_energy(gravity, boma);
@@ -284,12 +351,12 @@ unsafe fn whip_kinetics(fighter: &mut L2CFighterCommon, flag: bool) {
         let sum_x = KineticModule::get_sum_speed_x(boma, *KINETIC_ENERGY_RESERVE_ATTRIBUTE_MAIN);
         if ground {
             reset_energy(fighter, stop, *ENERGY_STOP_RESET_TYPE_GROUND, 0.0);
-            set_speed(fighter, stop, sum_x * param("special_s_catch_speed_x_mul"));
-            set_brake(fighter, stop, param("special_s_catch_brake_x"));
+            set_speed(fighter, stop, sum_x * WorkModule::get_param_float(boma, hash40("param_special_s"), hash40("special_s_catch_speed_x_mul")));
+            set_brake(fighter, stop, WorkModule::get_param_float(boma, hash40("param_special_s"), hash40("special_s_catch_brake_x")));
         } else {
             reset_energy(fighter, stop, *ENERGY_STOP_RESET_TYPE_AIR, 0.0);
-            set_speed(fighter, stop, sum_x * param("special_air_s_catch_speed_x_mul"));
-            set_brake(fighter, stop, param("special_air_s_catch_brake_x"));
+            set_speed(fighter, stop, sum_x * WorkModule::get_param_float(boma, hash40("param_special_s"), hash40("special_air_s_catch_speed_x_mul")));
+            set_brake(fighter, stop, WorkModule::get_param_float(boma, hash40("param_special_s"), hash40("special_air_s_catch_brake_x")));
         }
         KineticModule::enable_energy(boma, stop);
     } else if status == RAT_STATUS_KIND_SPECIAL_S_SHOULDER
@@ -484,6 +551,14 @@ unsafe extern "C" fn special_s_main(fighter: &mut L2CFighterCommon) -> L2CValue 
 /// `adrp`+`add` pair at `0x71000043d0`, which resolves to `0x71000239d0` -- a different function,
 /// and one that turns out to be the SAME SKELETON as the four follow-ups.
 unsafe extern "C" fn special_s_main_loop(fighter: &mut L2CFighterCommon) -> L2CValue {
+    // THE ONE NON-TRANSCRIBED LINE IN THE WHOLE MOVE, and it is here rather than inside
+    // `whip_followup_loop` so that the transcription stays a transcription. Incineroar's status
+    // scripts never detect the catch -- the engine does it in native code keyed on fighter kind,
+    // which does not run for a Pikachu. See `catch.rs` for the evidence and the substitution.
+    if catch::try_catch(fighter) {
+        fighter.change_status(RAT_STATUS_KIND_SPECIAL_S_THROW.into(), true.into());
+        return 0.into();
+    }
     whip_followup_loop(fighter)
 }
 
@@ -555,9 +630,83 @@ unsafe extern "C" fn special_s_throw_main(fighter: &mut L2CFighterCommon) -> L2C
 ///
 /// THE FIRST THING IT DOES IS THE WATCHDOG. If the victim has stopped being a validly held victim,
 /// the rope is retired and the status goes straight to SPECIAL_S_END, whatever else was pending.
+/// THE AREA FLAGS, WHICH ARE THE ONE THING ADR 0004 COSTS THIS MOVE.
+///
+/// `FLAG_LARIAT_AREA`, `_LARIAT_END_AREA`, `_LARIAT_AREA_FIRST` and `_FAILURE_AREA` are read by the
+/// THROW loop and written by NOBODY this port can reach. They are not in any gaogaen ACMD script
+/// (the seven that are: DAMAGE_CUT, ENABLE_GRAVITY, MOVE_END, MOVE_START, THROW_ROPE,
+/// LARIAT_HIT_FRAME, AIR_CONTROL), not in the gaogaen NRO, and not in a rope NRO -- there isn't
+/// one. `prebuilt:/nro/release/lua2cpp_gaogaen_rope.nro` is Missing in data.arc, no fighter NRO
+/// carries a `create_agent_weapon_*`, and main exports only three gaogaen symbols. The rope's code
+/// is an unnamed static in main's `.text`, belonging to an article this port does not ship.
+///
+/// SO THE GEOMETRY IS TAKEN FROM THE PARAMS, WHICH ARE THE SAME NUMBERS THAT CODE USES. Three
+/// capsules, out of `gaogaen/param_special_s` and answered for Pikachu by `crate::params`:
+///
+///     special_s_lariat       size 2  x1 -24  y1 12  x2 -24  y2 2
+///     special_s_lariat_end   size 2  x1 -10  y1 12  x2 -10  y2 2
+///     special_s_failure      size 2  x1  -6  y1 12  x2  -6  y2 2
+///
+/// Vertical segments at three captor-relative x offsets, all behind him -- which is where the whip
+/// throws. Two independent corroborations that this reading is right:
+///
+///   1. A previous round derived LARIAT_X = 24.0, LARIAT_END_X = 10.0 and FAILURE_X = 6.0 by hand
+///      and got the same three magnitudes.
+///   2. `lariat_main`'s rate formula is `|button_push_x - area_hit_x| / area_length`, which is only
+///      a 0..1 ratio if the area SPANS -24 to -10 -- and |-24 - -10| is 14, which is then exactly
+///      what `area_length` has to be. The formula and the two params agree, and neither was chosen
+///      to fit the other.
+///
+/// So the area is the interval the victim travels on the way back from the ropes, the press
+/// position inside it sets the animation speed, and passing -6 is the whiff. What is inferred here
+/// is the ANCHOR (captor-relative) and nothing else.
+unsafe fn whip_update_areas(fighter: &mut L2CFighterCommon) {
+    let boma = fighter.module_accessor;
+    let entry = entry_of(boma);
+    let Some(vx) = victim_pos_x(boma) else {
+        return;
+    };
+    // The victim's offset in the captor's facing frame: positive is in front, so the whole of this
+    // happens at negative values.
+    let off = (vx - PostureModule::pos_x(boma)) * PostureModule::lr(boma);
+
+    let lariat_x = WorkModule::get_param_float(boma, hash40("param_special_s"), hash40("special_s_lariat_offset_x1"));
+    let lariat_end_x = WorkModule::get_param_float(boma, hash40("param_special_s"), hash40("special_s_lariat_end_offset_x1"));
+    let failure_x = WorkModule::get_param_float(boma, hash40("param_special_s"), hash40("special_s_failure_offset_x1"));
+
+    state::set_lariat_area_length(entry, (lariat_x - lariat_end_x).abs());
+
+    let in_lariat = off >= lariat_x && off <= lariat_end_x;
+    let was_in = WorkModule::is_flag(boma, *FIGHTER_GAOGAEN_STATUS_SPECIAL_S_FLAG_LARIAT_AREA);
+    if in_lariat {
+        if !was_in {
+            // Entering: raise FIRST so the loop records where the victim was. The loop clears it.
+            WorkModule::on_flag(boma, *FIGHTER_GAOGAEN_STATUS_SPECIAL_S_FLAG_LARIAT_AREA);
+            WorkModule::on_flag(
+                boma,
+                *FIGHTER_GAOGAEN_STATUS_SPECIAL_S_FLAG_LARIAT_AREA_FIRST,
+            );
+        }
+    } else if was_in {
+        WorkModule::off_flag(boma, *FIGHTER_GAOGAEN_STATUS_SPECIAL_S_FLAG_LARIAT_AREA);
+    }
+
+    // Past the end line, coming home: this is what closes the lariat window.
+    if off > lariat_end_x {
+        WorkModule::on_flag(boma, *FIGHTER_GAOGAEN_STATUS_SPECIAL_S_FLAG_LARIAT_END_AREA);
+    }
+    // All the way back: the whiff.
+    if off > failure_x {
+        WorkModule::on_flag(boma, *FIGHTER_GAOGAEN_STATUS_SPECIAL_S_FLAG_FAILURE_AREA);
+    }
+}
+
 unsafe extern "C" fn special_s_throw_main_loop(fighter: &mut L2CFighterCommon) -> L2CValue {
     let boma = fighter.module_accessor;
     let entry = entry_of(boma);
+
+    // NOT PART OF THE TRANSCRIPTION -- the rope would be doing this. See `whip_update_areas`.
+    whip_update_areas(fighter);
 
     if !whip_victim_held(boma) {
         // The rope's own retirement is the one call ADR 0004 removes; the transition is not.

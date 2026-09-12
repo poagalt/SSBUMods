@@ -30,7 +30,7 @@ LABELS=vendor/param-labels/ParamLabels.csv
 
 # fighter | param object | module directory | what it drives
 TABLE="
-gaogaen|param_special_s|specials|Alolan Whip
+gaogaen|param_special_s|whip|Alolan Whip
 gaogaen|param_special_lw|speciallw|Revenge
 gamewatch|param_special_hi|specialhi|up-B Fire
 donkey|param_lifting_walk|cargo|cargo carry
@@ -115,7 +115,25 @@ while IFS='|' read -r fighter obj dir what; do
            || grep -qF -- "$value.0" "$BODYFILE"; then
             continue
         fi
-        echo "  FAIL $what: $name is $value in $fighter's vl.prc but that value is not in $dir/"
+        # READ AT RUNTIME COUNTS, AND COUNTS FOR MORE THAN A LITERAL.
+        #
+        # This check was written for a port that hardcoded the source's numbers, where the only
+        # evidence a param was honoured was its value appearing in the Rust. A transcribed status
+        # does not work that way: it calls `WorkModule::get_param_float(boma,
+        # hash40("param_special_s"), hash40("special_s_start_speed_mul"))` and `src/params` answers
+        # out of gaogaen's own prc. The value is then CORRECT BY CONSTRUCTION and cannot drift when
+        # a game patch changes the prc, which a literal silently would.
+        #
+        # So a `get_param_*` call naming the param satisfies the value requirement. This is a
+        # stronger standard than the literal, not a weaker one -- and demanding the literal here
+        # would have pushed hardcoded constants back into the transcription, which is precisely
+        # what ADR 0006 exists to stop.
+        if grep -qE "get_param_(float|int|int64)[^)]*\b$name\b" "$BODYFILE" \
+           || grep -qE "\b$name\b" "$BODYFILE" && grep -qE "hash40\(\"$name\"\)" "$BODYFILE"; then
+            continue
+        fi
+        echo "  FAIL $what: $name is $value in $fighter's vl.prc, and $dir/ neither contains that"
+        echo "       value nor reads the param by name at runtime"
         fail=1
     done <<< "$params"
 

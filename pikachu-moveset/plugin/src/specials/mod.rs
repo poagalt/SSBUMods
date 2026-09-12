@@ -31,8 +31,10 @@ pub mod status;
 pub mod lockout;
 pub mod speciallw;
 pub mod acmd_speciallw;
-pub mod specials;
-// The transcribed Alolan Whip, replacing specials/ -- see ADR 0006. Not registered yet.
+// The transcribed Alolan Whip. REPLACES the old `specials` module, which is deleted -- see
+// ADR 0006. The two must never both be installed: whichever registered last would silently own
+// FIGHTER_STATUS_KIND_SPECIAL_S, and "which implementation am I testing" is not a question worth
+// having.
 pub mod whip;
 pub mod cargo;
 pub mod shoulder;
@@ -44,7 +46,7 @@ pub fn install() {
     lockout::install();
     speciallw::install();
     acmd_speciallw::install();
-    specials::install();
+    whip::install();
     cargo::install();
     shoulder::install();
     specialhi::install();
