@@ -23,19 +23,31 @@ ROOT="$(cd "$(dirname "$0")/.." && pwd)"; cd "$ROOT"
 S=pikachu-moveset/plugin/src
 rc=0
 
-# 1. The rope statuses, by constant name. Requested on anyone, this is a confirmed crash.
+# 1. The rope status, by constant name. Requested on anyone, this is a confirmed crash.
 #
-# src/victim.rs is allowed to name them -- it is the refusal list. Comments are allowed to
-# discuss them, because the explanation is the point; only a request is a fault, so the grep
-# looks for the constant inside a change_status call rather than for the name anywhere.
-ROPE='FIGHTER_STATUS_KIND_SWING_GAOGAEN_(THROWN|ATTACH_ROPE|RETURN)'
-hits=$(grep -rnE "change_status[a-z_]*\(.*$ROPE" "$S" 2>/dev/null | grep -v '^.*/victim\.rs:' || true)
+# NARROWED FROM THREE TO ONE, and the reason is that the crash was never about the rope.
+#
+# This checked THROWN, ATTACH_ROPE and RETURN. THROWN's danger was real -- its status opens with
+# an unguarded `LinkModule::get_parent_pos` -- but the missing parent was `LinkModule::link` being
+# called on one object instead of two, not the absent article. With both ends linked the ENGINE
+# itself puts the victim into THROWN and nothing crashes. RETURN reads no parent at all: it is
+# `reverse_lr`, a motion, four clears and the STOP energy from a float the victim's own CATCHED
+# status stored from the captor's params.
+#
+# ATTACH_ROPE stays, because the rope IS that status. See the list in src/victim.rs for the
+# addresses this was read from.
+#
+# src/victim.rs is allowed to name it -- it is the refusal list. Comments are allowed to discuss
+# it, because the explanation is the point; only a request is a fault, so the grep looks for the
+# constant inside a change_status call rather than for the name anywhere.
+ROPE='FIGHTER_STATUS_KIND_SWING_GAOGAEN_ATTACH_ROPE'
+hits=$(grep -rnE "(change_status|request_status)[a-z_]*\(.*$ROPE" "$S" 2>/dev/null | grep -v '^.*/victim\.rs:' || true)
 if [ -n "$hits" ]; then
-    echo "  FAIL a rope status is being requested -- this is the confirmed null deref:"
+    echo "  FAIL SWING_GAOGAEN_ATTACH_ROPE is being requested -- there is no rope to attach to:"
     printf '%s\n' "$hits" | sed 's/^/       /'
     rc=1
 else
-    echo "  ok  no code requests SWING_GAOGAEN_THROWN / _ATTACH_ROPE / _RETURN"
+    echo "  ok  no code requests SWING_GAOGAEN_ATTACH_ROPE"
 fi
 
 # 2. Reaching another battle object goes through src/victim.rs.

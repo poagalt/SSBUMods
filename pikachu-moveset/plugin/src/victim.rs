@@ -88,18 +88,31 @@ pub unsafe fn others(me: u32) -> Vec<(u32, *mut BattleObjectModuleAccessor)> {
 /// because the point is the ENGINE's status kinds, and a constant would suggest there is a
 /// version of this we could safely enable.
 ///
-///   0x177  SWING_GAOGAEN_THROWN       LinkModule::get_parent_pos, unguarded -- CONFIRMED CRASH
+///   0x177  SWING_GAOGAEN_THROWN       LinkModule::get_parent_pos, unguarded -- was a real crash
 ///   0x178  SWING_GAOGAEN_ATTACH_ROPE  the rope is the whole status
 ///   0x179  SWING_GAOGAEN_RETURN       rebound off the rope
 ///
-/// SWING_GAOGAEN_CATCHED (0x176) is deliberately NOT here: it guards every parent access behind
-/// `LinkModule::is_link`, so with no rope it simply does not constrain the victim's model, which
-/// is exactly what we want while driving their position ourselves.
-/// Unused in code ON PURPOSE: nothing requests these any more, which is the point. The list is
-/// the machine-readable half of ADR 0004 and tools/check-victim.sh asserts nobody goes around it,
-/// so deleting it would delete the rule.
-#[allow(dead_code)]
-pub const FORBIDDEN_VICTIM_STATUSES: &[i32] = &[0x177, 0x178, 0x179];
+/// TWO OF THE THREE ARE NOW SAFE, AND THE REASON IS THAT THE LINK WAS THE PROBLEM ALL ALONG.
+///
+/// 0x177's entry above is accurate about the code: `status_SwingGaogaenThrown` (common
+/// 0x710028c430) opens with `LinkModule::get_parent_pos(x, y, z, LINK_NO_CAPTURE)` and only reaches
+/// `is_link` several calls later. With no parent that is a null read, which is the crash this list
+/// was written for. But the missing parent was never about the rope -- it was `LinkModule::link`
+/// being called on one object instead of two, so the victim had no parent at all. With both ends
+/// linked the engine itself put the victim into 0x177 on the last playtest and nothing crashed;
+/// `crate::victim::trace` logged `status=0x177 captured=true master=0x0` and then a normal exit.
+///
+/// 0x179 reads no parent whatsoever. `status_SwingGaogaenReturn` (0x710028f230) is `reverse_lr`,
+/// a motion, four `clear_unable_energy`, and the STOP energy driven from
+/// `FIGHTER_STATUS_SWING_GAOGAEN_WORK_FLOAT_RETURN_SPEED_X` -- a value the victim's own CATCHED
+/// status already stored from the CAPTOR's `special_s_through_target_return_speed`. Nothing in it
+/// needs a rope to exist.
+///
+/// 0x178 stays. The rope IS that status.
+///
+/// SWING_GAOGAEN_CATCHED (0x176) was never here: it guards every parent access behind
+/// `LinkModule::is_link`.
+pub const FORBIDDEN_VICTIM_STATUSES: &[i32] = &[0x178];
 
 // ============================================================================================
 // OWNERSHIP OF A HELD VICTIM IS OURS TO TRACK. THE ENGINE DOES NOT KEEP IT FOR US.

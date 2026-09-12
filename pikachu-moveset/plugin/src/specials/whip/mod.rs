@@ -803,6 +803,41 @@ unsafe fn whip_update_areas(fighter: &mut L2CFighterCommon) {
     if in_lariat {
         state::set_lariat_been_out(entry, true);
     }
+
+    // THE ROPE'S ONE REMAINING JOB, SUPPLIED BY THE PORT: turning the victim around.
+    //
+    // The playtest said "mario just walks away rather than getting thrown into ropes and coming
+    // back for a hit", and that is the CORRECT no-rope behaviour of his own status. The ropes are
+    // not stage geometry -- they are the article Incineroar generates, which ADR 0004 excludes --
+    // so `status_SwingGaogaenThrown_Main` (common 0x710028d180) finds no wall to bounce off:
+    // `is_touch(GROUND_TOUCH_FLAG_RIGHT/LEFT)` -> `STOP_WALL` never fires and the loop ends him in
+    // WAIT. `crate::victim::trace` recorded exactly that: 0x176 -> 0x177 -> 0x0.
+    //
+    // But the trip BACK is its own status and it needs nothing from the rope.
+    // `status_SwingGaogaenReturn` (0x710028f230) reverses his facing, plays the rope-run motion and
+    // drives the STOP energy from `..._WORK_FLOAT_RETURN_SPEED_X` -- which his own CATCHED status
+    // already stored from OUR `special_s_through_target_return_speed`. So the port only has to
+    // supply the trigger the rope would have supplied, which is "he got out to the ropes".
+    //
+    // The distance is the game's own: `special_s_lariat_offset_x1` is -24, and the lariat area IS
+    // where the ropes are -- that is why pressing inside it is the lariat and why the rate formula
+    // measures from its entry point. So reaching -24 is the rope hit.
+    //
+    // This is the same substitution as the area flags above and it is the last piece of the rope
+    // the move actually needs. What is still missing without the article is the rope's visual and
+    // the `_over_rope` case, neither of which is a behaviour the follow-ups read.
+    if state::lariat_been_out(entry) {
+        let id = state::swing_thrown_fighter(entry);
+        if let Some(vboma) = crate::victim::boma(id) {
+            if StatusModule::status_kind(vboma) == *FIGHTER_STATUS_KIND_SWING_GAOGAEN_THROWN {
+                crate::victim::request_status(
+                    vboma,
+                    *FIGHTER_STATUS_KIND_SWING_GAOGAEN_RETURN,
+                    "whip rope rebound",
+                );
+            }
+        }
+    }
     if state::lariat_been_out(entry) && !in_lariat {
         if off > lariat_end_x {
             WorkModule::on_flag(boma, *FIGHTER_GAOGAEN_STATUS_SPECIAL_S_FLAG_LARIAT_END_AREA);
