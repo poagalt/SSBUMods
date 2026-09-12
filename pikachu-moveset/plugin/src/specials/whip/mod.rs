@@ -612,16 +612,36 @@ unsafe extern "C" fn special_s_throw_pre(fighter: &mut L2CFighterCommon) -> L2CV
 ///     FUN_710001d4b0(this, true)
 ///     sub_shift_status_main(<the throw's loop>)
 ///
-/// `generate_rope` IS CALLED, exported and by name, because that is what the source does and
-/// because whether it produces a rope for a Pikachu is a measurement rather than an assumption --
-/// `ArticleModule::is_exist` before and after says so. ADR 0004 covers what happens if it does
-/// not: the victim's own status reads
-/// FIGHTER_GAOGAEN_INSTANCE_WORK_ID_FLAG_SPECIAL_S_GENERATED_ROPE off the captor and takes the
-/// no-rope path.
+/// `generate_rope` IS NOT CALLED, AND CALLING IT SPAWNED A THUNDER JOLT.
+///
+/// The note that used to be here said it WAS called "because whether it produces a rope for a
+/// Pikachu is a measurement rather than an assumption". That reasoning admitted two outcomes -- a
+/// rope, or nothing -- and the real one was a third: IT PRODUCES A DIFFERENT ARTICLE. An article id
+/// is a per-fighter enumeration, so Incineroar's rope index names whatever Pikachu keeps at that
+/// index, and `deforeign`'s own header spells out what lives at the bottom of his list:
+///
+///     FIGHTER_ELIGHT_GENERATE_ARTICLE_ESWORD  = 0x0  = Pikachu's DENGEKIDAMA
+///
+/// DENGEKIDAMA is the Thunder Jolt ball. The playtest reported the victim taking "7.5% of electric
+/// damage" that "lines up exactly with thunder jolt's damage and visuals, and stales at the same
+/// rate" -- because it WAS a Thunder Jolt, spawned by Incineroar's own rope generator running on a
+/// Pikachu. The measurement the old note leaned on was also never actually written: there is no
+/// `ArticleModule::is_exist` call before or after it anywhere.
+///
+/// THIS IS THE POINT OF ADR 0006's RULE, ARRIVING FROM A DIRECTION THE RULE DID NOT COVER. The call
+/// is word-for-word correct -- it is Incineroar's own exported native function, by name, with his
+/// own argument. A verbatim port of a call whose ARGUMENT SPACE is per-fighter is still wrong on a
+/// different fighter, and `deforeign` exists precisely to strip that class out of generated ACMD --
+/// but it never processes hand-written status code, so nothing caught it here.
+///
+/// Omitting it is not a behaviour change of mine; it is the consequence of ADR 0004, which already
+/// decided this port ships no rope. Every CONSUMER of the rope is already omitted for that reason
+/// (the two `ArticleModule::change_status_exist` calls and the rope's `send_event_nodes`). Keeping
+/// the generator while removing everything that reads it was the inconsistency. The only way to
+/// make this line faithful rather than absent is to ship the rope article, which is ADR 0004's
+/// open question and not one to reopen silently.
 unsafe extern "C" fn special_s_throw_main(fighter: &mut L2CFighterCommon) -> L2CValue {
     let boma = fighter.module_accessor;
-
-    smash::app::FighterSpecializer_Gaogaen::generate_rope(boma as *mut FighterModuleAccessor);
 
     if fighter.global_table[0x16] == *SITUATION_KIND_GROUND {
         GroundModule::correct(boma, GroundCorrectKind(*GROUND_CORRECT_KIND_GROUND_CLIFF_STOP));

@@ -226,6 +226,28 @@ unsafe fn unlink_hook(boma: *mut BattleObjectModuleAccessor, link_no: i32) -> u6
     original!()(boma, link_no)
 }
 
+// ---- DamageModule ----------------------------------------------------------------------------
+//
+// NOT A CAPTURE CALL, and here for one specific unexplained observation: a whip playtest reported
+// the victim taking "7.5% of electric damage and just gets pushed back" from something this move
+// does not own. The port's two whip hitboxes are damage 0.0 with `collision_attr_normal`, and the
+// whole ported plugin contains NO electric hitbox at all -- `grep -c collision_attr_elec` over
+// `src/` is zero. So either some Pikachu script is running that should not be, or the damage is
+// applied in code.
+//
+// This hook answers the second case outright: `add_damage` names the object and the amount, and
+// `who()` names the caller's fighter kind. If nothing logs, the damage came from a hitbox and the
+// question becomes which script owns it -- which is a different search, and knowing which of the
+// two it is saves running both.
+#[skyline::hook(replace = DamageModule::add_damage)]
+unsafe fn add_damage_hook(boma: *mut BattleObjectModuleAccessor, damage: f32, arg: i32) {
+    rec(format!(
+        "{} DamageModule::add_damage({damage}, {arg})",
+        who(boma)
+    ));
+    original!()(boma, damage, arg)
+}
+
 // ---- ControlModule --------------------------------------------------------------------------
 
 #[skyline::hook(replace = ControlModule::start_clatter)]
@@ -262,6 +284,7 @@ pub fn install() {
         send_event_nodes_hook,
         send_event_nodes_throw_hook,
         unlink_hook,
+        add_damage_hook,
         start_clatter_hook,
         change_kinetic_hook,
         enable_energy_hook,

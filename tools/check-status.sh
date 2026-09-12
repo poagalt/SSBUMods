@@ -48,6 +48,35 @@ for f in $FOREIGN; do
 done
 [ "$found" -eq 0 ] || rc=1
 
+# A FOREIGN FIGHTER'S OWN NATIVE HELPER IS THE SAME BUG WITH NO CONSTANT IN SIGHT.
+#
+# The rule above catches a foreign CONSTANT. It does not catch a foreign FUNCTION, and one of those
+# cost a playtest round with a symptom nobody would have connected to it: the whip's throw called
+#
+#     FighterSpecializer_Gaogaen::generate_rope(boma)
+#
+# word for word, by name, because that is what Incineroar's SPECIAL_S_THROW main does. Run on a
+# Pikachu it generated PIKACHU's article at Incineroar's rope index, and the bottom of his article
+# list is DENGEKIDAMA -- the Thunder Jolt ball. The playtest reported the victim taking damage that
+# "lines up exactly with thunder jolt's damage and visuals, and stales at the same rate", which is
+# because it was one.
+#
+# A `FighterSpecializer_<X>` function carries the foreign enumeration INSIDE ITSELF, so there is no
+# identifier here to match and no amount of checking constants would have found it. The whole
+# namespace is off limits to hand-written code: these are per-fighter helpers operating on
+# per-fighter state, and the host is not that fighter.
+for f in $FOREIGN; do
+    # `FighterSpecializer_Gaogaen` -> `Gaogaen`: the symbol is CamelCase, the list is upper.
+    camel=$(printf '%s' "$f" | sed -E 's/^(.)(.*)$/\1\L\2/')
+    hits=$(grep -rniE "FighterSpecializer_${camel}::" \
+             "$SRC/specials" "$SRC/articles" "$SRC/sword" "$SRC/telemetry" 2>/dev/null \
+           | grep -v ':[0-9]*: *//' || true)
+    if [ -n "$hits" ]; then
+        printf '%s\n' "$hits" | sed "s|$SRC/||;s|^|  FAIL foreign specializer: |"
+        rc=1
+    fi
+done
+
 # THE NEW STATUS KINDS must be past the end of Pikachu's table and distinct from each other.
 #
 # src/specials/status.rs already asserts the range at compile time, but not uniqueness -- two

@@ -153,6 +153,28 @@ unsafe fn take_captive(
 
     let linked_now = LinkModule::link(boma, *LINK_NO_CAPTURE, them) != 0;
     CaptureModule::capture(vboma, me, *STATUS_KIND_NONE, true, 0);
+
+    // BOTH ENDS OF THE LINK, because one call only makes one end.
+    //
+    // The playtest that first reached this code reported:
+    //
+    //     caught 0x10000: is_capture=true master=0x0 (ours 0x0) link_now=true is_link=false
+    //
+    // The capture took and we are correctly the master, but the VICTIM had no parent link -- and
+    // `docs/the-recording.md` records that every branch of their `SwingGaogaenCatched` status is
+    // gated behind `is_link`, so their status ran none of it and they simply stood there.
+    //
+    // Ghidra on `LinkModule::link` at main + 0x47f120 says why. `Link(this, link_no, id)` writes
+    // into the CALLER's own slot -- `slot.parent = this`, `slot.id = id` at `+0x30`/`+0x48` -- and
+    // splices the caller's lists. It does not touch the object named by `id`. The comment in this
+    // file used to say a single call "establishes both directions"; that was a misreading of the
+    // list splicing, which threads two lists belonging to the CALLER, not one list on each side.
+    //
+    // For Incineroar the engine sets up both ends itself as part of the kind-keyed catch handler.
+    // Since that handler is exactly what this file substitutes for, the port has to make the
+    // victim's end too.
+    let victim_linked = LinkModule::link(vboma, *LINK_NO_CAPTURE, me) != 0;
+
     crate::victim::request_status(
         vboma,
         *FIGHTER_STATUS_KIND_SWING_GAOGAEN_CATCHED,
@@ -167,10 +189,19 @@ unsafe fn take_captive(
 
     crate::telemetry::sink::diag(format!(
         "[rat] WHIP p{entry} caught {them:#x}: is_capture={} master={:#x} (ours {me:#x}) \
-         link_now={linked_now} is_link={}",
+         ours_link={linked_now} their_link={victim_linked} \
+         their_is_link={} their_parent={:#x} their_st={:#x} their_dmg={:.1}",
         CaptureModule::is_capture(vboma),
         CaptureModule::catch_object_id(vboma) as u32,
-        LinkModule::is_link(vboma, *LINK_NO_CAPTURE)
+        LinkModule::is_link(vboma, *LINK_NO_CAPTURE),
+        LinkModule::get_parent_id(vboma, *LINK_NO_CAPTURE, false) as u32,
+        StatusModule::status_kind(vboma),
+        // THEIR DAMAGE, because the same playtest reported the victim taking 7.5% of electric
+        // damage from something this move does not own -- the port's whip hitboxes are damage 0.0
+        // with `collision_attr_normal`, and the whole ported plugin contains no electric hitbox at
+        // all. Logging it at the catch gives a baseline to compare against the next frames, which
+        // separates "the catch did it" from "they were already being hit by something else".
+        DamageModule::damage(vboma, 0)
     ));
 }
 

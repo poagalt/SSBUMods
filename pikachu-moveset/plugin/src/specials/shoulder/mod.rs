@@ -786,16 +786,29 @@ pub fn install() {
 /// accessor is one. The bool is on/off -- the only sensible reading of a one-argument setter whose
 /// name is "apply", and it is called with `true` entering the carry and `false` leaving it.
 ///
-/// WHAT MAKES THIS SAFE TO TRY: it takes an accessor and a flag, touches the caller's own kinetic
-/// state, and reaches no other object -- which is the property every crash in this project has
-/// violated. The worst case is that it multiplies a param object Pikachu does not have, which is
-/// a no-op, and the log says whether his walk speed changed.
+/// IT WAS TRIED, IT WAS MEASURED, AND IT IS A NO-OP -- SO THE CALL IS GONE.
+///
+/// The note above argued the worst case was "it multiplies a param object Pikachu does not have,
+/// which is a no-op, and the log says whether his walk speed changed". The log said:
+///
+///     [rat] SHOULDER p0 apply_lift_param(true); walk_speed_max 1.5750 -> 1.5750
+///
+/// Unchanged. So the call did nothing and removing it costs nothing -- `donkey
+/// param_lifting_walk`'s three 1.1x multipliers are back to NOT MODELLED, which is where the
+/// header had them and is the honest state.
+///
+/// AND THE ARGUMENT FOR TRYING IT HAD A HOLE THAT COST A PLAYTEST ELSEWHERE. It admitted two
+/// outcomes, "works" or "no-op", and missed the third: a foreign fighter's native helper carries
+/// that fighter's per-fighter ENUMERATIONS inside itself, so it can do something entirely
+/// different on the host. `FighterSpecializer_Gaogaen::generate_rope` was justified the same way
+/// in `whip/mod.rs` and it spawned a THUNDER JOLT, because Incineroar's rope index is Pikachu's
+/// DENGEKIDAMA. `tools/check-status.sh` now refuses the whole `FighterSpecializer_<foreign>`
+/// namespace in hand-written code rather than judging these one at a time.
+///
+/// The measurement is kept because it is the evidence, and because a future round that wants these
+/// multipliers should start from "the native helper does nothing here" rather than re-deriving it.
 unsafe fn apply_lift_param(boma: *mut BattleObjectModuleAccessor, entry: usize, on: bool) {
     let before = WorkModule::get_param_float(boma, smash::hash40("walk_speed_max"), 0);
-    smash::app::FighterSpecializer_Donkey::apply_lift_param(
-        boma as *mut smash::app::FighterModuleAccessor,
-        on,
-    );
     let after = WorkModule::get_param_float(boma, smash::hash40("walk_speed_max"), 0);
     crate::telemetry::sink::crumb(format!(
         "[rat] SHOULDER p{entry} apply_lift_param({on}); walk_speed_max {before:.4} -> {after:.4}"
