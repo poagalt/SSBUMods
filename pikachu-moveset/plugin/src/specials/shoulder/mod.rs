@@ -260,6 +260,62 @@ unsafe extern "C" fn shoulder_start_main(fighter: &mut L2CFighterCommon) -> L2CV
     fighter.sub_shift_status_main(L2CValue::Ptr(shoulder_start_loop as *const () as _))
 }
 
+/// ON THE SHOULDER, NOT AT THE FEET -- the second attempt at `SHOULDERED_DONKEY`, one frame later
+/// and with a precondition.
+///
+/// WHY IT CRASHED THE FIRST TIME, from the report rather than from a guess. Data Abort on
+/// MainThread at `main + 0x484da4`:
+///
+///     plVar8 = *(long **)(lVar9 + lVar7 * 0x68 + 0x58);   // a LINK SLOT field
+///     ...
+///     uVar5 = (**(code **)(*plVar8 + 0x3c8))(plVar8);     // virtual call, plVar8 == null
+///
+/// `0x68` is the link-slot stride -- the same stride `LinkModule::link` indexes with at
+/// main + 0x47f120 -- so `+0x58` is a field of the capture link slot, holding a resolved OBJECT
+/// POINTER. And `Link` does not write it: it writes the parent at `+0x30` and the id at `+0x48`
+/// and nothing else. The engine fills the cached pointer in itself as part of a real catch, and
+/// the port forced the status on the SAME FRAME as the link, before it existed.
+///
+/// So this waits a frame and refuses unless the slot looks resolved: the node list must name our
+/// victim, which means the engine has walked the link at least once. That is a positive
+/// precondition rather than a delay in the hope it is enough.
+///
+/// WHY BOTHER, when `docs/the-recording.md` says the real victim plays `capture_wait`. Because
+/// `CAPTURE_WAIT` positions them where an ORDINARY GRAB holds them, and the playtest says exactly
+/// that: "moving while carrying mario causes him to get stuck to pikachu's feet". The recording is
+/// right about the motion and says nothing about the node; the shoulder pose lives in
+/// `SHOULDERED_DONKEY`, which is why the whole family exists.
+unsafe fn shoulder_the_victim(boma: *mut BattleObjectModuleAccessor, entry: usize) {
+    if !SHOULDER_THE_VICTIM || CARRY_FRAMES[entry] != 2 {
+        return;
+    }
+    let them = VICTIM[entry];
+    let Some(vboma) = crate::victim::boma(them) else {
+        return;
+    };
+    // The precondition: the engine has resolved the link far enough to name our victim through it.
+    if LinkModule::get_node_object_id(boma, *LINK_NO_CAPTURE) as u32 != them {
+        crate::telemetry::sink::diag(format!(
+            "[rat] SHOULDER p{entry} NOT shouldering {them:#x}: the capture link's node does not \
+             name them yet, so main+0x484da4's cached object pointer would still be null"
+        ));
+        return;
+    }
+    crate::telemetry::sink::diag(format!(
+        "[rat] SHOULDER p{entry} shouldering {them:#x} on carry frame 2 (their st={:#x})",
+        StatusModule::status_kind(vboma)
+    ));
+    crate::victim::request_status(
+        vboma,
+        *FIGHTER_STATUS_KIND_SHOULDERED_DONKEY_START,
+        "cargo shoulder",
+    );
+}
+
+/// Flip to false to go back to leaving the victim in `CAPTURE_WAIT`. Kept as a switch because this
+/// is the line that crashed once already, and a playtest that crashes on it should cost one edit.
+const SHOULDER_THE_VICTIM: bool = true;
+
 unsafe extern "C" fn shoulder_start_loop(fighter: &mut L2CFighterCommon) -> L2CValue {
     let boma = fighter.module_accessor;
     let entry = entry_of(boma);
@@ -273,6 +329,7 @@ unsafe extern "C" fn shoulder_start_loop(fighter: &mut L2CFighterCommon) -> L2CV
             "[rat] SHOULDER p{entry} START loop reached, frame 1"
         ));
     }
+    shoulder_the_victim(boma, entry);
     hold_victim(boma, entry);
 
     if !still_held(boma, entry) {

@@ -771,7 +771,28 @@ unsafe fn whip_update_areas(fighter: &mut L2CFighterCommon) {
 
     state::set_lariat_area_length(entry, (lariat_x - lariat_end_x).abs());
 
+    // MEASURED, BECAUSE THE REBOUND TRIGGER NEVER FIRED AND THERE ARE FOUR REASONS IT MIGHT NOT.
+    //
+    // `rope rebound` appeared zero times in the log, so `lariat_been_out` never went true, so the
+    // victim was never sampled inside [-24, -10]. That is either: they do not travel at all (the
+    // STOP energy from `..._THROWN_SPEED_X` is not moving them), they travel too little (brake and
+    // limit eat the 1.6), they travel the WRONG WAY (an `lr` sign flip would make `off` positive,
+    // and `whip_release`'s FAILURE path does call `reverse_lr`), or this function is not running
+    // during the flight at all. One line every ten frames separates all four, and the victim's own
+    // status frame is in it so the 30-frame `MOVE_CANCEL_FRAME` window is visible too.
     let in_lariat = off >= lariat_x && off <= lariat_end_x;
+    let f = MotionModule::frame(boma) as i32;
+    if f % 10 == 0 {
+        crate::telemetry::sink::diag(format!(
+            "[rat] WHIP p{entry} f{f} area: off={off:.2} in={in_lariat} out={} \
+             lariat={lariat_x:.0} end={lariat_end_x:.0} fail={failure_x:.0} vst={:#x} lr={:.0}",
+            state::lariat_been_out(entry),
+            crate::victim::boma(state::swing_thrown_fighter(entry))
+                .map(|v| StatusModule::status_kind(v))
+                .unwrap_or(-1),
+            PostureModule::lr(boma)
+        ));
+    }
     let was_in = WorkModule::is_flag(boma, *FIGHTER_GAOGAEN_STATUS_SPECIAL_S_FLAG_LARIAT_AREA);
     if in_lariat {
         if !was_in {
