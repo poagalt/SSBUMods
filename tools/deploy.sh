@@ -61,11 +61,44 @@ if ! (set -o noclobber; echo "$$ $(date +%H:%M:%S)" > "$LOCK") 2>/dev/null; then
     # a revert of a CRASHING build silently did not happen, leaving the crash installed while the
     # log said the revert had been built. Staleness is decided by asking the OS whether the
     # recorded pid is still alive, not by a timeout.
+    #
+    # A WEDGED LIVE HOLDER BLOCKS AS HARD AS A DEAD ONE, and that cost a playtest round.
+    #
+    # What happened: a `deploy.sh && git commit` chain was launched with a 600s timeout, exceeded
+    # it, and was moved to the background still holding this lock. Every later deploy then refused
+    # -- correctly, by this block's own rule -- for twenty minutes. The whip fix never reached the
+    # card, and the playtest that followed ran the OLD build and reported the OLD bug.
+    #
+    # `kill -0` WAS RIGHT AND THE FIRST DIAGNOSIS WAS WRONG. It looked like a stale lock from a
+    # dead pid, on the strength of `tasklist /FI "PID eq 48924"` printing "No tasks are running".
+    # That check is in the WRONG PID NAMESPACE: under Git Bash `$$` is an MSYS pid, which tasklist
+    # cannot see at all, so it answers "not running" for every live shell. `ls -d /proc/<pid>` is
+    # the test that works here -- and it showed the holder alive the whole time.
+    #
+    # So liveness stays as the first gate, and an age bound is added on top of it for the case
+    # liveness cannot cover: a holder that is alive but no longer going to finish. A deploy is ~25s
+    # and the slowest recorded is under two minutes, so 15 minutes cannot false-positive on one
+    # that is genuinely working. The original objection to a bare timeout -- that it can kill a
+    # running deploy -- is answered by requiring BOTH.
+    #
+    # The other half of the fix is not in this file: do not chain a deploy into anything else under
+    # a timeout. Run it alone, let it finish, then commit.
     held=$(cat "$LOCK" 2>/dev/null)
     holder=${held%% *}
-    if [ -n "$holder" ] && kill -0 "$holder" 2>/dev/null; then
-        echo "another deploy is genuinely running (lock held by $held)"
+    age=9999
+    if [ -f "$LOCK" ]; then
+        now=$(date +%s)
+        made=$(stat -c %Y "$LOCK" 2>/dev/null || echo "$now")
+        age=$((now - made))
+    fi
+    # `/proc/<pid>` rather than `kill -0`: same answer for a live MSYS pid, and it is the test that
+    # can actually be checked by hand when this goes wrong again.
+    if [ -n "$holder" ] && [ -d "/proc/$holder" ] && [ "$age" -lt 900 ]; then
+        echo "another deploy is genuinely running (lock held by $held, ${age}s old)"
         exit 1
+    fi
+    if [ "$age" -ge 900 ]; then
+        echo "clearing lock ${age}s old -- older than any real deploy, holder pid $holder"
     fi
     echo "clearing stale lock from dead pid $holder ($held)"
     rm -f "$LOCK"
