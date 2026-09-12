@@ -86,3 +86,61 @@ interchangeable and the only reason to think they might be is that both moves ho
 - The `SUPER_LIFT_*` family (ten more statuses, sharing `EXIT_STATUS` `0x71000049f0`) is the up-throw
   super lift, not the cargo. Out of scope for this moveset, listed so it is not mistaken for part of
   the carry later.
+
+## The victim's half, read from `lua2cpp_common`
+
+Added after the whip's victim side turned out to be the whole of its remaining bug. The same
+recipe applies here, and the carry had none of it either.
+
+`L2CFighterCommon::status_CaptureWait` (common `0x71000b1150`):
+
+```
+WorkModule::set_int(SITUATION_KIND_NONE, FIGHTER_STATUS_CAPTURE_WAIT_WORK_INT_SITUATION)
+status_CaptureWait_Loop
+flip_have_item_capture
+ControlModule::start_clatter_motion_rate          <- the carry clatter, from the CAPTOR's params
+sub_shift_status_main
+```
+
+`CaptureWaitCommon` (`0x71000b1980`), every frame:
+
+```
+if is_flag(FIGHTER_STATUS_CAPTURE_PULLED_WORK_FLAG_JUMP)  -> change_status(CAPTURE_JUMP)
+if is_enable_transition_term(..._TRANSITION_TERM_ID_CAPTURE_CUT) -> change_status(CAPTURE_CUT)
+```
+
+So the victim mashes out upward into `CAPTURE_JUMP` or escapes into `CAPTURE_CUT` when the engine
+enables that transition term. None of it is the captor's business, and none of it runs unless the
+victim is actually in `FIGHTER_STATUS_KIND_CAPTURE_WAIT`.
+
+**FOUR THINGS MUST BE TRUE before any of that happens**, and `enter_carry` had zero of them:
+
+1. the capture recorded with us as master — `CaptureModule::capture`
+2. the link on **both** ends — `LinkModule::link` twice, because `Link(this, no, id)` writes only
+   the caller's slot (Ghidra, main + 0x47f120)
+3. the victim forced into `CAPTURE_WAIT` — an unforced `_from_script` request is declined
+4. the captor's params answerable — `src/params`, already true
+
+The log said so plainly and it was read as a symptom for several rounds:
+
+```
+SHOULDER p0 carry start: NOTHING on LINK_NO_CAPTURE, so the native event is not sent
+```
+
+`docs/the-recording.md` is the acceptance test: the real carry logs
+`mario1 CaptureModule::motion(hash40("capture_pulled"))` and then `capture_wait` every frame,
+both against the VICTIM. Those are not calls to copy — they are what the victim's own status does
+once it is running.
+
+## `throw_invincible_frame` reads 0, and the number is not in any file here
+
+DK's `SHOULDER_START` `INIT_STATUS` reads it, and the raw hashes confirm the annotation rather than
+relying on it: `0x6e5ec7051` has a length byte of 6 (`common`) and `0x1687ff50b5` a length byte of
+0x16 = 22 (`throw_invincible_frame`). The port makes the identical call and gets 0.
+
+It is not in `pikachu/param/vl.prc`, not in `donkey/param/vl.prc`, not among the 808 params of
+`fighter/common/param/common.prc`, and not in `vendor/param-labels`. So the parameter is real and
+lives somewhere this project has not extracted. **Left at 0 rather than invented**: the cost is
+that the port's lift has no invincibility, which is a stated behavioural gap and not a guess. The
+way to settle it is to hook `get_param_int` and log what the REAL Donkey Kong receives during a
+real cargo lift — a measurement, one playtest, no inference.

@@ -911,6 +911,53 @@ unsafe extern "C" fn shoulder_start_init(fighter: &mut L2CFighterCommon) -> L2CV
 }
 
 unsafe fn enter_carry(boma: *mut BattleObjectModuleAccessor, entry: usize) {
+    // ESTABLISH THE CAPTURE BEFORE SENDING THE EVENT, because the log said there was nothing to
+    // send it to:
+    //
+    //     SHOULDER p0 carry start: NOTHING on LINK_NO_CAPTURE, so the native event is not sent
+    //
+    // Same failure the whip had, and the same fix -- see `whip/catch.rs`. The carry needs FOUR
+    // things true before the victim's own status can do its job, and this had none of them:
+    //
+    //   1. the capture recorded, with us as master        `CaptureModule::capture`
+    //   2. the link, on BOTH ends                          `LinkModule::link` twice
+    //   3. the victim in the right status                  `CAPTURE_WAIT`, forced
+    //   4. the captor's params answerable                  `src/params`, already true
+    //
+    // Then `L2CFighterCommon::status_CaptureWait` (common 0x71000b1150) takes over and does what
+    // no port-side code should: `start_clatter_motion_rate`, the model constraint, and the escape
+    // to `CAPTURE_CUT` via the `FIGHTER_STATUS_TRANSITION_TERM_ID_CAPTURE_CUT` term that
+    // `CaptureWaitCommon` (0x71000b1980) tests every frame.
+    //
+    // `docs/the-recording.md` is the acceptance test for this: the real carry shows
+    // `mario1 CaptureModule::motion(hash40("capture_pulled"))` then `capture_wait` every frame,
+    // both logged against the VICTIM. Those are not calls to copy -- they are what the victim's
+    // own status does once it is actually running.
+    let them = VICTIM[entry];
+    if let Some(vboma) = crate::victim::boma(them) {
+        if !LinkModule::is_linked(boma, *LINK_NO_CAPTURE) {
+            let me = (*boma).battle_object_id;
+            CaptureModule::capture(vboma, me, *STATUS_KIND_NONE, true, 0);
+            // Both ends: `Link(this, no, id)` writes only the CALLER's slot -- Ghidra on
+            // main + 0x47f120. One call leaves the victim with no parent and every branch of
+            // their status gated behind `is_link` does nothing.
+            LinkModule::link(boma, *LINK_NO_CAPTURE, them);
+            LinkModule::link(vboma, *LINK_NO_CAPTURE, me);
+            crate::victim::request_status(
+                vboma,
+                *FIGHTER_STATUS_KIND_CAPTURE_WAIT,
+                "cargo carry start",
+            );
+            crate::telemetry::sink::diag(format!(
+                "[rat] SHOULDER p{entry} established capture on {them:#x}: is_capture={} \
+                 their_is_link={} their_st={:#x}",
+                CaptureModule::is_capture(vboma),
+                LinkModule::is_link(vboma, *LINK_NO_CAPTURE),
+                StatusModule::status_kind(vboma)
+            ));
+        }
+    }
+
     if linked_victim(boma, entry, "carry start") {
         LinkModule::send_event_nodes(boma, *LINK_NO_CAPTURE, Hash40::new("shoulder"), 0);
     }
