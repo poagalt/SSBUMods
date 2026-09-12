@@ -502,6 +502,27 @@ unsafe fn take_captive(
     // So `capture` stays -- it is the only way in, and it demonstrably works ("is_capture=true
     // master=0x0") -- and the half that was wrong was never the claim. It was the release; see
     // `crate::victim::cut_capture`.
+    // THE LINK FIRST, WHICH IS WHAT WAS MISSING ALL ALONG.
+    //
+    // `CaptureModule::capture` sets the capture bookkeeping -- `is_capture` goes true and
+    // `catch_object_id` names us -- and it does NOT create the link. The victim's own status finds
+    // its captor with `LinkModule::get_parent_id(LINK_NO_CAPTURE)`, so without a link it cannot
+    // find us, and the recording caught the consequence exactly:
+    //
+    //   ours:        mario1 ControlModule::start_clatter(0,  0, 0, -1, 0, false, false)
+    //   Incineroar:  mario1 ControlModule::start_clatter(85, 0, 5, -1, 0, false, false)
+    //
+    // 85, 0 and 5 are `special_s_catch_clatter_frame`, `_damage_mul_frame_add` and `_dec_frame`,
+    // read off the CAPTOR. Our victim read zeroes because the accessor it resolved for its parent
+    // was null, took the fallback branch, and started a clatter of zero frames -- over on the
+    // frame it began. src/params has been correct and unreachable the whole time.
+    //
+    // `LinkModule::link(boma, link_no, object_id)` is the call. Ghidra on the implementation at
+    // main + 0x47f120 shows it splices the slot into TWO doubly linked lists, one on the parent
+    // and one on the child, so a single call establishes both directions -- which is exactly what
+    // `get_parent_id` on their side needs. It returns whether the object was found, so the log
+    // says so rather than assuming.
+    let linked_now = LinkModule::link(boma, *LINK_NO_CAPTURE, them) != 0;
     CaptureModule::capture(vboma, me, *STATUS_KIND_NONE, true, 0);
     let ok = CaptureModule::is_capture(vboma);
     let master = CaptureModule::catch_object_id(vboma) as u32;

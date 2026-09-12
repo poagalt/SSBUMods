@@ -188,48 +188,15 @@ pub unsafe extern "C" fn pikachu_cargo_frame(fighter: &mut L2CFighterCommon) {
     }
 
     // The cargo grab is DK's throw_f. Once its motion finishes, the victim is still caught
-    // (ATTACK_ABS of CATCH kind, not THROW kind), so this is the moment the carry begins.
-    if !in_carry && !CARRYING[entry] && motion == smash::hash40("throw_f") && MotionModule::is_end(boma) {
-        CARRYING[entry] = true;
-        CARRY_FRAMES[entry] = 0;
-        VICTIM[entry] = LAST_CAPTURED[entry];
-        // A CRUMB, not a buffered line. If the handoff is what kills the game, this is the last
-        // thing in the log and it names the id we are about to act on -- see telemetry/sink.rs.
-        crate::telemetry::sink::crumb(format!(
-            "[rat] CARGO p{entry} grab landed; capture_object_id now {cap:#x}, last valid \
-             {:#x} -> handing to SHOULDER_START",
-            VICTIM[entry],
-        ));
-        // A HANDOFF WITH NOBODY TO CARRY IS NOT A CARRY. Without this the shoulder statuses ran
-        // against an id that never resolved, which looked like "the carry does nothing" at best
-        // and dereferenced a non-accessor at worst. Falling back to DK's own throw is the
-        // behaviour a missed cargo grab should have anyway.
-        if crate::victim::boma(VICTIM[entry]).is_none() {
-            probe::event(format!(
-                "[rat] CARGO p{entry} NO VALID VICTIM at handoff (id {:#x}) -- not entering the \
-                 carry; {}",
-                VICTIM[entry],
-                probe::ctx(boma)
-            ));
-            CARRYING[entry] = false;
-            return;
-        }
-        probe::event(format!(
-            "[rat] CARGO p{entry} grab landed, victim={:#x} -> handing to SHOULDER_START; {}",
-            VICTIM[entry],
-            probe::ctx(boma)
-        ));
-        // HAND OFF TO REAL STATUSES. Everything below this point in the old design -- poses via
-        // change_motion on top of Pikachu's own WAIT and WALK, throws via change_motion, action
-        // suppression -- is replaced by ../shoulder, because the real Donkey Kong uses eleven
-        // statuses and the motion-swap approach reproduced none of the things that made it work.
-        super::shoulder::begin(fighter, VICTIM[entry]);
-        // CARRYING STAYS TRUE. It used to be cleared on the next line, which made a flag meaning
-        // "a carry is in progress" false one statement after the carry began -- see the freeze
-        // above. ../shoulder owns the carry from here; this flag is only what stops this hook
-        // starting a second one, and it is cleared where the carry actually ends.
-        return;
-    }
+    // THE HANDOFF MOVED. It used to live here, triggered by `motion == throw_f && is_end`, and
+    // that trigger was the cargo's central bug for three rounds: Pikachu's `throw_f` is a REAL
+    // forward throw, so by the time it ended the victim had been thrown and the catch cut. The
+    // recording of our own fighter shows it happening --
+    // `send_event_nodes_throw(hash40("throw"), hash40("thrown_f"))` then `catch_cut` -- against
+    // the real Donkey Kong, who sends no throw event at all when lifting.
+    //
+    // It is now `pikachu_throw_main`, which takes the forward throw over on its FIRST frame so
+    // that Pikachu's own throw never executes. LAST_CAPTURED above is what it reads.
 }
 
 // ============================================================================================
@@ -261,8 +228,72 @@ pub unsafe extern "C" fn pikachu_cargo_frame(fighter: &mut L2CFighterCommon) {
 // Two implementations of one feature, one of them invisible, is the exact shape ADR 0005 rule 3
 // forbids -- and dead code behind an unreachable statement is the worst version of it, because
 // nothing in a diff shows it coming back to life. So it is gone rather than re-disabled.
+/// Takes over Pikachu's FORWARD THROW and makes it the cargo lift, before his own throw can run.
+///
+/// THE RECORDING SETTLED THIS, and it is the whole of "mario escapes a brief moment after being
+/// grabbed". The trigger used to be `motion == throw_f && MotionModule::is_end`, on the reasoning
+/// written above it: that when `throw_f` finishes "the victim is still caught (ATTACK_ABS of CATCH
+/// kind, not THROW kind)". That is true of DONKEY KONG, whose `throw_f` IS the lift. It is false of
+/// Pikachu, whose `throw_f` is a real forward throw, and the trace of our own fighter says so:
+///
+///   pika0  CatchModule::set_catch(0x50000000)
+///   pika0  LinkModule::send_event_nodes_throw(event=hash40("throw"), motion=hash40("thrown_f"), ...)
+///   pika0  CatchModule::catch_cut(false, false)          <- the victim is thrown and RELEASED
+///   pika0  CaptureModule::set_ignore_catching(true)      <- only now does our carry begin
+///
+/// Against the real Donkey Kong, who never sends a throw event when lifting at all:
+///
+///   DONKEY0 CatchModule::set_catch(0x50000000)
+///   DONKEY0 LinkModule::send_event_nodes(link=0, hash40("shoulder"), 0)
+///   mario1  ControlModule::start_clatter(3274.8, 0, 10, -1, 0, false, false)
+///
+/// So the carry was starting on a fighter who had already been thrown, every single time, and no
+/// amount of work inside the carry statuses could have fixed it. `status=0x44` in
+/// `crate::victim::trace` -- FIGHTER_STATUS_KIND_CAPTURE_CUT, on the first frame of the carry --
+/// had been reporting exactly this for three rounds.
+///
+/// WHICH THROW IT IS COMES FROM THE ENGINE, not from an input read of our own.
+/// `FIGHTER_STATUS_CATCH_WAIT_WORK_INT_MOTION_KIND` is where the catch-wait logic records the
+/// throw it chose, and it is the same work id Donkey Kong's `ThrowF*_init` reads back to decide
+/// which cargo throw is happening. Reading it here means the four directions are distinguished by
+/// the game's own decision.
+///
+/// THE OTHER THREE THROWS ARE UNTOUCHED. Only `throw_f` becomes the lift; back, up and down
+/// delegate to the original Main through `smashline::original_status`, so Pikachu's down throw
+/// stays vanilla as `docs/decisions.md` requires.
+unsafe extern "C" fn pikachu_throw_main(fighter: &mut L2CFighterCommon) -> L2CValue {
+    let boma = fighter.module_accessor;
+    let entry = WorkModule::get_int(boma, *FIGHTER_INSTANCE_WORK_ID_INT_ENTRY_ID) as usize;
+    let chosen = WorkModule::get_int64(boma, *FIGHTER_STATUS_CATCH_WAIT_WORK_INT_MOTION_KIND);
+    let forward = chosen == Hash40::new("throw_f").hash;
+
+    if entry < 8 && forward && !CARRYING[entry] {
+        let victim = LAST_CAPTURED[entry];
+        if crate::victim::boma(victim).is_some() {
+            CARRYING[entry] = true;
+            CARRY_FRAMES[entry] = 0;
+            VICTIM[entry] = victim;
+            crate::telemetry::sink::crumb(format!(
+                "[rat] CARGO p{entry} intercepted the forward throw at its FIRST frame, victim \
+                 {victim:#x} -- Pikachu's own throw never runs, so nothing is released"
+            ));
+            super::shoulder::begin(fighter, victim);
+            return 0.into();
+        }
+        crate::telemetry::sink::crumb(format!(
+            "[rat] CARGO p{entry} forward throw with no valid victim ({victim:#x}) -- letting \
+             Pikachu's own throw run"
+        ));
+    }
+
+    smashline::original_status(Main, fighter, *FIGHTER_STATUS_KIND_THROW)(fighter)
+}
+
 pub fn install() {
     Agent::new("pikachu")
         .on_line(Main, pikachu_cargo_frame)
+        // The forward throw IS the lift, and it has to be taken over before Pikachu's own throw
+        // executes. See `pikachu_throw_main`.
+        .status(Main, *FIGHTER_STATUS_KIND_THROW, pikachu_throw_main)
         .install();
 }
