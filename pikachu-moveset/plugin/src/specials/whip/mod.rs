@@ -463,9 +463,45 @@ unsafe fn whip_release(fighter: &mut L2CFighterCommon) -> bool {
             LinkModule::unlink(boma, link);
         }
     }
-    // The whip is over: stop tracing and forget the victim, so a stale id cannot make the next
-    // whip's `whip_victim_held` watchdog answer about the previous one's victim.
+    // ---- BELOW HERE IS NOT PART OF THE TRANSCRIPTION ----
+    //
+    // A RELEASE SAFETY NET, AND IT EXISTS BECAUSE ADR 0004 REMOVES THE NORMAL WAY OUT.
+    //
+    // For Incineroar the victim leaves on their own: CATCHED -> THROWN when the throw event
+    // arrives, and THROWN ends by flinging them away. Their `CATCHED` main loop
+    // (common 0x710028bb60) is three lines and the ONLY escape it offers is
+    // `change_status(FIGHTER_STATUS_KIND_CAPTURE_CUT)` when their clatter runs out.
+    //
+    // So a victim who is still in a SWING_GAOGAEN_* status when the whip ends, with the link torn
+    // down above, has no parent and a clatter that may still be running -- and their model
+    // constraint is still bound to our "throw" bone, because `set_model_constraint_pos_ort` is
+    // undone by `CAPTURE_CUT` and by nothing else. That is exactly the failure this project has
+    // already seen once and recorded: "the victim's model stayed constrained to the captor's
+    // `throw` bone -- Pikachu and Mario welded together".
+    //
+    // `CAPTURE_CUT` is not an invention: it is the status the victim's own loop escapes to, and
+    // the engine's standard end-of-capture. Forcing it only when they are still in a whip status
+    // means a victim who already left by the native path is untouched.
     let entry = entry_of(boma);
+    let id = state::swing_thrown_fighter(entry);
+    if let Some(vboma) = crate::victim::boma(id) {
+        let st = StatusModule::status_kind(vboma);
+        if st == *FIGHTER_STATUS_KIND_SWING_GAOGAEN_CATCHED
+            || st == *FIGHTER_STATUS_KIND_SWING_GAOGAEN_THROWN
+            || st == *FIGHTER_STATUS_KIND_SWING_GAOGAEN_LARIAT
+            || st == *FIGHTER_STATUS_KIND_SWING_GAOGAEN_SHOULDER
+            || st == *FIGHTER_STATUS_KIND_SWING_GAOGAEN_FAILURE
+        {
+            crate::telemetry::sink::diag(format!(
+                "[rat] WHIP p{entry} victim {id:#x} still in {st:#x} after release -- forcing \
+                 CAPTURE_CUT so the model constraint is undone"
+            ));
+            crate::victim::request_status(vboma, *FIGHTER_STATUS_KIND_CAPTURE_CUT, "whip release");
+        }
+    }
+
+    // Stop tracing and forget the victim, so a stale id cannot make the next whip's
+    // `whip_victim_held` watchdog answer about the previous one's victim.
     crate::victim::untrace(entry);
     state::set_swing_thrown_fighter(entry, *BATTLE_OBJECT_ID_INVALID as u32);
     true
