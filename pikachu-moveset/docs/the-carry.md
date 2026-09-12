@@ -80,9 +80,8 @@ interchangeable and the only reason to think they might be is that both moves ho
 
 - `SHOULDER_WALK`'s `EXEC_STATUS` at `0x7100006170` is the per-frame carry drive and has not been
   read yet. It is the next thing to decompile.
-- `throw_invincible_frame` was reported reading 0 in a playtest log. The port's read matches the
-  source exactly -- same object (`"common"`), same param, same call -- so if it still reads 0 the
-  cause is when it is read, not how, and moving it into `INIT_STATUS` is the first thing to retest.
+- `throw_invincible_frame` — **answered below**, and the answer was not "when it is read". Moving
+  it into `INIT_STATUS` changed nothing because the parameter is not in any file here.
 - The `SUPER_LIFT_*` family (ten more statuses, sharing `EXIT_STATUS` `0x71000049f0`) is the up-throw
   super lift, not the cargo. Out of scope for this moveset, listed so it is not mistaken for part of
   the carry later.

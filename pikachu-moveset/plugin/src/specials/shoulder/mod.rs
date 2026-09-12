@@ -444,19 +444,39 @@ unsafe extern "C" fn shoulder_walk_pre(fighter: &mut L2CFighterCommon) -> L2CVal
     shoulder_pre(fighter, *FIGHTER_KINETIC_TYPE_MOTION_LOOP, *GROUND_CORRECT_KIND_GROUND_OTTOTTO)
 }
 
+/// DK's `SHOULDER_WALK` `INIT_STATUS`, donkey `0x7100008650`, which is ONE CALL:
+///
+///     sub_walk_uniq_process_init_common("shoulder_walk_fast", "shoulder_walk_middle",
+///                                       "shoulder_walk_slow", 0)
+///
+/// THIS REPLACES A HAND-ROLLED THREE-WAY POSE PICK. `shoulder_walk_main` used to read
+/// `ControlModule::get_stick_x` and choose between the three motions at thresholds of 0.85 and
+/// 0.50, which are numbers from nowhere -- not DK's, not Pikachu's, not any prc. The engine has a
+/// three-speed walk built in; `sub_walk_uniq_process_init_common` hands it the three motion names
+/// and it does the rest from the FIGHTER'S OWN walk params, which on a Pikachu means Pikachu's
+/// walk thresholds and Pikachu's speeds -- the same relationship every other attribute in this
+/// moveset has to its source.
+///
+/// The argument ORDER is fast, middle, slow, and it was checked rather than assumed: the raw
+/// hashes in DK's function are 0x127d758abd, 0x1462101369, 0x126d14b2a4 and `tools/hash40.sh`
+/// resolves them in that order to `shoulder_walk_fast`, `_middle`, `_slow`. Two of the three are
+/// eighteen characters, so the length byte alone could not have told fast from slow.
+///
+/// His `EXEC_STATUS` for this status (`0x7100006170`) contains no calls at all -- the per-frame
+/// drive is entirely the common walk code, which is the point of routing through it.
+unsafe extern "C" fn shoulder_walk_init(fighter: &mut L2CFighterCommon) -> L2CValue {
+    fighter.sub_walk_uniq_process_init_common(
+        L2CValue::new_int(Hash40::new("shoulder_walk_fast").hash),
+        L2CValue::new_int(Hash40::new("shoulder_walk_middle").hash),
+        L2CValue::new_int(Hash40::new("shoulder_walk_slow").hash),
+        L2CValue::new_int(0),
+    );
+    0.into()
+}
+
 unsafe extern "C" fn shoulder_walk_main(fighter: &mut L2CFighterCommon) -> L2CValue {
-    let boma = fighter.module_accessor;
-    // Three walk speeds, as DK has. Picked from stick deflection rather than from current speed,
-    // because MOTION_LOOP means there is no speed until the motion supplies one.
-    let x = ControlModule::get_stick_x(boma).abs();
-    let pose = if x > 0.85 {
-        "shoulder_walk_fast"
-    } else if x > 0.5 {
-        "shoulder_walk_middle"
-    } else {
-        "shoulder_walk_slow"
-    };
-    MotionModule::change_motion(boma, Hash40::new(pose), 0.0, 1.0, false, 0.0, false, false);
+    // No motion change here any more: `shoulder_walk_init` handed the three names to the engine's
+    // own walk process, which owns both the pose and the speed from this point.
     fighter.sub_shift_status_main(L2CValue::Ptr(shoulder_walk_loop as *const () as _))
 }
 
@@ -747,6 +767,7 @@ pub fn install() {
         .status(Pre,  RAT_STATUS_KIND_SHOULDER_WAIT,    shoulder_wait_pre)
         .status(Main, RAT_STATUS_KIND_SHOULDER_WAIT,    shoulder_wait_main)
         .status(Exit, RAT_STATUS_KIND_SHOULDER_WAIT,    shoulder_exit)
+        .status(Init, RAT_STATUS_KIND_SHOULDER_WALK,    shoulder_walk_init)
         .status(Pre,  RAT_STATUS_KIND_SHOULDER_WALK,    shoulder_walk_pre)
         .status(Main, RAT_STATUS_KIND_SHOULDER_WALK,    shoulder_walk_main)
         .status(Exit, RAT_STATUS_KIND_SHOULDER_WALK,    shoulder_exit)
