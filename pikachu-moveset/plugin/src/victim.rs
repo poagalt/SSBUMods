@@ -108,11 +108,43 @@ pub unsafe fn others(me: u32) -> Vec<(u32, *mut BattleObjectModuleAccessor)> {
 /// status already stored from the CAPTOR's `special_s_through_target_return_speed`. Nothing in it
 /// needs a rope to exist.
 ///
-/// 0x178 stays. The rope IS that status.
+/// AND NOW ALL THREE ARE SAFE. "0x178 stays. The rope IS that status" was the last sentence in
+/// this list and it was an assumption, never a reading. Three functions, disassembled:
+///
+///     status_pre_SwingGaogaenAttachRope   0x710028dbb0   StatusModule::init_settings. That is all.
+///     status_SwingGaogaenAttachRope       0x710028df90   set_swing_special_state_SwingGaogaen,
+///                                                        change_motion, set_rate,
+///                                                        GroundModule::correct -- twice, once per
+///                                                        situation branch.
+///     status_SwingGaogaenAttachRope_Main  0x710028e970   correct, change_motion, set_rate per
+///                                                        branch, then LinkModule::is_link.
+///
+/// No `LinkModule::get_parent_pos`. No `ArticleModule`. No dereference of anything. The one link
+/// call is `is_link`, which is the pattern `check-victim.sh`'s own header names as the SAFE one --
+/// "`SwingGaogaenCatched` calls `LinkModule::is_link` FIRST and is therefore safe".
+///
+/// AND IT IS A LEG OF THE MOVE THE PORT WAS SKIPPING. The native recording in
+/// work/logs/recording-incin-kinetics.log has the victim going
+///
+///     0x176 CATCHED -> 0x177 THROWN -> 0x178 ATTACH_ROPE -> 0x179 RETURN
+///
+/// with the captor sending `gaogaen_swing_throw` to LINK_NO_CAPTURE and then a second event to
+/// link 3 -- the rope -- between the second and third. The port jumped straight from THROWN to
+/// RETURN, which is why the playtest said "mario appears to teleport into the ropes" of the real
+/// move and something else of ours: the snap INTO the ropes is this status, and we did not enter
+/// it.
+///
+/// What the rope did and this port must still substitute is the TRANSITION OUT: the loop above has
+/// no `change_status` at all, so natively the rope's own event moves the victim on. See
+/// `whip_update_areas`.
 ///
 /// SWING_GAOGAEN_CATCHED (0x176) was never here: it guards every parent access behind
 /// `LinkModule::is_link`.
-pub const FORBIDDEN_VICTIM_STATUSES: &[i32] = &[0x178];
+///
+/// The list is empty and it is kept, because the next foreign status someone wants to force is the
+/// reason it exists -- and because the four entries above are the only written record of why each
+/// of them turned out to be safe.
+pub const FORBIDDEN_VICTIM_STATUSES: &[i32] = &[];
 
 // ============================================================================================
 // OWNERSHIP OF A HELD VICTIM IS OURS TO TRACK. THE ENGINE DOES NOT KEEP IT FOR US.

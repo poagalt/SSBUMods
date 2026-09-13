@@ -544,6 +544,15 @@ unsafe extern "C" fn special_s_main(fighter: &mut L2CFighterCommon) -> L2CValue 
     state::reset(entry);
     state::set_swing_thrown_fighter(entry, *BATTLE_OBJECT_ID_INVALID as u32);
     state::set_invalid_special_air_s(entry, true);
+    // THE ROPE HAS TO EXIST BEFORE THE CATCH, NOT BEFORE THE THROW.
+    //
+    // `whip_update_areas` sets this too, but it only runs from the THROW status's loop -- and the
+    // victim has already read `is_flag(GENERATED_ROPE)` by then. `status_SwingGaogaenCatched`
+    // stores its throw speed off that flag while the captor is still in SPECIAL_S, which is why
+    // the first attempt at the rope branch changed nothing measurable: the flag was still false at
+    // the only moment it was asked. The flight was identical to the no-rope one, frame for frame:
+    // +14.74 at f30, -10.29 at f40, -18.29 at f50.
+    update_rope_x(fighter);
 
     // ONE LINE PER WHIP, so a playtest that reports nothing can be told apart from a playtest
     // where the status never ran. The first test of this rewrite produced no WHIP lines at all and
@@ -755,6 +764,27 @@ unsafe extern "C" fn special_s_throw_main(fighter: &mut L2CFighterCommon) -> L2C
 /// So the area is the interval the victim travels on the way back from the ropes, the press
 /// position inside it sets the animation speed, and passing -6 is the whiff. What is inferred here
 /// is the ANCHOR (captor-relative) and nothing else.
+/// WHERE THE ROPES ARE, IN WORLD COORDINATES, SO THE VICTIM'S OWN CODE CAN FLY THEM THERE.
+///
+/// `off` in `whip_update_areas` is `(victim_x - my_x) * lr`, so the rope line -- `off ==
+/// lariat_offset_x1` -- is at `my_x + lariat_offset_x1 * lr`. That is the same number the port was
+/// already watching for as its rebound trigger; the change is that it is handed to the engine as
+/// `FIGHTER_GAOGAEN_STATUS_SPECIAL_S_FLOAT_ROPE_X` (through `src/params`) instead of watched.
+///
+/// Refreshed every frame rather than latched, because the captor moves: he is still sliding on
+/// `special_s_catch_brake_x` when the throw goes out, and a real rope article would move with him.
+unsafe fn update_rope_x(fighter: &mut L2CFighterCommon) {
+    let boma = fighter.module_accessor;
+    let entry = entry_of(boma);
+    let lariat_x = WorkModule::get_param_float(
+        boma,
+        hash40("param_special_s"),
+        hash40("special_s_lariat_offset_x1"),
+    );
+    state::set_rope_x(entry, PostureModule::pos_x(boma) + lariat_x * PostureModule::lr(boma));
+    state::set_rope_x_set(entry, true);
+}
+
 unsafe fn whip_update_areas(fighter: &mut L2CFighterCommon) {
     let boma = fighter.module_accessor;
     let entry = entry_of(boma);
@@ -771,19 +801,7 @@ unsafe fn whip_update_areas(fighter: &mut L2CFighterCommon) {
 
     state::set_lariat_area_length(entry, (lariat_x - lariat_end_x).abs());
 
-    // WHERE THE ROPES ARE, IN WORLD COORDINATES, SO THE VICTIM'S OWN CODE CAN FLY THEM THERE.
-    //
-    // `off` above is `(victim_x - my_x) * lr`, so the rope line -- `off == lariat_offset_x1` -- is
-    // at `my_x + lariat_offset_x1 * lr`. That is the same number the port was already using as the
-    // rebound trigger; the change is that it is now handed to the engine as
-    // `FIGHTER_GAOGAEN_STATUS_SPECIAL_S_FLOAT_ROPE_X` (through `src/params`, see
-    // `state::ROPE_X`) instead of being watched for from here.
-    //
-    // Refreshed every frame rather than latched at the throw, because the captor moves: Incineroar
-    // is still sliding on his `special_s_catch_brake_x` when the throw goes out, and his own rope
-    // article moves with him.
-    state::set_rope_x(entry, PostureModule::pos_x(boma) + lariat_x * PostureModule::lr(boma));
-    state::set_rope_x_set(entry, true);
+    update_rope_x(fighter);
 
     // MEASURED, BECAUSE THE REBOUND TRIGGER NEVER FIRED AND THERE ARE FOUR REASONS IT MIGHT NOT.
     //
@@ -881,20 +899,51 @@ unsafe fn whip_update_areas(fighter: &mut L2CFighterCommon) {
     // This is the same substitution as the area flags above and it is the last piece of the rope
     // the move actually needs. What is still missing without the article is the rope's visual and
     // the `_over_rope` case, neither of which is a behaviour the follow-ups read.
-    if reached_rope {
-        let id = state::swing_thrown_fighter(entry);
-        if let Some(vboma) = crate::victim::boma(id) {
-            if StatusModule::status_kind(vboma) == *FIGHTER_STATUS_KIND_SWING_GAOGAEN_THROWN {
-                crate::telemetry::sink::diag(format!(
-                    "[rat] WHIP p{entry} rope hit at off={off:.2} (rope is {lariat_x:.0}) -- \
-                     rebounding {id:#x}"
-                ));
-                crate::victim::request_status(
-                    vboma,
-                    *FIGHTER_STATUS_KIND_SWING_GAOGAEN_RETURN,
-                    "whip rope rebound",
-                );
-            }
+    // THE MISSING LEG: THROWN -> ATTACH_ROPE -> RETURN, WHICH IS THE SNAP INTO THE ROPES.
+    //
+    // The port used to go THROWN -> RETURN directly. The native recording does not:
+    //
+    //     TRACE mario1 st=0x176  ControlModule::start_clatter(85, 0, 5, -1, 0, false, false)
+    //     TRACE GAOGAEN0 st=0x1e1  LinkModule::send_event_nodes(link=0, gaogaen_swing_throw, 0)
+    //     TRACE mario1 st=0x177  mot=0xbca3f3207  enable_energy(0x3)
+    //     TRACE GAOGAEN0 st=0x1e1  LinkModule::send_event_nodes(link=3, 0x2a5eaa0cb9, 0)
+    //     TRACE mario1 st=0x178  LinkModule::unlink(link=0)
+    //     TRACE mario1 st=0x179  mot=0x35076a4c0  enable_energy(0x3)
+    //
+    // Two events, and the second goes to link 3 -- the ROPE, not the victim. The rope receives it
+    // and puts the victim into 0x178, which is `SWING_GAOGAEN_ATTACH_ROPE`: `change_motion`,
+    // `set_rate` and `GroundModule::correct`, the visual of being caught by the ropes. Then the
+    // rope moves them on to RETURN. This port has no rope to receive that event, so it supplies
+    // both halves -- the same substitution as the trigger itself, and the reason
+    // `FORBIDDEN_VICTIM_STATUSES` is now empty is that all three of those functions were
+    // disassembled and none of them touches a rope.
+    //
+    // ONE FRAME IN ATTACH_ROPE, AND THAT IS A MEASUREMENT RATHER THAN A CHOICE. Its `Main` has no
+    // `change_status` in it at all, so it cannot decide its own length -- natively the rope's next
+    // event is what ends it, and in the recording the victim's 0x178 and 0x179 entry traces are
+    // adjacent lines. Holding them there for a duration would mean inventing one.
+    let id = state::swing_thrown_fighter(entry);
+    if let Some(vboma) = crate::victim::boma(id) {
+        let vst = StatusModule::status_kind(vboma);
+        if reached_rope && vst == *FIGHTER_STATUS_KIND_SWING_GAOGAEN_THROWN {
+            crate::telemetry::sink::diag(format!(
+                "[rat] WHIP p{entry} rope hit at off={off:.2} (rope is {lariat_x:.0}) -- \
+                 attaching {id:#x} to the ropes"
+            ));
+            crate::victim::request_status(
+                vboma,
+                *FIGHTER_STATUS_KIND_SWING_GAOGAEN_ATTACH_ROPE,
+                "whip rope caught them",
+            );
+        } else if vst == *FIGHTER_STATUS_KIND_SWING_GAOGAEN_ATTACH_ROPE {
+            crate::telemetry::sink::diag(format!(
+                "[rat] WHIP p{entry} rope releases {id:#x} -- rebounding"
+            ));
+            crate::victim::request_status(
+                vboma,
+                *FIGHTER_STATUS_KIND_SWING_GAOGAEN_RETURN,
+                "whip rope rebound",
+            );
         }
     }
     if state::lariat_been_out(entry) && !in_lariat {

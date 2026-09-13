@@ -40,14 +40,36 @@ rc=0
 # src/victim.rs is allowed to name it -- it is the refusal list. Comments are allowed to discuss
 # it, because the explanation is the point; only a request is a fault, so the grep looks for the
 # constant inside a change_status call rather than for the name anywhere.
-ROPE='FIGHTER_STATUS_KIND_SWING_GAOGAEN_ATTACH_ROPE'
-hits=$(grep -rnE "(change_status|request_status)[a-z_]*\(.*$ROPE" "$S" 2>/dev/null | grep -v '^.*/victim\.rs:' || true)
-if [ -n "$hits" ]; then
-    echo "  FAIL SWING_GAOGAEN_ATTACH_ROPE is being requested -- there is no rope to attach to:"
-    printf '%s\n' "$hits" | sed 's/^/       /'
+#
+# NARROWED FROM ONE TO ZERO, AND THE CHECK CHANGED SHAPE BECAUSE OF IT.
+#
+# ATTACH_ROPE turned out to be safe too, and for the same reason the other two did: it was on this
+# list from an assumption -- "the rope IS that status" -- rather than from a reading. Its three
+# functions (common 0x710028dbb0, 0x710028df90, 0x710028e970) are `init_settings`,
+# `set_swing_special_state`, `change_motion`, `set_rate`, `GroundModule::correct` and one
+# `LinkModule::is_link`. Nothing dereferences anything. It is also a leg of the move the port was
+# skipping, so refusing it was costing the snap into the ropes.
+#
+# WHICH LEAVES NOTHING TO GREP FOR, and a check that greps for an empty set is a check that always
+# passes -- this one did exactly that for one commit, silently, because the request it was supposed
+# to catch was written across three lines and the pattern was single-line. So it now guards the
+# MECHANISM instead of the membership: `request_status` must still consult the list. Emptying the
+# list is a decision with four disassemblies behind it; deleting the gate that reads it would throw
+# away the ability to make that decision again.
+# `grep -c` PRINTS 0 AND EXITS 1 WHEN IT FINDS NOTHING, so `|| echo 0` appends a second zero and
+# `[ "0\n0" -lt 1 ]` is a syntax error that the `if` treats as false -- i.e. the check reported ok
+# in both directions. Found by commenting the gate out and watching it pass anyway. `|| true`
+# keeps grep's own count, which is already 0.
+gate=$(grep -c "FORBIDDEN_VICTIM_STATUSES.contains" "$S/victim.rs" 2>/dev/null || true)
+if [ "${gate:-0}" -lt 1 ]; then
+    echo "  FAIL src/victim.rs no longer refuses anything: request_status does not consult"
+    echo "       FORBIDDEN_VICTIM_STATUSES. The list is empty on purpose -- every status that was"
+    echo "       on it was disassembled and cleared -- but the gate is how the next one gets"
+    echo "       refused before it crashes the game."
     rc=1
 else
-    echo "  ok  no code requests SWING_GAOGAEN_ATTACH_ROPE"
+    echo "  ok  request_status still consults FORBIDDEN_VICTIM_STATUSES (currently empty, by"
+    echo "      evidence -- see the four disassemblies quoted above the list)"
 fi
 
 # 2. Reaching another battle object goes through src/victim.rs.

@@ -240,17 +240,52 @@ unsafe fn entry_of(boma: *mut BattleObjectModuleAccessor) -> usize {
 ///
 /// It says yes only once the whip has somewhere to put the rope, so a stray read outside the move
 /// still gets the honest answer.
+/// IN A WHIP STATUS, AND THIS GUARD IS NOT BELT-AND-BRACES -- WITHOUT IT THE ROPE HOOK BELOW IS A
+/// WILD WRITE INTO EVERY OTHER STATUS PIKACHU HAS.
+///
+/// `SPECIAL_S_FLOAT_ROPE_X` is `0x01000007`: the `0x01000000` prefix means STATUS-scoped, and the
+/// `7` is an INDEX INTO THE CURRENT STATUS'S FLOAT ARRAY. It is not a globally unique id. Float 7
+/// of RAT_SPECIAL_S_THROW is the rope's x; float 7 of WAIT, WALK, DASH, RUN or FALL is whatever
+/// those statuses keep there, and answering all of them with a world coordinate hands the engine a
+/// number like -33.16 where it expected a speed.
+///
+/// THAT WAS SHIPPED FOR ONE PLAYTEST AND IT IS THE "PIKACHU RUNNING REALLY FAST SOMETIMES",
+/// including the part the report found most confusing -- "after doing an l+r+a reset it still
+/// happened sometimes. Very erratic." Erratic because it depended on which status happened to read
+/// its float 7, and surviving the reset because `state::rope_x_set` stays true from the first whip
+/// until the next one resets it, so the hook never switched off again.
+///
+/// The read this hook exists for comes from the VICTIM, reaching onto the captor's accessor through
+/// `LinkModule::get_parent_id(LINK_NO_CAPTURE)` -- and the captor is in one of the six whip
+/// statuses whenever that happens. So the answer is scoped to exactly those, which is the only
+/// window in which index 7 means what gaogaen's constant says it means.
+unsafe fn in_whip_status(boma: *mut BattleObjectModuleAccessor) -> bool {
+    let s = StatusModule::status_kind(boma);
+    s == crate::specials::status::RAT_STATUS_KIND_SPECIAL_S_THROW
+        || s == crate::specials::status::RAT_STATUS_KIND_SPECIAL_S_SHOULDER
+        || s == crate::specials::status::RAT_STATUS_KIND_SPECIAL_S_LARIAT
+        || s == crate::specials::status::RAT_STATUS_KIND_SPECIAL_S_FAILURE
+        || s == crate::specials::status::RAT_STATUS_KIND_SPECIAL_S_END
+        || s == *FIGHTER_STATUS_KIND_SPECIAL_S
+}
+
 #[skyline::hook(replace = WorkModule::is_flag)]
 unsafe fn is_flag_hook(boma: *mut BattleObjectModuleAccessor, id: i32) -> bool {
     if id == GENERATED_ROPE && is_pikachu(boma) {
-        return crate::specials::whip::state::rope_x_set(entry_of(boma));
+        let answer = in_whip_status(boma) && crate::specials::whip::state::rope_x_set(entry_of(boma));
+        announce_once(
+            std::ptr::addr_of_mut!(SEEN_ROPE_FLAG),
+            "GENERATED_ROPE",
+            answer as i32 as f32,
+        );
+        return answer;
     }
     original!()(boma, id)
 }
 
 #[skyline::hook(replace = WorkModule::get_float)]
 unsafe fn get_float_hook(boma: *mut BattleObjectModuleAccessor, id: i32) -> f32 {
-    if id == SPECIAL_S_FLOAT_ROPE_X && is_pikachu(boma) {
+    if id == SPECIAL_S_FLOAT_ROPE_X && is_pikachu(boma) && in_whip_status(boma) {
         let entry = entry_of(boma);
         if crate::specials::whip::state::rope_x_set(entry) {
             let x = crate::specials::whip::state::rope_x(entry);
@@ -260,6 +295,8 @@ unsafe fn get_float_hook(boma: *mut BattleObjectModuleAccessor, id: i32) -> f32 
     }
     original!()(boma, id)
 }
+
+static mut SEEN_ROPE_FLAG: bool = false;
 
 static mut SEEN_ROPE_X: bool = false;
 
