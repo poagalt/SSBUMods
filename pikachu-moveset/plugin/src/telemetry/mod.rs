@@ -149,6 +149,7 @@ unsafe extern "C" fn pikachu_telemetry(fighter: &mut L2CFighterCommon) {
     // differently from two loads of the same files, so asking once is not a measurement.
     selftest::tick(boma, entry);
     trace_source_victim(boma, entry);
+    mirror_probe(boma, entry);
     // ONE PLACE THAT KNOWS A FRAME HAS PASSED. The per-frame status-change budget in
     // src/victim.rs is reset here, and only here: if a status cycle is running away the frame
     // never ends, so this never runs and the counter keeps climbing until it refuses. That is
@@ -417,5 +418,84 @@ unsafe fn trace_source_victim(boma: *mut smash::app::BattleObjectModuleAccessor,
         flag(*FIGHTER_GAOGAEN_STATUS_SPECIAL_S_FLAG_LARIAT_END_AREA),
         flag(*FIGHTER_GAOGAEN_STATUS_SPECIAL_S_FLAG_FAILURE_AREA),
         flag(*FIGHTER_GAOGAEN_STATUS_SPECIAL_S_FLAG_SHOULDER),
+    ));
+}
+
+/// THE MIRROR PROBE: does a ported hitbox's anchor bone follow Pikachu when he turns around?
+///
+/// "chrom jab and palutena nair aren't correctly mirrored when pikachu is facing left vs right --
+/// they both only work correctly when facing the direction pikachu spawns in."
+///
+/// Those two moves have exactly one thing in common that no other ported move has, and
+/// `tools/bone-remap.sed` says it in its own header: they are the only two whose hitboxes ride a
+/// GRAFTED bone. Chrom's jab rides `Sword1`, Palutena's n-air rides `Stick`, and
+/// `tools/add-bones.sh` adds both to Pikachu's skeleton as children of `HaveR`.
+///
+/// EVERYTHING STATIC ABOUT THAT GRAFT CHECKS OUT, which is why this is an instrument and not a
+/// fix. The shipped `model.nusktb` has `Sword1` at index 78 and `Stick` at 79, both with
+/// `parent_index = 22`, and index 22 is `HaveR`, whose own parent chain runs up through `ArmR` --
+/// so they inherit the facing the way every other bone does. The motion entries are right too:
+/// `attack_11` has `move` set exactly as Chrom's does, `attack_air_n` has it clear exactly as
+/// Palutena's does. So the theory that the graft is the cause has one fact behind it (the
+/// correlation) and no mechanism, and guessing at a mechanism is what this project is not allowed
+/// to do.
+///
+/// WHAT IT MEASURES. Once per (motion, facing) pair, the anchor bones' world offset from `top`,
+/// expressed in the FIGHTER'S OWN frame by multiplying the forward axis by `lr`. In that frame a
+/// bone that follows him reads the SAME both ways round, and a bone that does not flips sign. Two
+/// lines per move -- one facing right, one facing left -- and the diff is the answer.
+///
+/// `haver` is logged beside them as the control: it is a vanilla Pikachu bone, it is the grafted
+/// bones' parent, and if IT flips too then the graft is innocent and the problem is the animation.
+static mut MIRROR_SEEN: [u32; 8] = [0; 8];
+
+unsafe fn mirror_probe(boma: *mut smash::app::BattleObjectModuleAccessor, entry: usize) {
+    let motion = MotionModule::motion_kind(boma);
+    // The two moves reported, and `attack_dash` as a third control: a ported move with `move` set
+    // whose hitboxes ride `top`, which the playtest says mirrors correctly.
+    let which = if motion == hash40("attack_11") {
+        1u32
+    } else if motion == hash40("attack_air_n") {
+        2
+    } else if motion == hash40("attack_dash") {
+        4
+    } else {
+        return;
+    };
+    let lr = PostureModule::lr(boma);
+    // One bit per (move, facing), so each combination logs once and then costs a mask test.
+    let bit = which << if lr < 0.0 { 3 } else { 0 };
+    if MIRROR_SEEN[entry] & bit != 0 {
+        return;
+    }
+    MIRROR_SEEN[entry] |= bit;
+    let base = Vector3f {
+        x: PostureModule::pos_x(boma),
+        y: PostureModule::pos_y(boma),
+        z: 0.0,
+    };
+    let local = |bone: &str| -> String {
+        // Writes through an out-parameter rather than returning, so a bone the skeleton does not
+        // have leaves the buffer untouched -- which is why it is seeded with a sentinel.
+        let mut p = Vector3f { x: -9999.0, y: -9999.0, z: 0.0 };
+        ModelModule::joint_global_position(boma, Hash40::new(bone), &mut p, true);
+        if p.x < -9000.0 {
+            return format!("{bone}=absent");
+        }
+        // World x is the stage's left-right; multiplying by `lr` expresses it in the fighter's own
+        // frame, so a bone that follows him reads the same both ways round.
+        format!("{bone}=({:.2},{:.2})", (p.x - base.x) * lr, p.y - base.y)
+    };
+    sink::diag(format!(
+        "[rat] MIRROR p{entry} {} lr={lr:.0} f={:.0} {} {} {}",
+        match which {
+            1 => "attack_11(chrom,Sword1)",
+            2 => "attack_air_n(palutena,Stick)",
+            _ => "attack_dash(mythra,top -- control)",
+        },
+        MotionModule::frame(boma),
+        local("sword1"),
+        local("stick"),
+        local("haver"),
     ));
 }

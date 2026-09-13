@@ -1468,15 +1468,47 @@ fn thrown_motion(throw: &str) -> &'static str {
 unsafe extern "C" fn throw_loop(fighter: &mut L2CFighterCommon) -> L2CValue {
     let boma = fighter.module_accessor;
     let entry = entry_of(boma);
+    // DK'S OWN THROW LOOP, `FUN_7100021af0`, AND IT IS THE ANSWER TO "TOO MUCH ENDING LAG".
+    //
+    //     if CancelModule::is_enable_cancel() then
+    //         if globalTable[0x16] == SITUATION_KIND_GROUND then
+    //             if sub_wait_ground_check_common(false) then return 1 end
+    //         elseif globalTable[0x16] == SITUATION_KIND_AIR then
+    //             if sub_air_check_fall_common() then return 1 end
+    //         end
+    //     end
+    //
+    // THE PORT WAITED FOR `MotionModule::is_end` INSTEAD, and the motion list says what that
+    // costs. Every one of the four throws has a first-actionable frame well inside its animation:
+    //
+    //     throw_f_f   faf 46   animation 49
+    //     throw_f_b   faf 43   animation 59
+    //     throw_f_hi  faf 30   animation 49      <- nineteen frames of invented end lag
+    //     throw_f_lw  faf 45   animation 59
+    //
+    // `CancelModule::is_enable_cancel` is how the engine reports that the FAF has passed, which is
+    // why it is the FIRST call in DK's loop -- and `sub_wait_ground_check_common` /
+    // `sub_air_check_fall_common` are the common helpers that then hand control back. A brand-new
+    // status id gets none of that for free: 0x1FD is not in the engine's throw family, so nothing
+    // was reading the FAF at all.
+    if CancelModule::is_enable_cancel(boma) {
+        if fighter.global_table[0x16] == *SITUATION_KIND_GROUND {
+            if fighter.sub_wait_ground_check_common(false.into()).get_bool() {
+                return 1.into();
+            }
+        } else if fighter.global_table[0x16] == *SITUATION_KIND_AIR
+            && fighter.sub_air_check_fall_common().get_bool()
+        {
+            return 1.into();
+        }
+    }
+    // The animation running out is still a backstop, for the case where neither common helper
+    // takes the frame -- a situation that is neither GROUND nor AIR, which is how the port used to
+    // lose a whole carry at a ledge.
     if MotionModule::is_end(boma) {
-        VICTIM[entry] = *BATTLE_OBJECT_ID_INVALID as u32;
-        // `throw_exit` is registered on all four throws and issues DK's one `catch_cut`, so this
-        // only drops our own bookkeeping -- see `crate::victim::forget`.
-        crate::victim::forget(entry, "cargo throw finished");
-        apply_lift_param(boma, entry, false);
         let ground = StatusModule::situation_kind(boma) == *SITUATION_KIND_GROUND;
         let next = if ground { *FIGHTER_STATUS_KIND_WAIT } else { *FIGHTER_STATUS_KIND_FALL };
-        return carry_change(fighter, entry, next, "requested throw");
+        return carry_change(fighter, entry, next, "throw animation over");
     }
     0.into()
 }
@@ -1501,10 +1533,21 @@ unsafe extern "C" fn throw_loop(fighter: &mut L2CFighterCommon) -> L2CValue {
 /// THE THROW PATH WAS THE ONE THAT NEVER UNLINKED, and the playtest bisected it for me: the
 /// regrab works after the victim mashes out and not after a throw. The mash-out goes through
 /// `cut_capture`, which unlinks; this went through a bare `catch_cut`, which does not.
+/// THE WHOLE TEARDOWN LIVES HERE NOW, and the reason is the same one `carry_change`'s comment
+/// gives about `leave_carry`: the loop above can be left by the engine -- getting hit out of a
+/// throw was already measured doing exactly that -- and an exit line runs either way. It used to
+/// be split between here and `throw_loop`'s `is_end` branch, so an interrupted throw kept the
+/// victim on the books until the hold ceiling fired.
+///
+/// `drop_capture` runs BEFORE `forget`, because it needs to know who the victim was to clear the
+/// engine's stale capture record off them.
 unsafe extern "C" fn throw_exit(fighter: &mut L2CFighterCommon) -> L2CValue {
     let boma = fighter.module_accessor;
     let entry = entry_of(boma);
     crate::victim::drop_capture(entry, "throw over");
+    crate::victim::forget(entry, "throw over");
+    VICTIM[entry] = *BATTLE_OBJECT_ID_INVALID as u32;
+    apply_lift_param(boma, entry, false);
     0.into()
 }
 

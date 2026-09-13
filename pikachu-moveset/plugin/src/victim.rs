@@ -328,12 +328,45 @@ pub unsafe fn drop_capture(entry: usize, why: &str) {
     }
     CaptureModule::set_ignore_catching(ours, false);
     unlink_if_linked(ours);
+    // THE VICTIM'S CAPTURE RECORD, WHICH ONLY THE MASH-OUT PATH WAS CLEARING -- AND THAT IS THE
+    // WHOLE OF "AFTER HITTING A CARGO THROW OR ALOLAN WHIP IN ANY CAPACITY MODIFIED PIKACHU CANNOT
+    // GRAB THE OPPONENT".
+    //
+    // The captor side has been provably clean for two rounds: `ours_linked=false
+    // ignore_catching=false is_catch=false` on every release in the log. And the victim was in
+    // WAIT with `cap=false` when the whip's own probe looked at them. So the block is not any of
+    // the four things I had been printing -- but the ORDER of successful grabs in the log is
+    // unambiguous:
+    //
+    //     CATCH_PULL at lines 38, 62, 135 ... then nothing until 3697
+    //     captures established at lines 73, 293, 427, 580, 737, 872
+    //
+    // Three grabs worked, then a cargo carry at 293 and every grab after it whiffed for three
+    // thousand lines. `cut_capture` requests CAPTURE_CUT on the victim and `drop_capture` did not,
+    // so the mash-out path released them and the THROW path left the engine's own record of the
+    // capture standing. A fighter the engine believes is captured cannot be caught.
+    //
+    // GATED ON THE ENGINE STILL NAMING US, which is what makes this safe to call from the end of a
+    // throw: a real throw releases them itself, so `catch_object_id` no longer points at us and
+    // this does nothing. It only fires when the record is stale by definition.
+    if let Some(vboma) = boma(HELD_ID[entry]) {
+        if CaptureModule::is_capture(vboma)
+            && CaptureModule::catch_object_id(vboma) as u32 == id_of_entry(entry as u32)
+        {
+            request_status(vboma, *FIGHTER_STATUS_KIND_CAPTURE_CUT, "stale capture record");
+        }
+    }
+    let their = boma(HELD_ID[entry])
+        .map(|v| (CaptureModule::is_capture(v), StatusModule::status_kind(v)))
+        .unwrap_or((false, -1));
     crate::telemetry::sink::diag(format!(
         "[rat] HOLD p{entry} dropped the capture ({why}): ours_linked={} ignore_catching={} \
-         is_catch={}",
+         is_catch={} their_capture={} their_st={:#x}",
         LinkModule::is_linked(ours, *LINK_NO_CAPTURE),
         CaptureModule::is_ignore_catching(ours),
-        CatchModule::is_catch(ours)
+        CatchModule::is_catch(ours),
+        their.0,
+        their.1
     ));
 }
 

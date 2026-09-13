@@ -48,3 +48,8 @@ gaogaen	SpecialSThrow	specialsthrow	d01specialsthrow	specials_acmd	whip_throw_in
 gaogaen	SpecialSEnd	specialsend	d01specialsend	specials_acmd	whip_end_incineroar
 gaogaen	SpecialAirSThrow	specialairsthrow	d01specialairsthrow	specials_acmd	whip_air_throw_incineroar
 gaogaen	SpecialAirSEnd	specialairsend	d01specialairsend	specials_acmd	whip_air_end_incineroar
+donkey	ThrowF	throwf	e01throwf	throws	cargo_lift_dk
+donkey	ThrowFF	throwff	e01throwff	throws	cargo_throw_f_dk
+donkey	ThrowFB	throwfb	e01throwfb	throws	cargo_throw_b_dk
+donkey	ThrowFHi	throwfhi	e01throwfhi	throws	cargo_throw_hi_dk
+donkey	ThrowFLw	throwflw	e01throwflw	throws	cargo_throw_lw_dk
