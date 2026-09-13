@@ -500,9 +500,19 @@ unsafe fn whip_release(fighter: &mut L2CFighterCommon) -> bool {
         }
     }
 
+    // AND THE CAPTURE THIS MODULE MADE BY HAND IS DROPPED BY HAND, on every exit.
+    //
+    // `whip::catch::take_captive` calls `CaptureModule::capture` and links BOTH ends, and this
+    // function unlinks the two link numbers the source uses -- but the engine's own record of the
+    // catch, and `ignore_catching`, and any pending `catch_cut` request, were nobody's job. The
+    // playtest: "not after a lariat still". `drop_capture` is the same call the carry's exits make,
+    // for the same reason: Incineroar reaches his follow-ups out of a catch the engine established,
+    // so his teardown is the engine's. Ours is not.
+    crate::victim::drop_capture(entry, "whip over");
     // Stop tracing and forget the victim, so a stale id cannot make the next whip's
     // `whip_victim_held` watchdog answer about the previous one's victim.
     crate::victim::untrace(entry);
+    crate::victim::forget(entry, "whip over");
     state::set_swing_thrown_fighter(entry, *BATTLE_OBJECT_ID_INVALID as u32);
     true
 }

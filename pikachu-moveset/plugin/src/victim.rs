@@ -273,6 +273,39 @@ pub unsafe fn release(entry: usize, why: &str) {
 ///
 /// with `cap=false vst=0x0` on the victim throughout, so nothing was still holding him. The
 /// engine's own catch was being cut as it started.
+/// EVERY EXIT FROM A HAND-MADE CAPTURE, IN ONE PLACE, BECAUSE THE PLAYTEST FOUND THE ONE THAT WAS
+/// MISSING BY BISECTING IT: "cargo throw now lets me grab mario again if the opponent was freed
+/// from the throw (mashed out), but not if I throw mario (and not after a lariat still)".
+///
+/// The mash-out path goes through `cut_capture`, which unlinks. The THROW path goes through
+/// `leave_carry` and `throw_exit`, and neither of them did -- so our LINK_NO_CAPTURE kept a node
+/// and the engine went on believing Pikachu was holding somebody. The whip's follow-ups are the
+/// same story from the other module.
+///
+/// This is port-side symmetry rather than a transcription, and the reason it has no counterpart in
+/// either source fighter is worth stating: DK and Incineroar reach their carries out of a catch the
+/// ENGINE established, so the engine's teardown undoes it. This port calls `CaptureModule::capture`
+/// and `LinkModule::link` itself -- in `shoulder::enter_carry` and in `whip::catch::take_captive` --
+/// and what a module establishes by hand it has to release by hand, on every path out.
+///
+/// THE VICTIM'S SIDE IS DELIBERATELY NOT TOUCHED HERE. Unlinking them crashed the game once
+/// already; see the note in `cut_capture`.
+pub unsafe fn drop_capture(entry: usize, why: &str) {
+    let Some(ours) = boma(id_of_entry(entry as u32)) else { return };
+    if CatchModule::is_catch(ours) {
+        CatchModule::catch_cut(ours, false, false);
+    }
+    CaptureModule::set_ignore_catching(ours, false);
+    LinkModule::unlink(ours, *LINK_NO_CAPTURE);
+    crate::telemetry::sink::diag(format!(
+        "[rat] HOLD p{entry} dropped the capture ({why}): ours_linked={} ignore_catching={} \
+         is_catch={}",
+        LinkModule::is_linked(ours, *LINK_NO_CAPTURE),
+        CaptureModule::is_ignore_catching(ours),
+        CatchModule::is_catch(ours)
+    ));
+}
+
 pub unsafe fn forget(entry: usize, why: &str) {
     if entry >= 8 || HELD_ID[entry] == 0 {
         return;

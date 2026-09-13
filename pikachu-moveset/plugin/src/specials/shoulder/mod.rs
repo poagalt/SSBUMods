@@ -1498,14 +1498,13 @@ unsafe extern "C" fn throw_loop(fighter: &mut L2CFighterCommon) -> L2CValue {
 /// Registered on the four throws rather than called from `throw_loop`, for the reason
 /// `carry_change`'s comment already gives about `leave_carry`: an exit line runs when the engine
 /// ends the status too, and getting hit out of a cargo throw is exactly that case.
+/// THE THROW PATH WAS THE ONE THAT NEVER UNLINKED, and the playtest bisected it for me: the
+/// regrab works after the victim mashes out and not after a throw. The mash-out goes through
+/// `cut_capture`, which unlinks; this went through a bare `catch_cut`, which does not.
 unsafe extern "C" fn throw_exit(fighter: &mut L2CFighterCommon) -> L2CValue {
     let boma = fighter.module_accessor;
     let entry = entry_of(boma);
-    CatchModule::catch_cut(boma, false, false);
-    crate::telemetry::sink::diag(format!(
-        "[rat] SHOULDER p{entry} throw over: catch_cut, so the engine is holding nobody and the \
-         next grab can start"
-    ));
+    crate::victim::drop_capture(entry, "throw over");
     0.into()
 }
 
@@ -1847,11 +1846,9 @@ unsafe fn leave_carry(boma: *mut BattleObjectModuleAccessor, entry: usize, next:
     if still_carrying(next) {
         return;
     }
-    CatchModule::catch_cut(boma, false, false);
-    CaptureModule::set_ignore_catching(boma, false);
-    crate::telemetry::sink::diag(format!(
-        "[rat] SHOULDER p{entry} carry protocol: released -- catch_cut, ignore_catching off"
-    ));
+    // `catch_cut` and `set_ignore_catching(false)` are DK's two lines here; the unlink is ours to
+    // undo because the link was ours to make. See `crate::victim::drop_capture`.
+    crate::victim::drop_capture(entry, "carry released");
 }
 
 /// `carry_change` for the transitions DK makes with `change_status(kind, TRUE)`.

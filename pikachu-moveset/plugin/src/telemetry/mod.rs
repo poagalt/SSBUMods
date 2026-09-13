@@ -73,6 +73,8 @@ static mut START_Y: [f32; 8] = [0.0; 8];
 static mut PEAK_Y: [f32; 8] = [0.0; 8];
 
 static mut DUMPED_PARAMS: [bool; 8] = [false; 8];
+/// The victim a SOURCE fighter is holding, latched -- see `trace_source_victim`.
+static mut NATIVE_VICTIM: [u32; 8] = [0; 8];
 /// One IDFORMAT line per player is enough; the answer does not change during a match.
 static mut LOGGED_CAPTURE_ID: [bool; 8] = [false; 8];
 /// Last damage value logged, so a change can be reported as an event rather than polled for.
@@ -354,7 +356,25 @@ unsafe fn trace_source_victim(boma: *mut smash::app::BattleObjectModuleAccessor,
     if st != *FIGHTER_STATUS_KIND_SPECIAL_S && !(0x1e0..=0x1e5).contains(&st) {
         return;
     }
-    let them = LinkModule::get_node_object_id(boma, *LINK_NO_CAPTURE) as u32;
+    // LATCHED, BECAUSE THE ENGINE UNLINKS THE VICTIM THE MOMENT IT THROWS THEM -- AND THAT BLIND
+    // SPOT MADE ME READ THE LAST RECORDING BACKWARDS.
+    //
+    // Resolving the victim through LINK_NO_CAPTURE every frame means this stops logging for the
+    // whole flight: `status_SwingGaogaenThrown`'s first act is `LinkModule::unlink(link=0)`, which
+    // the recording shows plainly. So twelve native whips produced a trace that went
+    // CATCHED -> follow-up with nothing in between, and I concluded the victim never left CATCHED
+    // and the rope flight was a rare branch. The playtest says otherwise and is right: "every time
+    // I hit alolan whip with native incin the opponent flies into the ropes -- it's what rebounds
+    // them from traveling away from incineroar back towards incineroar for the lariat timing."
+    //
+    // The missing frames are exactly the ones worth having. Latching the id while the link exists
+    // and keeping it for the rest of the move records the flight, the rope, the rebound and the
+    // window, which is the whole measurement.
+    let linked = LinkModule::get_node_object_id(boma, *LINK_NO_CAPTURE) as u32;
+    if crate::victim::boma(linked).is_some() {
+        NATIVE_VICTIM[entry] = linked;
+    }
+    let them = NATIVE_VICTIM[entry];
     let Some(vboma) = crate::victim::boma(them) else {
         return;
     };
