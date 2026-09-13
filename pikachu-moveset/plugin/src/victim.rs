@@ -360,9 +360,36 @@ pub unsafe fn drop_capture(entry: usize, why: &str) {
         // Two of this session's three crashes were also the second of two identical calls.
         if CaptureModule::is_capture(vboma)
             && CaptureModule::catch_object_id(vboma) as u32 == id_of_entry(entry as u32)
-            && StatusModule::status_kind(vboma) != *FIGHTER_STATUS_KIND_CAPTURE_CUT
         {
-            request_status(vboma, *FIGHTER_STATUS_KIND_CAPTURE_CUT, "stale capture record");
+            if StatusModule::status_kind(vboma) != *FIGHTER_STATUS_KIND_CAPTURE_CUT {
+                request_status(vboma, *FIGHTER_STATUS_KIND_CAPTURE_CUT, "stale capture record");
+            }
+            // AND `capture_cut` WITH ITS FIRST ARGUMENT TRUE, WHICH IS THE ONE CALL THAT ACTUALLY
+            // CLEARS `is_capture` -- the measured log says nothing else does:
+            //
+            //   HOLD p0 dropped the capture (throw over): ours_linked=false ignore_catching=false
+            //                                             is_catch=false their_capture=TRUE
+            //                                             their_st=0x44
+            //
+            // 0x44 IS CAPTURE_CUT. The victim is already in the status the engine's own escape
+            // uses, every captor-side flag is clear, and `CaptureModule::is_capture` on them is
+            // still true -- so the engine still believes Pikachu is holding somebody and no grab
+            // can start. That is "still can't grab after alolan whip or after a cargo throw",
+            // three rounds after the captor side stopped being the problem.
+            //
+            // `cut_capture`'s note calls `capture_cut` "the wrong function entirely" and it is
+            // right about WHY: Ghidra on `CaptureCut(this, p2, p3, p4)` shows the whole teardown
+            // gated on `p2`, so the `(false, false, false)` this project used to pass skipped the
+            // two vtable calls -- 0x3b8 and 0x3c0 -- that undo the capture, and left the victim's
+            // model constrained to our bone. That was an argument bug, not the wrong function:
+            // with `p2` TRUE those two calls are exactly what is needed.
+            //
+            // Neither source fighter calls it -- the engine capture tracer recorded zero
+            // `capture_cut` across a session of real DK and real Incineroar -- because their
+            // captures are the ENGINE's and its own release path does this internally. Ours is
+            // made by hand with `CaptureModule::capture`, so the same rule as the link applies:
+            // what this port establishes itself, it releases itself.
+            CaptureModule::capture_cut(vboma, true, false, false);
         }
     }
     let their = boma(HELD_ID[entry])
@@ -659,7 +686,14 @@ pub unsafe fn cut_capture(entry: usize, why: &str) -> bool {
     if CaptureModule::catch_object_id(vboma) as u32 != id_of_entry(entry as u32) {
         return false;
     }
-    // THE RELEASE IS `CatchModule::catch_cut` ON US, NOT `capture_cut` ON THEM.
+    // THE RELEASE IS `CatchModule::catch_cut` ON US, AND `capture_cut(TRUE, ..)` ON THEM.
+    //
+    // THE SECOND HALF OF THAT SENTENCE IS NEW AND THE NOTE BELOW ARGUES AGAINST IT, so read both.
+    // Everything below about `(false, false, false)` gluing the two fighters together is correct
+    // and measured. What it concluded -- that `capture_cut` is "the wrong function entirely" -- is
+    // not: `drop_capture` now calls it with `p2` true, because three rounds of measurement say
+    // nothing else clears `CaptureModule::is_capture` on the victim, and a victim the engine still
+    // believes is captured is a victim nobody can grab. See the long note there.
     //
     // RECORDED, NOT REASONED. src/telemetry/enginetrace.rs hooks the twelve calls that change
     // capture state and logs them with their caller; one session of the real Donkey Kong and the

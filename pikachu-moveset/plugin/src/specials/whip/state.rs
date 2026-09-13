@@ -133,6 +133,7 @@ pub fn reset(entry: usize) {
         ROPE_X[entry] = 0.0;
         ROPE_X_SET[entry] = false;
         FLIGHT_FRAMES[entry] = 0;
+        ROPE_HOLD_FROM[entry] = 0;
     }
 }
 
@@ -208,3 +209,8 @@ slot!(rope_x_set, set_rope_x_set, ROPE_X_SET, bool, false);
 /// counts instead. See `whip_flight` for the two numbers and where each comes from.
 static mut FLIGHT_FRAMES: [i32; MAX] = [0; MAX];
 slot!(flight_frames, set_flight_frames, FLIGHT_FRAMES, i32, 0);
+
+/// The captor's animation frame at the moment the rope caught the victim, so the hold can be
+/// counted in animation frames -- the unit it was measured in. See `ROPE_HOLD_FRAMES`.
+static mut ROPE_HOLD_FROM: [i32; MAX] = [0; MAX];
+slot!(rope_hold_from, set_rope_hold_from, ROPE_HOLD_FROM, i32, 0);

@@ -1720,25 +1720,63 @@ unsafe fn whip_flight(fighter: &mut L2CFighterCommon, entry: usize, off: f32) {
     state::set_flight_frames(entry, n);
 
     if vst == thrown {
-        let out = WorkModule::get_param_float(
+        // THEY REACH THE ROPE AT A PLACE, AND THE FRAME COUNT IS ONLY THE BACKSTOP.
+        //
+        // The per-frame trace of our own whip says the engine is already doing this correctly:
+        //
+        //   f38 off=-18.29  f40 -29.49  f42 -40.69  f44 -51.89   <- 11.2/frame, the throw
+        //   f46 -53.49  f48 -55.09  f50 -56.69  f52 -58.29       <- 1.6/frame, _speed_over_rope
+        //
+        // The speed drops from `special_s_through_target_speed` to `_speed_over_rope` at f44,
+        // which is the victim's own status noticing it has passed `SPECIAL_S_FLOAT_ROPE_X`. The
+        // rope is THERE. Waiting for `_motion_frame_fix` = 8 frames then let them creep another
+        // seventeen units past it before attaching -- native ATTACH_ROPE begins at off=-41.55 and
+        // ours was beginning at -58.29. That is "alolan whip throw distance still varies -- native
+        // incineroar always throws 5 tiles, modified pikachu sometimes throws farther": the creep
+        // is 1.6 a frame off a captor who is himself still sliding, so the overshoot is whatever
+        // those two happen to add up to.
+        //
+        // So the trigger is the rope line we latched ourselves, compared in world x, which cannot
+        // drift with the captor the way a captor-relative offset does. `_motion_frame_fix` stays
+        // as the bound -- it is the game's own number for how long this leg may last, and without
+        // it a victim who somehow never reaches the line would stay in THROWN forever.
+        let reached = (PostureModule::pos_x(vboma) - state::rope_x(entry))
+            * PostureModule::lr(boma)
+            <= 0.0;
+        let bound = WorkModule::get_param_float(
             boma,
             hash40("param_special_s"),
             hash40("special_s_through_target_motion_frame_fix"),
         ) as i32;
-        if n >= out.max(1) {
+        if reached || n >= bound.max(1) {
             crate::telemetry::sink::diag(format!(
                 "[rat] WHIP p{entry} {id:#x} reached the ropes after {n}f at off={off:.2} \
-                 (motion_frame_fix {out}) -- attaching"
+                 (rope_x={:.2} their_x={:.2} by_place={reached} bound={bound}) -- attaching",
+                state::rope_x(entry),
+                PostureModule::pos_x(vboma)
             ));
             state::set_flight_frames(entry, 0);
+            // The captor's animation frame at the moment of attaching, so the hold can be counted
+            // in the same units it was measured in. See `ROPE_HOLD_FRAMES`.
+            state::set_rope_hold_from(entry, MotionModule::frame(boma) as i32);
             crate::victim::request_status(vboma, attached, "whip rope caught them");
         }
         return;
     }
 
-    if n >= ROPE_HOLD_FRAMES {
+    // COUNTED IN THE CAPTOR'S ANIMATION FRAMES, WHICH IS THE UNIT IT WAS MEASURED IN.
+    //
+    // The native hold is captor animation frame 44 to 64. `game_specialsthrow` sets
+    // `FT_MOTION_RATE(0.5)` from animation frame 20, so twenty ANIMATION frames there are forty
+    // GAME frames -- and this counter was counting game frames, holding for half as long in
+    // animation terms while the playtest read the whole bounce as too long anyway. Counting the
+    // same thing the measurement counted removes the ambiguity entirely: if twenty animation
+    // frames is wrong, the number is wrong, rather than the unit.
+    let held = MotionModule::frame(boma) as i32 - state::rope_hold_from(entry);
+    if held >= ROPE_HOLD_FRAMES {
         crate::telemetry::sink::diag(format!(
-            "[rat] WHIP p{entry} rope releases {id:#x} after {n}f at off={off:.2} -- rebounding"
+            "[rat] WHIP p{entry} rope releases {id:#x} after {held} animation frame(s) \
+             ({n} game frames) at off={off:.2} -- rebounding"
         ));
         state::set_flight_frames(entry, 0);
         crate::victim::request_status(
