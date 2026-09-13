@@ -358,14 +358,44 @@ unsafe fn trace_source_victim(boma: *mut smash::app::BattleObjectModuleAccessor,
     let Some(vboma) = crate::victim::boma(them) else {
         return;
     };
+    // THE FOUR FLAGS, WHICH ARE THE WHOLE REMAINING QUESTION ABOUT THE LARIAT.
+    //
+    // The three areas resolve, from Incineroar's own prc, to VERTICAL TRIPWIRES ON `top`:
+    //
+    //     special_s_lariat_node     = top   size 2   x1,y1 = -24,12   x2,y2 = -24,2
+    //     special_s_lariat_end_node = top   size 2   x1,y1 = -10,12   x2,y2 = -10,2
+    //     special_s_failure_node    = top   size 2   x1,y1 =  -6,12   x2,y2 =  -6,2
+    //
+    // x1 == x2 in all three, so each is a line at a fixed x spanning knee-to-head height with a
+    // radius of 2 -- which makes the port's scalar comparison nearly right and leaves one thing
+    // unexplained. In twelve recorded native whips the victim's offset never went below -5.46, so
+    // NONE of those three lines was ever crossed; and Incineroar still reached SPECIAL_S_LARIAT
+    // twice, SPECIAL_S_SHOULDER twice and SPECIAL_S_FAILURE three times. The flags were raised by
+    // something other than the geometry this port computes.
+    //
+    // The leading candidate is whose `top` the lines hang off: anchored to the VICTIM's root
+    // instead of the captor's, "x = -24" is a line 24 units behind the VICTIM, which the captor
+    // sweeps across during the swing -- and the numbers would then work out for exactly the
+    // positions the recording shows. That is a guess, and guessing at this is how the last three
+    // rounds went, so the flags are logged instead.
+    //
+    // Reading them off the SOURCE fighter is safe and is the point: on Incineroar these ids are
+    // his own, in range, and mean what they say.
+    let flag = |id: i32| -> u8 { WorkModule::is_flag(boma, id) as u8 };
     sink::diag(format!(
         "[rat] NATIVE p{entry} captor st={st:#x} f={:.0} | victim {them:#x} st={:#x} f={:.0} \
-         off={:.2} vy={:.2} clatter={:.0}",
+         off={:.2} vy={:.2} clatter={:.0} | rope={}{} area L={} Lend={} F={} sh={}",
         MotionModule::frame(boma),
         StatusModule::status_kind(vboma),
         MotionModule::frame(vboma),
         (PostureModule::pos_x(vboma) - PostureModule::pos_x(boma)) * PostureModule::lr(boma),
         PostureModule::pos_y(vboma) - PostureModule::pos_y(boma),
         ControlModule::get_clatter_time(vboma, 0),
+        flag(*FIGHTER_GAOGAEN_STATUS_SPECIAL_S_FLAG_THROW_ROPE),
+        flag(*FIGHTER_GAOGAEN_STATUS_SPECIAL_S_FLAG_THROW_ROPE_END),
+        flag(*FIGHTER_GAOGAEN_STATUS_SPECIAL_S_FLAG_LARIAT_AREA),
+        flag(*FIGHTER_GAOGAEN_STATUS_SPECIAL_S_FLAG_LARIAT_END_AREA),
+        flag(*FIGHTER_GAOGAEN_STATUS_SPECIAL_S_FLAG_FAILURE_AREA),
+        flag(*FIGHTER_GAOGAEN_STATUS_SPECIAL_S_FLAG_SHOULDER),
     ));
 }

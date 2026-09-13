@@ -606,8 +606,24 @@ pub unsafe fn cut_capture(entry: usize, why: &str) -> bool {
     // A node left on our LINK_NO_CAPTURE is a captor the engine believes is already holding
     // somebody, which is the reported "still can't grab mario after a cargo throw" and, now that
     // the same code runs for both, "the grab failure also happens after an alolan whip lands".
+    // OURS ONLY. THE VICTIM'S SIDE CRASHED THE GAME, AND THE LOG STOPS ON THE CALL.
+    //
+    //     [rat] about to force status 0x44 on victim from releasing a held victim
+    //     [rat] TRACE mario1 st=0x44 mot=0x11112cda76 KineticModule::enable_energy(0x2)
+    //     [rat] TRACE mario1 st=0x44 mot=0xb319a8b44 KineticModule::change_kinetic(0x0)
+    //     [rat] TRACE pika0   st=0x1f9 LinkModule::unlink(link=0)
+    //     [rat] TRACE mario1  st=0x44  LinkModule::unlink(link=0)      <- last line in the file
+    //
+    // Data Abort at fault address 0, MainThread, with `cross2_Release.nss + 0x47f4a0` in x2 --
+    // twenty bytes from the `LinkModule::link` body at main + 0x47f120, so inside the same link
+    // machinery -- and x1, x9 and x22 all zero.
+    //
+    // The two lines before it are why: requesting CAPTURE_CUT put the victim into a status that
+    // unlinks ITSELF, and the engine was already running it. Splicing their link list a second
+    // time, from outside their own update and in the same frame, is a list the engine is holding a
+    // pointer into. Our own side is a different list and unlinking it is safe -- that call is the
+    // one immediately before, and it returned.
     LinkModule::unlink(ours, *LINK_NO_CAPTURE);
-    LinkModule::unlink(vboma, *LINK_NO_CAPTURE);
     // WHAT IS STILL TRUE AFTER THE RELEASE, ONCE PER RELEASE. Every remaining theory about the
     // blocked grab is a different one of these four, and the log has never yet said which.
     crate::telemetry::sink::diag(format!(
