@@ -440,51 +440,87 @@ unsafe fn whip_move_flags(fighter: &mut L2CFighterCommon, skip: bool) {
 /// stored victim id only when the teardown really happened. Inverted to a plain `bool` here, since
 /// `true` meaning "released" reads the way the call site uses it.
 unsafe fn whip_release(fighter: &mut L2CFighterCommon) -> bool {
+    // THE GUARD IS THE NEXT STATUS, AND THE ONE THAT WAS HERE INSTEAD IS THE WHOLE REGRAB BUG.
+    //
+    // `if CaptureModule::is_capture(boma) { return false }` stood at the top of this function and
+    // is nowhere in the source. It was justified as "a Pikachu who got grabbed mid-whip must not
+    // tear down the grab holding him", which is a real concern and the wrong predicate:
+    //
+    //     CATCH p0 starting: mine is_catch=false ignore_catching=false is_capture=TRUE
+    //       | 0x10000 st=WAIT(0x0) is_capture=true ignore_catching=false captured_by=0x0
+    //
+    // `is_capture` is TRUE ON THE CAPTOR TOO. Ten of the twelve grab attempts in pt23 read it
+    // that way on Pikachu himself. So the guard fired on every single whip -- precisely when the
+    // release was needed -- and returned before `drop_capture` could clear the engine's record
+    // off the victim. Mario is sitting in WAIT in that line with `captured_by=0x0`, which is
+    // Pikachu, and a fighter the engine believes is captured cannot be caught by anybody.
+    //
+    // That is "grab after whip and cargo throw is still broken", and it survived the previous
+    // round because the previous round blamed the `End` line. `End` fires fine -- 129 times in
+    // pt23, and the up-B now costs its double jump, which is the same mechanism proving itself.
+    //
+    // WHAT THE SOURCE ACTUALLY GUARDS ON, `SpecialSThrow_end` `0x7100004ba0`, first statement:
+    //
+    //     next = globalTable[0xb]
+    //     if next != SPECIAL_S_SHOULDER && next != SPECIAL_S_LARIAT
+    //     && next != SPECIAL_S_FAILURE  && next != SPECIAL_S_END { <the whole teardown> }
+    //
+    // The same shape as DK's shoulder `exit.c`: do not let go of the victim when the status you
+    // are leaving for is another part of the same move. Nothing about being captured.
+    let next = &fighter.global_table[0xb];
+    if *next == RAT_STATUS_KIND_SPECIAL_S_SHOULDER
+        || *next == RAT_STATUS_KIND_SPECIAL_S_LARIAT
+        || *next == RAT_STATUS_KIND_SPECIAL_S_FAILURE
+        || *next == RAT_STATUS_KIND_SPECIAL_S_END
+    {
+        return false;
+    }
+    whip_release_teardown(fighter);
+    true
+}
+
+/// The body of the release, with the next-status guard already decided.
+///
+/// Split out because `whip_followup_loop`'s watchdog calls the release from inside a main loop,
+/// where `globalTable[0xb]` holds whatever the last transition left there and answering the
+/// guard with it would be reading a stale value as if it were a decision.
+unsafe fn whip_release_teardown(fighter: &mut L2CFighterCommon) {
     let boma = fighter.module_accessor;
     let link = *LINK_NO_CAPTURE;
 
-    // Guarded on NOT being captured ourselves -- a Pikachu who got grabbed mid-whip must not tear
-    // down the grab that is holding him.
-    if CaptureModule::is_capture(boma) {
-        return false;
-    }
-    // THIS USED TO BE AN EARLY RETURN, AND THAT `return` IS THE ALTERNATING WHIP.
-    //
-    // The playtest found the pattern that names it: "after one hit alolan whip the next attempted
-    // alolan whip stops short of the opponent no matter what and displays the shrug animation
-    // instead of grabbing them, and if I try alolan whip again after that it works", and the same
-    // alternation for the ordinary grab.
-    //
-    // A SUCCESSFUL whip unlinks its own victim -- `status_SwingGaogaenThrown`'s first act is
-    // `LinkModule::unlink(link=0)`, which the native recording shows plainly. So by the time the
-    // END status's `end` line runs, `is_link` is already false, this returned false, and the
-    // PORT-SIDE teardown at the bottom of this function -- `drop_capture`, `untrace`, `forget` --
-    // never ran. The engine kept its capture record, so no grab could start and the next whip's
-    // `find_victim_in_range` skipped a victim it believed was already held. What eventually
-    // cleared it was `tick_hold`'s ceiling, 170 frames later, which is about how long it takes to
-    // try again: hence alternation rather than a permanent lock.
-    //
-    // Incineroar's guard is right FOR HIS TEARDOWN -- there is no link to unlink and no event to
-    // send -- so it is now a conditional around exactly that work instead of a return. His other
-    // guard, `is_capture(boma)` above, stays a return: a Pikachu who got grabbed mid-whip must not
-    // tear down the grab holding him, and our teardown would unlink it.
+    // The rope article is retired here in the source, under `if !is_flag(THROW_ROPE_END)`.
+    // Omitted under ADR 0004: there is no rope to retire.
+
     if LinkModule::is_link(boma, link) {
         // `link` splices the slot into both the parent and the child list, so the fighter being
         // thrown is reachable as this object's PARENT here and as its NODE below. Both directions
         // are torn down, in this order.
-        let parent = LinkModule::get_parent_id(boma, link, false);
+        //
+        // `get_parent_id(.., TRUE)` -- the source passes true and this passed false.
+        let parent = LinkModule::get_parent_id(boma, link, true);
         let thrown = state::swing_thrown_fighter(entry_of(boma));
         if parent as u32 == thrown {
-            if WorkModule::is_flag(boma, *FIGHTER_GAOGAEN_STATUS_SPECIAL_S_FLAG_HIT) {
-                LinkModule::send_event_parents(boma, link, Hash40 { hash: 0x18f836a168 });
+            // `!is_flag(THROW_ROPE_END)`, and the event hash is the same one the node event uses.
+            // This read `is_flag(FLAG_HIT)` -- the wrong flag, un-negated -- and sent
+            // `0x18f836a168`, a hash that appears nowhere in the decomp, nowhere in
+            // `docs/the-recording.md` and nowhere else in this repository. Both come straight out
+            // of `SpecialSThrow_end` now.
+            if !WorkModule::is_flag(
+                boma,
+                *FIGHTER_GAOGAEN_STATUS_SPECIAL_S_FLAG_THROW_ROPE_END,
+            ) {
+                LinkModule::send_event_parents(boma, link, Hash40 { hash: 0x1465ed7a5c });
             }
             LinkModule::unlink(boma, link);
         }
-        if LinkModule::is_linked(boma, link) {
-            LinkModule::send_event_nodes(boma, link, Hash40 { hash: 0x1465ed7a5c }, 0);
-            if LinkModule::is_link(boma, link) {
-                LinkModule::unlink(boma, link);
-            }
+    }
+    // A SIBLING OF THE BLOCK ABOVE, NOT NESTED INSIDE IT. The port had it nested, so the node
+    // direction was only ever torn down when the parent direction still existed -- and a victim
+    // who had already unlinked themselves left our side of the link standing.
+    if LinkModule::is_linked(boma, link) {
+        LinkModule::send_event_nodes(boma, link, Hash40 { hash: 0x1465ed7a5c }, 0);
+        if LinkModule::is_link(boma, link) {
+            LinkModule::unlink(boma, link);
         }
     }
     // ---- BELOW HERE IS NOT PART OF THE TRANSCRIPTION ----
@@ -538,7 +574,6 @@ unsafe fn whip_release(fighter: &mut L2CFighterCommon) -> bool {
     crate::victim::untrace(entry);
     crate::victim::forget(entry, "whip over");
     state::set_swing_thrown_fighter(entry, *BATTLE_OBJECT_ID_INVALID as u32);
-    true
 }
 
 /// THE `End` LINE NEVER REACHES THIS PORT'S OWN STATUSES, AND THAT IS THE WHOLE REGRAB LOCKOUT.
@@ -1457,7 +1492,19 @@ unsafe fn failure_end_body(fighter: &mut L2CFighterCommon, line: &str) -> L2CVal
     }
     let boma = fighter.module_accessor;
     whip_release(fighter);
-    if fighter.global_table[0x16] == *SITUATION_KIND_GROUND {
+    // `next == DOWN_SPOT`, NOT `situation == GROUND`, AND THE PLAYTEST CONFIRMED IT BEFORE THE
+    // DECOMP DID: "Pikachu now behaves correctly after a missed whip, no turn around."
+    //
+    // `SpecialSFailure_end` is two statements -- the shared release, then:
+    //
+    //     if globalTable[0xb] == FIGHTER_STATUS_KIND_DOWN_SPOT {
+    //         PostureModule::reverse_lr(); PostureModule::update_rot_y_lr()
+    //     }
+    //
+    // So Incineroar turns around only when the whiff puts him on the FLOOR, not on every grounded
+    // whiff. Reading it as a situation test would have spun Pikachu on his heel after every shrug,
+    // which is a thing Incineroar does not do.
+    if fighter.global_table[0xb] == *FIGHTER_STATUS_KIND_DOWN_SPOT {
         PostureModule::reverse_lr(boma);
         PostureModule::update_rot_y_lr(boma);
     }
@@ -1700,7 +1747,10 @@ unsafe fn whip_followup_loop(fighter: &mut L2CFighterCommon) -> L2CValue {
         {
             // `whip_release` returns false when it bailed out early and true when it actually tore
             // the link down; only then is the stored id stale and worth clearing.
-            if whip_release(fighter) {
+            // The watchdog calls the BODY: see `whip_release_teardown`. It has already decided,
+            // from the three conditions above, that the victim is stale.
+            {
+                whip_release_teardown(fighter);
                 state::set_swing_thrown_fighter(entry_of(boma), *BATTLE_OBJECT_ID_INVALID as u32);
             }
         }
@@ -1819,20 +1869,16 @@ const ROPE_OFFSET_X: f32 = -40.69;
 /// anywhere from -48.69 to -58.29: "modified pikachu sometimes throws farther". The creep is
 /// deterministic; what was not was when anybody told it to end.
 ///
-/// KNOWN GAP, RECORDED RATHER THAN GUESSED AT. Native spends the stretch inside ATTACH_ROPE:
-/// THROWN is four frames, then the status changes, then the victim slides the last 7.84. This port
-/// spends it inside THROWN and enters ATTACH_ROPE at the far end, because the engine's ATTACH_ROPE
-/// PINS the victim for us -- with no rope article to read a parent position from, the measured
-/// result is `off=-29.49` repeated for the whole hold, ten frames of nothing.
+/// AND THE PORT PAYS IT OUT ITSELF NOW, in `whip_flight`. The round that added this constant
+/// assumed the engine would produce the slow leg once the victim passed `SPECIAL_S_FLOAT_ROPE_X`,
+/// and recorded the ATTACH_ROPE animation as a known gap. pt23 measured both assumptions false:
+/// the victim took FIVE full 11.20 steps to -51.89 where native takes four to -40.69, and then
+/// sat at -51.89 for every one of the twenty hold frames. The engine has the number -- `rope_x`
+/// and `GENERATED_ROPE` are both in the param log -- and does not act on it in time.
 ///
-/// So the choice is between the right POSITION in the wrong status and the right STATUS with no
-/// movement, and position is the half the playtest can see and measure. The victim's animation
-/// during those five frames is THROWN's rather than ATTACH_ROPE's.
-///
-/// Driving the slide by hand inside ATTACH_ROPE would get both, and it is NOT done here because
-/// nothing establishes whether the engine re-pins the victim every frame in that status -- and a
-/// nudge that loses a fight with the engine every frame is exactly the kind of unmeasured fix
-/// ADR 0005 exists to keep out. What it needs is one playtest observation of how the bounce reads.
+/// So the attach happens at the line, which is native's timing and native's position, and the
+/// give is paid out one `_speed_over_rope` per frame inside ATTACH_ROPE, which is native's status
+/// as well. The gap is closed rather than recorded.
 const ROPE_STRETCH_X: f32 = 7.84;
 
 /// How long the ropes hold the victim, in captor animation frames.
@@ -1922,46 +1968,38 @@ unsafe fn whip_flight(fighter: &mut L2CFighterCommon, entry: usize, off: f32) {
         // drift with the captor the way a captor-relative offset does. `_motion_frame_fix` stays
         // as the bound -- it is the game's own number for how long this leg may last, and without
         // it a victim who somehow never reaches the line would stay in THROWN forever.
-        // THE LINE IS WHERE THE ENGINE SLOWS THEM; THE EXTENT IS WHERE WE STOP THEM.
+        // ATTACH AT THE ROPE LINE. THE ENGINE WILL NOT SLOW THEM, SO WAITING COSTS A WHOLE STEP.
         //
-        // Attaching AT the line was the second half of the distance bug. `SPECIAL_S_FLOAT_ROPE_X`
-        // -- which `params::get_float_hook` answers with `state::rope_x` -- is the read that makes
-        // the engine drop the victim from `_speed` to `_speed_over_rope`, and that slow leg IS the
-        // rope stretching. Forcing ATTACH_ROPE the frame they touch the line pre-empts it: the
-        // victim froze on the spot for the whole twenty-frame hold, which is the flat
-        // `off=-29.49` repeated ten times in pt22.
+        // The previous round waited until the victim had passed the line PLUS the give, on the
+        // theory that `SPECIAL_S_FLOAT_ROPE_X` makes the engine drop them from `_speed` to
+        // `_speed_over_rope` and that slow leg is the stretch. pt23 measured it and it does not:
         //
-        // So the trigger moves out by the measured give, and the engine plays both halves.
+        //     f38 off=-18.29   f40 -29.49   f42 -40.69   f44 -51.89   vst=0x177
+        //     f46..f64         -51.89 for every one of the twenty hold frames   vst=0x178
+        //
+        // Five full 11.20 steps where native takes four, and then dead still. Both hooks are
+        // being read -- `rope_x` and `GENERATED_ROPE` are in the param log -- so the engine has
+        // the number and does not act on it in time. At 11.20 a frame there is no landing
+        // anywhere near the give: the step that crosses the line overshoots it by 11.20, which is
+        // the whole of "still sometimes goes further than 5 tiles".
+        //
+        // Native's THROWN ends AT the line, off -40.69, and ours reaches exactly that on the
+        // fourth step. So that is where this attaches now, and the give is paid out below.
         let lr = PostureModule::lr(boma);
-        let extent_x = state::rope_x(entry) - ROPE_STRETCH_X * lr;
-        let reached = (PostureModule::pos_x(vboma) - extent_x) * lr <= 0.0;
-        // The backstop now has to cover the slow leg too, or it would fire first and reintroduce
-        // the early attach it exists to prevent. `_motion_frame_fix` is the game's number for the
-        // fast leg; the frames the stretch needs are the give divided by the game's own speed for
-        // it. Both halves from params, so the bound tracks them if they ever differ.
-        let over_rope = WorkModule::get_param_float(
-            boma,
-            hash40("param_special_s"),
-            hash40("special_s_through_target_speed_over_rope"),
-        );
+        let reached = (PostureModule::pos_x(vboma) - state::rope_x(entry)) * lr <= 0.0;
         let bound = WorkModule::get_param_float(
             boma,
             hash40("param_special_s"),
             hash40("special_s_through_target_motion_frame_fix"),
-        ) as i32
-            + if over_rope > 0.0 {
-                (ROPE_STRETCH_X / over_rope).ceil() as i32
-            } else {
-                0
-            };
+        ) as i32;
         if reached || n >= bound.max(1) {
             crate::telemetry::sink::diag(format!(
                 "[rat] WHIP p{entry} {id:#x} reached the ropes after {n}f at off={off:.2} \
-                 (rope_x={:.2} extent_x={extent_x:.2} their_x={:.2} by_place={reached} \
-                 bound={bound}) -- attaching",
+                 (rope_x={:.2} their_x={:.2} by_place={reached} bound={bound}) -- attaching",
                 state::rope_x(entry),
                 PostureModule::pos_x(vboma)
             ));
+            state::set_rope_spent(entry, 0.0);
             state::set_flight_frames(entry, 0);
             // The captor's animation frame at the moment of attaching, so the hold can be counted
             // in the same units it was measured in. See `ROPE_HOLD_FRAMES`.
@@ -1979,6 +2017,42 @@ unsafe fn whip_flight(fighter: &mut L2CFighterCommon, entry: usize, off: f32) {
     // animation terms while the playtest read the whole bounce as too long anyway. Counting the
     // same thing the measurement counted removes the ambiguity entirely: if twenty animation
     // frames is wrong, the number is wrong, rather than the unit.
+    // PAY OUT THE ROPE'S GIVE, ONE `_speed_over_rope` PER FRAME, BECAUSE THERE IS NO ROPE TO DO IT.
+    //
+    // Native ATTACH_ROPE does not hold the victim still: it slides them the last 7.84 out and
+    // then settles, and the shape is identical across all 58 traced whips --
+    //
+    //     0x178  -41.55  -48.15  -48.32  -48.49  -48.63 ... -49.39
+    //
+    // -- a fast part that is four frames of `special_s_through_target_speed_over_rope` (1.6) and
+    // a spring tail of 1.24. What drags them is the ROPE ARTICLE, which ADR 0004 does not ship,
+    // so pt23 shows our victim frozen at one `off` for all twenty frames instead.
+    //
+    // THE MOVE IS FORCED INTO THIS STATUS BY THIS FILE, so driving it from this file is the same
+    // ownership the rest of the whip already has -- `take_captive` calls `CaptureModule::capture`
+    // by hand for exactly the same reason. The speed is the game's; only the total is measured,
+    // and it stops dead once the measured give is spent rather than creeping the way the
+    // pre-place version did.
+    let spent = state::rope_spent(entry);
+    if spent < ROPE_STRETCH_X {
+        let over_rope = WorkModule::get_param_float(
+            boma,
+            hash40("param_special_s"),
+            hash40("special_s_through_target_speed_over_rope"),
+        );
+        if over_rope > 0.0 {
+            let step = over_rope.min(ROPE_STRETCH_X - spent);
+            let lr = PostureModule::lr(boma);
+            let p = Vector3f {
+                x: PostureModule::pos_x(vboma) - step * lr,
+                y: PostureModule::pos_y(vboma),
+                z: 0.0,
+            };
+            PostureModule::set_pos(vboma, &p);
+            state::set_rope_spent(entry, spent + step);
+        }
+    }
+
     let held = MotionModule::frame(boma) as i32 - state::rope_hold_from(entry);
     if held >= ROPE_HOLD_FRAMES {
         crate::telemetry::sink::diag(format!(

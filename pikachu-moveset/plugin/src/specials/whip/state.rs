@@ -134,6 +134,7 @@ pub fn reset(entry: usize) {
         ROPE_X_SET[entry] = false;
         FLIGHT_FRAMES[entry] = 0;
         ROPE_HOLD_FROM[entry] = 0;
+        ROPE_SPENT[entry] = 0.0;
     }
 }
 
@@ -214,3 +215,12 @@ slot!(flight_frames, set_flight_frames, FLIGHT_FRAMES, i32, 0);
 /// counted in animation frames -- the unit it was measured in. See `ROPE_HOLD_FRAMES`.
 static mut ROPE_HOLD_FROM: [i32; MAX] = [0; MAX];
 slot!(rope_hold_from, set_rope_hold_from, ROPE_HOLD_FROM, i32, 0);
+
+/// How much of the rope stretch this whip has already spent, in world units.
+///
+/// The engine cannot supply it. Native ATTACH_ROPE slides the victim the last 7.84 because the
+/// ROPE ARTICLE is dragging them, and ADR 0004 ships no article -- pt23 measured the victim
+/// stationary at a single `off` for all twenty frames of the hold. So the port pays it out
+/// itself, one `special_s_through_target_speed_over_rope` per frame, and this is the meter.
+static mut ROPE_SPENT: [f32; MAX] = [0.0; MAX];
+slot!(rope_spent, set_rope_spent, ROPE_SPENT, f32, 0.0);

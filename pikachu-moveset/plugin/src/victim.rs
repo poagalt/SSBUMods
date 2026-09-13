@@ -418,10 +418,17 @@ pub unsafe fn drop_capture(entry: usize, why: &str) {
         .unwrap_or((false, -1));
     crate::telemetry::sink::diag(format!(
         "[rat] HOLD p{entry} dropped the capture ({why}): ours_linked={} ignore_catching={} \
-         is_catch={} their={:#x} their_capture={} their_st={}",
+         is_catch={} MY_is_capture={} their={:#x} their_capture={} their_st={}",
         LinkModule::is_linked(ours, *LINK_NO_CAPTURE),
         CaptureModule::is_ignore_catching(ours),
         CatchModule::is_catch(ours),
+        // THE CAPTOR SIDE OF `is_capture`, WHICH NOTHING HAS EVER PRINTED HERE.
+        //
+        // `CaptureModule::is_capture` reads TRUE ON THE CAPTOR as well as the capturee -- pt23
+        // caught Pikachu with it set on ten of twelve grab attempts -- and `drop_capture` clears
+        // `ignore_catching`, the catch and the link on our side but has never touched this. If it
+        // is still true here after a release, that is the next thing to answer.
+        CaptureModule::is_capture(ours),
         HELD_ID[entry],
         their.0,
         crate::telemetry::probe::st(their.1)

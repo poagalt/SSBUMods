@@ -223,3 +223,99 @@ cannot tell a fresh catch from a leaked record should not be the one deciding, s
 agree with the victim's status as well, and a record that fails that check is logged by name
 rather than silently adopted. If a leaked capture ever reaches there again, that line is where it
 will be visible first.
+
+---
+
+# Round two (pt23): the `End` line was innocent, and the real guard was invented
+
+The previous section concluded that smashline's `End` line does not reach a new status. **That was
+wrong**, and the same playtest that disproved it also proved the fix worked for a different
+reason: the up-B now costs its double jump, which only happens if an end line ran.
+
+```
+status_end body reached via the End line, leaving 0x1f2   26
+status_end body reached via the End line, leaving 0x1f3   29
+status_end body reached via the End line, leaving 0x1f4   65
+status_end body reached via the End line, leaving 0x1f6    9
+```
+
+129 calls. `End` fires. What never ran was still `whip_release`, and `probe::catch_start` -- added
+in the last round for exactly this -- said why on its first outing:
+
+```
+CATCH p0 starting: mine is_catch=false ignore_catching=false is_capture=TRUE
+  | 0x10000 st=WAIT(0x0) is_capture=true ignore_catching=false captured_by=0x0 clatter=85
+```
+
+**`CaptureModule::is_capture` is true on the CAPTOR, not just the capturee.** Ten of the twelve
+grab attempts in pt23 read it set on Pikachu himself. And the first line of `whip_release` was:
+
+```rust
+if CaptureModule::is_capture(boma) { return false; }
+```
+
+justified in a comment as "a Pikachu who got grabbed mid-whip must not tear down the grab holding
+him". A real concern, the wrong predicate, and **not in the source at all** -- so the guard fired
+on every single whip, at precisely the moment the release was needed, and returned before
+`drop_capture` could clear the engine's record off the victim. Mario is sitting in `WAIT` in that
+line with `captured_by=0x0`, which is Pikachu.
+
+The same probe shows the other side of it, and it is unambiguous:
+
+```
+CATCH p0 starting: mine is_capture=false | 0x10000 st=WAIT is_capture=false captured_by=0x50000000
+MOVE p0 grab: CATCH(0x37) 7f -> CATCH_PULL(0x38)        <- the one grab that worked all session
+```
+
+## What the source actually does
+
+Reading `SpecialSThrow_end` (`0x7100004ba0`) properly, rather than the shared helper it inlines,
+turned up four separate divergences beyond the guard:
+
+| | source | the port had |
+|---|---|---|
+| the guard | `next_status` not in {SHOULDER, LARIAT, FAILURE, END} | `is_capture(boma)` |
+| `get_parent_id` | `(link, **true**)` | `(link, false)` |
+| parent-event gate | `!is_flag(THROW_ROPE_END)` | `is_flag(FLAG_HIT)` |
+| parent-event hash | `0x1465ed7a5c` | `0x18f836a168` -- a value that appears nowhere in the decomp, nowhere in `the-recording.md` and nowhere else in this repo |
+| `is_linked` block | a **sibling** of the `is_link` block | nested inside it |
+
+The guard is the same shape as DK's shoulder `exit.c`: do not let go of the victim when the status
+you are leaving for is another part of the same move. Nothing about being captured.
+
+And `SpecialSFailure_end` turns Incineroar around only when `globalTable[0xb] == DOWN_SPOT` -- when
+the whiff puts him on the floor -- not on every grounded whiff. The port read it as a situation
+test. **The playtest reported this before the decomp did:** *"Pikachu now behaves correctly after a
+missed whip, no turn around."* No turn around is the correct behaviour.
+
+## The distance, second pass
+
+pt23 measured the previous round's assumption and it does not hold:
+
+```
+port    f38 -18.29   f40 -29.49   f42 -40.69   f44 -51.89     vst=0x177
+        f46 .. f64   -51.89 for every one of the twenty hold frames   vst=0x178
+native  0x177 four steps to -40.69, then 0x178 slides to -48.53
+```
+
+Five full 11.20 steps where native takes four, then dead still. The theory was that passing
+`SPECIAL_S_FLOAT_ROPE_X` would make the engine drop the victim to `_speed_over_rope` and that slow
+leg would be the stretch. Both hooks are being read -- `rope_x` and `GENERATED_ROPE` are in the
+param log -- and the engine does not act on either in time. At 11.20 a frame there is no landing
+anywhere near the give: the step that crosses the line overshoots by a whole 11.20. That is "still
+sometimes goes further than 5 tiles".
+
+So the attach moved back to the rope line, which is native's timing *and* native's position, and
+the give is now paid out by this port -- one `special_s_through_target_speed_over_rope` per frame
+until the measured 7.84 is spent -- inside ATTACH_ROPE, which is native's status as well. The
+"known gap" recorded last round is closed rather than documented: the move is forced into that
+status by this file, so driving it from this file is the same ownership `take_captive` already
+takes when it calls `CaptureModule::capture` by hand.
+
+## Method note
+
+Two rounds in a row the wrong conclusion came from the same mistake: inferring a mechanism from
+the absence of a log line instead of measuring the mechanism. "No release logged, and the carry's
+Exit does log, therefore End is dead" was a plausible story that fit every fact available and was
+still wrong. What settled it was a probe that printed the actual engine state at the actual
+moment -- and the honest read of that is that the probe should have come first, before the theory.
