@@ -14,7 +14,8 @@ list of those is short enough to read.
 | --- | --- | --- |
 | 1 | The lunge slides forward | **native** — ACMD raises `FLAG_MOVE_START`/`_MOVE_END`, `whip_kinetics` reads `FLAG_MOVE` |
 | 2 | The MOVE edges become the steady flag | *substituted* — source installs the toggler as a callback in `table[0x15]`; the port calls it per frame from the loop. Equivalent because the toggler is edge-triggered and clears what it acts on |
-| 3 | The catch connects | **native** — `macros::CATCH(.., FIGHTER_STATUS_KIND_SWING_GAOGAEN_CATCHED, ..)`. The handler is generic; the target status is an argument |
+| 2b | The lunge NUDGES them before it grabs | **native, and reported as a bug** — "point blank alolan whip doesn't immediately grab the opponent, it pushes them back a bit then grabs them". `game_specialsstart` fires two 0-damage hitboxes on frames 15 and 16 — `ATTACK(.., 0.0, 350, 100, 30, 0, 5.0, ..)`, fixed knockback 30, one masked to `FIGHTER` and one to `FEB` — and the `CATCH` capsules only come out on frame 18. The push is the move |
+| 3 | The catch connects | **native** — `macros::CATCH(.., FIGHTER_STATUS_KIND_SWING_GAOGAEN_CATCHED, ..)` on frames 18 to 35, which is Incineroar's own window. The handler is generic; the target status is an argument |
 | 4 | The captor enters `SPECIAL_S_THROW` | *substituted* — `whip/catch.rs`. This transition IS kind-keyed and does not run for a Pikachu. The one irreducible substitution |
 | 5 | The capture is recorded | **native** — `CaptureModule::capture`, adopted from the engine when it did it first |
 | 6 | The link exists | **native call, port-issued** — `LinkModule::link` on BOTH objects; `Link(this, no, id)` writes only the caller's slot |
