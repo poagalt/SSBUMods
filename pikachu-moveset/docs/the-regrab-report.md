@@ -169,6 +169,18 @@ LuaConsts rather than printed as raw hex. `their_st=0x44` was unreadable, and th
 CAPTURE_CUT` assertion in `victim.rs` is not proven by anything local -- so the log says the name
 now and there is nothing left to remember or to get wrong.
 
+**One fidelity gap, recorded rather than guessed at.** Native spends the stretch inside
+ATTACH_ROPE -- THROWN is four frames, the status changes, then the victim slides the last 7.84.
+This port spends it inside THROWN and enters ATTACH_ROPE at the far end, because the engine's
+ATTACH_ROPE PINS the victim for us: with no rope article to read a parent position from, the
+measured result is the flat `off=-29.49` for the whole hold. So the choice was between the right
+position in the wrong status and the right status with no movement, and position is the half that
+can be measured. The victim plays THROWN's animation for about five frames where Incineroar's
+plays ATTACH_ROPE's. Driving the slide by hand would get both and is deliberately not done yet --
+nothing establishes whether the engine re-pins the victim every frame in that status, and a nudge
+that loses that fight every frame is the kind of unmeasured fix ADR 0005 exists to keep out. One
+playtest observation of how the bounce reads decides it.
+
 **Still unverified by playtest** -- this round's changes are deployed and untested:
 
 1. that the whip's release now runs, and which line the engine calls -- the log will say

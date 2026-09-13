@@ -1818,6 +1818,21 @@ const ROPE_OFFSET_X: f32 = -40.69;
 /// port let that 1.6 run until the hold timer happened to fire, and the same whip finished
 /// anywhere from -48.69 to -58.29: "modified pikachu sometimes throws farther". The creep is
 /// deterministic; what was not was when anybody told it to end.
+///
+/// KNOWN GAP, RECORDED RATHER THAN GUESSED AT. Native spends the stretch inside ATTACH_ROPE:
+/// THROWN is four frames, then the status changes, then the victim slides the last 7.84. This port
+/// spends it inside THROWN and enters ATTACH_ROPE at the far end, because the engine's ATTACH_ROPE
+/// PINS the victim for us -- with no rope article to read a parent position from, the measured
+/// result is `off=-29.49` repeated for the whole hold, ten frames of nothing.
+///
+/// So the choice is between the right POSITION in the wrong status and the right STATUS with no
+/// movement, and position is the half the playtest can see and measure. The victim's animation
+/// during those five frames is THROWN's rather than ATTACH_ROPE's.
+///
+/// Driving the slide by hand inside ATTACH_ROPE would get both, and it is NOT done here because
+/// nothing establishes whether the engine re-pins the victim every frame in that status -- and a
+/// nudge that loses a fight with the engine every frame is exactly the kind of unmeasured fix
+/// ADR 0005 exists to keep out. What it needs is one playtest observation of how the bounce reads.
 const ROPE_STRETCH_X: f32 = 7.84;
 
 /// How long the ropes hold the victim, in captor animation frames.
