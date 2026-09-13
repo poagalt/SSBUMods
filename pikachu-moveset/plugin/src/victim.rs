@@ -350,8 +350,17 @@ pub unsafe fn drop_capture(entry: usize, why: &str) {
     // throw: a real throw releases them itself, so `catch_object_id` no longer points at us and
     // this does nothing. It only fires when the record is stale by definition.
     if let Some(vboma) = boma(HELD_ID[entry]) {
+        // NOT IF THEY ARE ALREADY IN IT, and this guard is a crash class rather than tidiness.
+        //
+        // `whip_release` forces CAPTURE_CUT for the SWING_GAOGAEN statuses and then calls this,
+        // so without the test the same status would be forced twice in one frame -- a re-entry,
+        // which is exactly what killed the game when `shoulder_the_victim` forced
+        // SHOULDERED_DONKEY_START on a victim already in it: "forcing a status the fighter is
+        // already in re-runs its entry, and the engine's path for a re-entry is what faulted".
+        // Two of this session's three crashes were also the second of two identical calls.
         if CaptureModule::is_capture(vboma)
             && CaptureModule::catch_object_id(vboma) as u32 == id_of_entry(entry as u32)
+            && StatusModule::status_kind(vboma) != *FIGHTER_STATUS_KIND_CAPTURE_CUT
         {
             request_status(vboma, *FIGHTER_STATUS_KIND_CAPTURE_CUT, "stale capture record");
         }
@@ -523,8 +532,27 @@ pub unsafe fn request_status(
         return false;
     }
     crate::telemetry::sink::crumb(format!(
-        "[rat] about to force status {status:#x} on victim from {who}"
+        "[rat] about to force status {status:#x} on victim from {who} (they are in {:#x})",
+        StatusModule::status_kind(vboma)
     ));
+    // NEVER THE STATUS THEY ARE ALREADY IN. A RE-ENTRY FORCE IS A PROVEN CRASH IN THIS PROJECT.
+    //
+    // `shoulder_the_victim` forced SHOULDERED_DONKEY_START on a victim who was already in it and
+    // killed the game; the note it left says why -- "forcing a status the fighter is already in
+    // re-runs its entry, and the engine's path for a re-entry is what faulted". Two of this
+    // session's three crashes were also the second of two identical calls a frame apart.
+    //
+    // The guard lives HERE rather than at the call sites because there are five of them across two
+    // modules with different ideas about who checks. `whip_update_areas` gates its ATTACH_ROPE and
+    // RETURN forces on the victim's current status; `enter_carry`'s CAPTURE_WAIT and
+    // `drop_capture`'s CAPTURE_CUT did not, and a victim can arrive at either on their own.
+    if StatusModule::status_kind(vboma) == status {
+        crate::telemetry::sink::crumb(format!(
+            "[rat] NOT re-forcing {status:#x} from {who} -- already in it, and a re-entry re-runs \
+             the status's own entry path"
+        ));
+        return false;
+    }
     // FORCED, BECAUSE AN UNFORCED REQUEST FROM ANOTHER FIGHTER'S SCRIPT DOES NOT ARRIVE.
     //
     // This was `change_status_request_from_script(vboma, status, false)`, and the whip's victim
