@@ -771,6 +771,20 @@ unsafe fn whip_update_areas(fighter: &mut L2CFighterCommon) {
 
     state::set_lariat_area_length(entry, (lariat_x - lariat_end_x).abs());
 
+    // WHERE THE ROPES ARE, IN WORLD COORDINATES, SO THE VICTIM'S OWN CODE CAN FLY THEM THERE.
+    //
+    // `off` above is `(victim_x - my_x) * lr`, so the rope line -- `off == lariat_offset_x1` -- is
+    // at `my_x + lariat_offset_x1 * lr`. That is the same number the port was already using as the
+    // rebound trigger; the change is that it is now handed to the engine as
+    // `FIGHTER_GAOGAEN_STATUS_SPECIAL_S_FLOAT_ROPE_X` (through `src/params`, see
+    // `state::ROPE_X`) instead of being watched for from here.
+    //
+    // Refreshed every frame rather than latched at the throw, because the captor moves: Incineroar
+    // is still sliding on his `special_s_catch_brake_x` when the throw goes out, and his own rope
+    // article moves with him.
+    state::set_rope_x(entry, PostureModule::pos_x(boma) + lariat_x * PostureModule::lr(boma));
+    state::set_rope_x_set(entry, true);
+
     // MEASURED, BECAUSE THE REBOUND TRIGGER NEVER FIRED AND THERE ARE FOUR REASONS IT MIGHT NOT.
     //
     // `rope rebound` appeared zero times in the log, so `lariat_been_out` never went true, so the

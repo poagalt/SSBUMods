@@ -639,7 +639,7 @@ unsafe fn shoulder_pass_check(fighter: &mut L2CFighterCommon, entry: usize) -> b
         && fighter.global_table[0x16] == *SITUATION_KIND_GROUND
         && GroundModule::is_passable_check(boma)
     {
-        carry_change(fighter, entry, RAT_STATUS_KIND_SHOULDER_PASS, "SHOULDER_PASS");
+        carry_change_input(fighter, entry, RAT_STATUS_KIND_SHOULDER_PASS, "SHOULDER_PASS");
         return true;
     }
     false
@@ -679,7 +679,7 @@ unsafe fn shoulder_jump_check(fighter: &mut L2CFighterCommon, entry: usize) -> b
             "[rat] SHOULDER p{entry} jump (button) out of the carry after {}f",
             CARRY_FRAMES[entry]
         ));
-        carry_change(
+        carry_change_input(
             fighter,
             entry,
             RAT_STATUS_KIND_SHOULDER_JUMP_SQUAT_B,
@@ -696,7 +696,7 @@ unsafe fn shoulder_jump_check(fighter: &mut L2CFighterCommon, entry: usize) -> b
             "[rat] SHOULDER p{entry} jump (flick) out of the carry after {}f",
             CARRY_FRAMES[entry]
         ));
-        carry_change(
+        carry_change_input(
             fighter,
             entry,
             RAT_STATUS_KIND_SHOULDER_JUMP_SQUAT,
@@ -721,7 +721,7 @@ unsafe fn carry_interrupts(fighter: &mut L2CFighterCommon, entry: usize) -> bool
             CARRY_FRAMES[entry],
             crate::telemetry::probe::ctx(boma)
         ));
-        carry_change(fighter, entry, next, "requested throw");
+        carry_change_input(fighter, entry, next, "requested throw");
         return true;
     }
     shoulder_jump_check(fighter, entry)
@@ -773,10 +773,10 @@ unsafe extern "C" fn shoulder_wait_loop(fighter: &mut L2CFighterCommon) -> L2CVa
     let stick = stick_x_lr(fighter);
     let ground = fighter.global_table[0x16] == *SITUATION_KIND_GROUND;
     if stick <= common_param_f(boma, TURN_STICK_X) && ground {
-        return carry_change(fighter, entry, RAT_STATUS_KIND_SHOULDER_TURN, "SHOULDER_TURN");
+        return carry_change_input(fighter, entry, RAT_STATUS_KIND_SHOULDER_TURN, "SHOULDER_TURN");
     }
     if common_param_f(boma, WALK_STICK_X) <= stick && ground {
-        return carry_change(fighter, entry, RAT_STATUS_KIND_SHOULDER_WALK, "SHOULDER_WALK");
+        return carry_change_input(fighter, entry, RAT_STATUS_KIND_SHOULDER_WALK, "SHOULDER_WALK");
     }
     if fighter.global_table[0x16] == *SITUATION_KIND_AIR {
         return carry_change(fighter, entry, RAT_STATUS_KIND_SHOULDER_FALL, "SHOULDER_FALL");
@@ -937,7 +937,7 @@ unsafe extern "C" fn shoulder_walk_loop(fighter: &mut L2CFighterCommon) -> L2CVa
     if stick < common_param_f(boma, WALK_STICK_X)
         && fighter.global_table[0x16] == *SITUATION_KIND_GROUND
     {
-        return carry_change(fighter, entry, RAT_STATUS_KIND_SHOULDER_WAIT, "SHOULDER_WAIT");
+        return carry_change_input(fighter, entry, RAT_STATUS_KIND_SHOULDER_WAIT, "SHOULDER_WAIT");
     }
     if fighter.global_table[0x16] == *SITUATION_KIND_AIR {
         return carry_change(fighter, entry, RAT_STATUS_KIND_SHOULDER_FALL, "SHOULDER_FALL");
@@ -1062,7 +1062,7 @@ unsafe extern "C" fn shoulder_fall_loop(fighter: &mut L2CFighterCommon) -> L2CVa
         return carry_change(fighter, entry, *FIGHTER_STATUS_KIND_FALL, "victim lost -> FALL");
     }
     if let Some(next) = requested_throw(fighter) {
-        return carry_change(fighter, entry, next, "requested throw");
+        return carry_change_input(fighter, entry, next, "requested throw");
     }
     if fighter.global_table[0x16] == *SITUATION_KIND_GROUND {
         return carry_change(fighter, entry, RAT_STATUS_KIND_SHOULDER_LANDING, "SHOULDER_LANDING");
@@ -1207,7 +1207,7 @@ unsafe extern "C" fn shoulder_jump_squat_loop(fighter: &mut L2CFighterCommon) ->
         return carry_change(fighter, entry, RAT_STATUS_KIND_SHOULDER_FALL, "SHOULDER_FALL");
     }
     if let Some(next) = requested_throw(fighter) {
-        return carry_change(fighter, entry, next, "requested throw");
+        return carry_change_input(fighter, entry, next, "requested throw");
     }
     0.into()
 }
@@ -1251,7 +1251,7 @@ unsafe extern "C" fn shoulder_jump_loop(fighter: &mut L2CFighterCommon) -> L2CVa
         return carry_change(fighter, entry, *FIGHTER_STATUS_KIND_FALL, "victim lost -> FALL");
     }
     if let Some(next) = requested_throw(fighter) {
-        return carry_change(fighter, entry, next, "requested throw");
+        return carry_change_input(fighter, entry, next, "requested throw");
     }
     if MotionModule::is_end(boma) {
         return carry_change(fighter, entry, RAT_STATUS_KIND_SHOULDER_FALL, "SHOULDER_FALL");
@@ -1420,7 +1420,9 @@ unsafe extern "C" fn throw_loop(fighter: &mut L2CFighterCommon) -> L2CValue {
     let entry = entry_of(boma);
     if MotionModule::is_end(boma) {
         VICTIM[entry] = *BATTLE_OBJECT_ID_INVALID as u32;
-        crate::victim::release(entry, "cargo throw finished");
+        // `throw_exit` is registered on all four throws and issues DK's one `catch_cut`, so this
+        // only drops our own bookkeeping -- see `crate::victim::forget`.
+        crate::victim::forget(entry, "cargo throw finished");
         apply_lift_param(boma, entry, false);
         let ground = StatusModule::situation_kind(boma) == *SITUATION_KIND_GROUND;
         let next = if ground { *FIGHTER_STATUS_KIND_WAIT } else { *FIGHTER_STATUS_KIND_FALL };
@@ -1800,6 +1802,47 @@ unsafe fn leave_carry(boma: *mut BattleObjectModuleAccessor, entry: usize, next:
     crate::telemetry::sink::diag(format!(
         "[rat] SHOULDER p{entry} carry protocol: released -- catch_cut, ignore_catching off"
     ));
+}
+
+/// `carry_change` for the transitions DK makes with `change_status(kind, TRUE)`.
+///
+/// THE SECOND ARGUMENT TO `change_status` IS NOT ALWAYS FALSE, AND THIS PORT PASSED FALSE FOR ALL
+/// OF THEM. Its meaning is not established here -- `L2CFighterBase::change_status` (common
+/// 0x710000a1e0) does nothing but forward it to whatever callable sits in `globalTable[0x10]`, so
+/// the semantics are in the engine and out of reach of this repo's tooling. skyline-smash calls
+/// it `arg2` and so does this comment.
+///
+/// What IS established is every value DK passes, read off his binary one `mov w1` at a time:
+///
+///     ShoulderWait  -> PASS true   TURN true   WALK true   FALL false
+///     ShoulderWalk  -> PASS true   WAIT true   FALL false
+///     ShoulderTurn  -> FALL false  WAIT false
+///     ShoulderFall  -> LANDING false
+///     ShoulderLand  -> FALL false  WAIT false
+///     ShoulderJump  -> FALL false
+///     JumpSquat     -> JUMP false  FALL false
+///     jump helper   -> JUMP_SQUAT true   JUMP_SQUAT_B true
+///     throw helper  -> THROW_F_F/_B/_HI/_LW true
+///
+/// The pattern that falls out is that `true` goes with a transition the PLAYER asked for this
+/// frame -- a stick crossing a threshold, a button -- and `false` with one the world or the
+/// animation forced: a situation change, a motion ending. Walk -> Wait is `true` because the stick
+/// dropping below `walk_stick_x` is still an input; Turn -> Wait is `false` because it is the turn
+/// animation finishing. That reading is a guess and the values are not: the values are copied.
+///
+/// The port's own substituted transitions -- `victim lost -> WAIT` and the end of a throw -- have
+/// no counterpart in DK and keep `false`.
+unsafe fn carry_change_input(
+    fighter: &mut L2CFighterCommon,
+    entry: usize,
+    next: i32,
+    why: &str,
+) -> L2CValue {
+    if !crate::victim::allow_shift(entry, why) {
+        return 0.into();
+    }
+    fighter.change_status(next.into(), true.into());
+    1.into()
 }
 
 unsafe fn carry_change(fighter: &mut L2CFighterCommon, entry: usize, next: i32, why: &str) -> L2CValue {

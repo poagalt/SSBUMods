@@ -76,6 +76,30 @@ static mut LARIAT_AREA_HIT_POS_X: [f32; MAX] = [0.0; MAX];
 static mut LARIAT_BUTTON_PUSH_POS_X: [f32; MAX] = [0.0; MAX];
 static mut LARIAT_AREA_LENGTH: [f32; MAX] = [0.0; MAX];
 
+
+/// `FIGHTER_GAOGAEN_STATUS_SPECIAL_S_FLOAT_ROPE_X` (0x1000007), WHICH THE VICTIM READS OFF US.
+///
+/// Not a slot Pikachu could hold even if it were in range: it is STATUS-scoped, so its index is
+/// into whatever float array our own custom status was given, and the reader is not us. The
+/// victim's `status_SwingGaogaenCatched` resolves the captor through
+/// `LinkModule::get_parent_id(LINK_NO_CAPTURE)` and calls `WorkModule::get_float` on the captor's
+/// accessor with gaogaen's id. So it is kept here and `src/params` answers the read, exactly as it
+/// already answers the twelve `param_special_s` reads from the same status.
+///
+/// WHY IT MATTERS: IT IS THE DIFFERENCE BETWEEN 11.2 AND 1.6. The victim picks its throw speed
+/// from our `is_flag(GENERATED_ROPE)`:
+///
+///     rope    -> special_s_through_target_speed        11.2   + rope_x, + _speed_over_rope
+///     no rope -> special_s_through_target_speed_no_rope 1.6
+///
+/// Answering "no rope" -- which is honest under ADR 0004 -- put the victim on a 1.6/frame path and
+/// then the port hand-triggered a rebound at the ROPE's distance of -24, which a 1.6/frame throw
+/// was never going to reach on the game's timing. "The travel distance/time isn't right" is that
+/// mismatch, measured: +14.74 at f30, -10.29 at f40, -24.69 at f55.
+static mut ROPE_X: [f32; MAX] = [0.0; MAX];
+/// Whether `ROPE_X` currently holds a real coordinate, so `src/params` answers `GENERATED_ROPE`
+/// honestly rather than claiming a rope exists before there is anywhere to put one.
+static mut ROPE_X_SET: [bool; MAX] = [false; MAX];
 /// NOT ONE OF INCINEROAR'S IDS -- a port-only latch, and the only slot in this file that is.
 ///
 /// `whip_update_areas` needs to know whether the victim has reached the lariat area at least once.
@@ -106,6 +130,8 @@ pub fn reset(entry: usize) {
         LARIAT_AREA_HIT_POS_X[entry] = 0.0;
         LARIAT_BUTTON_PUSH_POS_X[entry] = 0.0;
         LARIAT_AREA_LENGTH[entry] = 0.0;
+        ROPE_X[entry] = 0.0;
+        ROPE_X_SET[entry] = false;
     }
 }
 
@@ -172,3 +198,5 @@ slot!(
     f32,
     0.0
 );
+slot!(rope_x, set_rope_x, ROPE_X, f32, 0.0);
+slot!(rope_x_set, set_rope_x_set, ROPE_X_SET, bool, false);

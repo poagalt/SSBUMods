@@ -194,16 +194,93 @@ static mut SEEN_FLOAT: u16 = 0;
 /// the answer to. `false` is not a guess -- this port ships no rope, by decision.
 const GENERATED_ROPE: i32 = 0x2000_00EA;
 
+/// `FIGHTER_GAOGAEN_STATUS_SPECIAL_S_FLOAT_ROPE_X`, the other half of the same question.
+///
+/// STATUS-scoped (the 0x1000000 prefix), index 7 into the float array of whatever status the
+/// object is in -- which for us is a smashline-created status whose array we do not size. So this
+/// is answered rather than written, for the same reason `GENERATED_ROPE` is: the reader is the
+/// VICTIM, reaching through `LinkModule::get_parent_id(LINK_NO_CAPTURE)` onto our accessor, and
+/// the only thing that knows the answer is this plugin.
+const SPECIAL_S_FLOAT_ROPE_X: i32 = 0x0100_0007;
+
+/// `WorkModule::get_int(boma, FIGHTER_INSTANCE_WORK_ID_INT_ENTRY_ID)` without the import cycle.
+unsafe fn entry_of(boma: *mut BattleObjectModuleAccessor) -> usize {
+    let e = WorkModule::get_int(boma, *FIGHTER_INSTANCE_WORK_ID_INT_ENTRY_ID) as usize;
+    if e >= 8 { 0 } else { e }
+}
+
+/// ANSWERING "YES, THERE IS A ROPE" -- WHICH REVERSES WHAT THIS HOOK USED TO SAY, AND THE REASON
+/// IS THAT "NO" WAS HONEST ABOUT THE ARTICLE AND WRONG ABOUT THE MOVE.
+///
+/// The note below argued `false` was "not a guess -- this port ships no rope, by decision", and
+/// that the game's no-rope path is "exactly the situation ADR 0004 puts this port in
+/// permanently". Both sentences are true and the conclusion was still wrong, because of what the
+/// two branches actually differ by. From the victim's `status_SwingGaogaenCatched`:
+///
+///     rope    -> special_s_through_target_speed          11.2
+///                special_s_through_target_cancel_frame   30
+///                special_s_through_target_speed_over_rope 1.6
+///                get_float(SPECIAL_S_FLOAT_ROPE_X)       <- where to stop
+///     no rope -> special_s_through_target_speed_no_rope  1.6
+///                special_s_through_target_cancel_frame_no_rope 30
+///
+/// The no-rope branch is not "the same throw without a visual". It is a SEVEN TIMES SLOWER throw
+/// that stops on a frame count instead of at a place, because with no rope there is nowhere to
+/// bounce and the move is not supposed to come back. Taking it and then hand-triggering a rebound
+/// at the rope's distance is two halves of two different moves: the playtest called it "the travel
+/// distance/time isn't right", and the log shows why -- the victim crawling from +14.74 at f30 to
+/// -24.69 at f55 instead of being flung there in five frames.
+///
+/// WHAT THE ROPE BRANCH ACTUALLY NEEDS IS A NUMBER, NOT AN OBJECT. Every one of those four reads
+/// is a param or a float off the captor; none of them touches `GENERATE_ARTICLE_ROPE`. The
+/// article's own jobs -- the visual, and raising the area flags from a real collision -- are the
+/// two things this port substitutes for and documents as substituted. So this says yes, and
+/// supplies the coordinate, and ADR 0004 is untouched: no victim is handed to code that
+/// dereferences an article we do not ship.
+///
+/// It says yes only once the whip has somewhere to put the rope, so a stray read outside the move
+/// still gets the honest answer.
 #[skyline::hook(replace = WorkModule::is_flag)]
 unsafe fn is_flag_hook(boma: *mut BattleObjectModuleAccessor, id: i32) -> bool {
     if id == GENERATED_ROPE && is_pikachu(boma) {
-        return false;
+        return crate::specials::whip::state::rope_x_set(entry_of(boma));
     }
     original!()(boma, id)
 }
 
+#[skyline::hook(replace = WorkModule::get_float)]
+unsafe fn get_float_hook(boma: *mut BattleObjectModuleAccessor, id: i32) -> f32 {
+    if id == SPECIAL_S_FLOAT_ROPE_X && is_pikachu(boma) {
+        let entry = entry_of(boma);
+        if crate::specials::whip::state::rope_x_set(entry) {
+            let x = crate::specials::whip::state::rope_x(entry);
+            announce_once(std::ptr::addr_of_mut!(SEEN_ROPE_X), "rope_x", x);
+            return x;
+        }
+    }
+    original!()(boma, id)
+}
+
+static mut SEEN_ROPE_X: bool = false;
+
+unsafe fn announce_once(seen: *mut bool, name: &str, value: f32) {
+    if *seen {
+        return;
+    }
+    *seen = true;
+    crate::telemetry::sink::diag(format!(
+        "[rat] PARAM the engine asked Pikachu for {name} -- answered {value} (the whip's rope \
+         line; this is the read that decides where the victim stops)"
+    ));
+}
+
 pub fn install() {
-    skyline::install_hooks!(get_param_int_hook, get_param_float_hook, is_flag_hook);
+    skyline::install_hooks!(
+        get_param_int_hook,
+        get_param_float_hook,
+        is_flag_hook,
+        get_float_hook
+    );
 }
 
 // Two things that must stay true, checked at compile time rather than trusted: the whip module's

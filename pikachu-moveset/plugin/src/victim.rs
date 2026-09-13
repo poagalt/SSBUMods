@@ -219,6 +219,32 @@ pub unsafe fn release(entry: usize, why: &str) {
     // Guarded by who the engine says owns them, so this can never cut somebody else's grab: the
     // captured object reports its captor through `catch_object_id`, and it has to be us.
     cut_capture(entry, why);
+    forget(entry, why);
+}
+
+/// Drop our bookkeeping WITHOUT asking the engine to cut anything.
+///
+/// FOR THE PATH THAT HAS ALREADY CUT, AND CUTTING TWICE IS NOT FREE. `CatchModule::catch_cut` is
+/// not an action, it is a REQUEST -- Ghidra on `CatchCut` shows four instructions writing
+/// `this->[0x93] = 1`, and the engine does the teardown on its next update. DK issues exactly one,
+/// from his throws' `EXIT_STATUS` line. This port was issuing two per throw: one from
+/// `throw_exit`, which is DK's, and one from `throw_loop` through `release` -> `cut_capture`,
+/// which is not.
+///
+/// A request flag raised when there is nothing to cut is a request that survives to the next
+/// thing there is, and the measured log is that shape exactly -- five cargo throws that worked
+/// interleaved with grabs that played the whole catch animation and latched onto nobody:
+///
+///     MOVE p0 grab: CATCH(0x37) 51f -> WAIT(0x0)
+///     MOVE p0 grab: CATCH(0x37) 35f -> WAIT(0x0)
+///     MOVE p0 grab: CATCH(0x37) 69f -> WAIT(0x0)
+///
+/// with `cap=false vst=0x0` on the victim throughout, so nothing was still holding him. The
+/// engine's own catch was being cut as it started.
+pub unsafe fn forget(entry: usize, why: &str) {
+    if entry >= 8 || HELD_ID[entry] == 0 {
+        return;
+    }
     crate::telemetry::sink::crumb(format!(
         "[rat] HOLD p{entry} released {:#x} after {}f: {why}",
         HELD_ID[entry], HELD_FOR[entry]
@@ -258,6 +284,36 @@ pub unsafe fn tick_hold(entry: usize) {
         return;
     }
     HELD_FOR[entry] += 1;
+    // THE CLATTER AT `hold()` IS THE WRONG MOMENT, AND THE CARRY STILL DIED AT 171 FRAMES.
+    //
+    // Seeding the ceiling once, in `hold`, reads the mash timer of the ORDINARY GRAB the carry is
+    // intercepted out of -- 55, 68, 105 in the measured log -- and then the carry starts, the
+    // `hash40("shoulder")` event moves the victim into SHOULDERED_DONKEY, and the engine RE-ARMS
+    // the clatter to a much larger number for the carry:
+    //
+    //     HOLD p0 took 0x10000; their clatter is 68 so this hold expires after 170f
+    //     VICTIM p0 cargo: status=0xc5 captured=true clatter=105.0
+    //     VICTIM p0 cargo: status=0xc6 captured=true clatter=104.0
+    //     SHOULDER p0 jump (button) out of the carry after 168f
+    //     HOLD p0 released 0x10000 after 171f: hold ceiling reached
+    //
+    // The jump at frame 168 looked like it broke the carry; the ceiling ended it three frames
+    // later for reasons that had nothing to do with jumping.
+    //
+    // So the ceiling is re-derived every frame and only ever moves FORWARD: while the engine still
+    // has mash time left on this victim, the deadline stays ahead of us, and the moment the clatter
+    // reaches zero it stops moving and we expire. That is the engine's own end-of-hold condition
+    // -- `CaptureWaitCommon` escapes on `get_clatter_time <= 0` -- with a bound rather than a
+    // trust: a victim whose clatter never decrements still cannot be held past twice its value.
+    if let Some(vboma) = boma(HELD_ID[entry]) {
+        let clatter = smash::app::lua_bind::ControlModule::get_clatter_time(vboma, 0);
+        if clatter > 0.0 {
+            let deadline = HELD_FOR[entry] + (clatter * 2.0) as i32;
+            if deadline > HOLD_CEILING[entry] {
+                HOLD_CEILING[entry] = deadline;
+            }
+        }
+    }
     if HELD_FOR[entry] > HOLD_CEILING[entry] {
         release(entry, "hold ceiling reached -- something never let go");
     }
