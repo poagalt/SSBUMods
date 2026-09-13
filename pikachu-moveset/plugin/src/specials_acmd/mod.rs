@@ -74,6 +74,74 @@ unsafe extern "C" fn pikachu_effect_specialairlw(agent: &mut L2CAgentBase) {
     }
 }
 
+// ---- Revenge turn (Incineroar) : game_speciallwturn ----
+unsafe extern "C" fn pikachu_game_speciallwturn(agent: &mut L2CAgentBase) {
+    frame(agent.lua_state_agent, 1.0);
+    if macros::is_excute(agent) {
+        macros::WHOLE_HIT(agent, *HIT_STATUS_XLU);
+    }
+    frame(agent.lua_state_agent, 4.0);
+    if macros::is_excute(agent) {
+        macros::REVERSE_LR(agent);
+    }
+    frame(agent.lua_state_agent, 8.0);
+    if macros::is_excute(agent) {
+        macros::ATTACK(agent, 0, 0, Hash40::new("top"), 2.4, 51, 100, 40, 40, 10.416668, 0.0, 11.458334, -1.0416667, None, None, None, 1.0, 0.0, *ATTACK_SETOFF_KIND_OFF, *ATTACK_LR_CHECK_POS, true, 0, 0.0, 0, false, false, false, false, true, *COLLISION_SITUATION_MASK_GA, *COLLISION_CATEGORY_MASK_ALL, *COLLISION_PART_MASK_ALL, false, Hash40::new("collision_attr_fire"), *ATTACK_SOUND_LEVEL_S, *COLLISION_SOUND_ATTR_FIRE, *ATTACK_REGION_NONE);
+        macros::ATTACK(agent, 1, 0, Hash40::new("top"), 2.4, 54, 100, 38, 38, 20.833336, 0.0, 11.458334, -1.0416667, None, None, None, 1.0, 0.0, *ATTACK_SETOFF_KIND_OFF, *ATTACK_LR_CHECK_POS, true, 0, 0.0, 0, false, false, false, false, true, *COLLISION_SITUATION_MASK_GA, *COLLISION_CATEGORY_MASK_ALL, *COLLISION_PART_MASK_ALL, false, Hash40::new("collision_attr_fire"), *ATTACK_SOUND_LEVEL_S, *COLLISION_SOUND_ATTR_FIRE, *ATTACK_REGION_NONE);
+    }
+    wait(agent.lua_state_agent, 2.0);
+    if macros::is_excute(agent) {
+        AttackModule::clear_all(agent.module_accessor);
+    }
+    wait(agent.lua_state_agent, 5.0);
+    if macros::is_excute(agent) {
+        macros::WHOLE_HIT(agent, *HIT_STATUS_NORMAL);
+    }
+}
+
+
+// ---- Revenge turn (Incineroar) : effect_speciallwturn, sys_ effects only (ADR 0002) ----
+unsafe extern "C" fn pikachu_effect_speciallwturn(agent: &mut L2CAgentBase) {
+    frame(agent.lua_state_agent, 3.0);
+    if macros::is_excute(agent) {
+        macros::LANDING_EFFECT(agent, Hash40::new("sys_landing_smoke"), Hash40::new("top"), 0, 0, 0, 0, 0, 0, 1, 0, 0, 0, 0, 0, 0, false);
+    }
+}
+
+// ---- Revenge turn AIR (Incineroar) : game_specialairlwturn ----
+unsafe extern "C" fn pikachu_game_specialairlwturn(agent: &mut L2CAgentBase) {
+    frame(agent.lua_state_agent, 1.0);
+    if macros::is_excute(agent) {
+        macros::WHOLE_HIT(agent, *HIT_STATUS_XLU);
+    }
+    frame(agent.lua_state_agent, 4.0);
+    if macros::is_excute(agent) {
+        macros::REVERSE_LR(agent);
+    }
+    frame(agent.lua_state_agent, 8.0);
+    if macros::is_excute(agent) {
+        macros::ATTACK(agent, 0, 0, Hash40::new("top"), 2.4, 51, 100, 40, 40, 10.416668, 0.0, 11.458334, -1.0416667, None, None, None, 1.0, 0.0, *ATTACK_SETOFF_KIND_OFF, *ATTACK_LR_CHECK_POS, true, 0, 0.0, 0, false, false, false, false, true, *COLLISION_SITUATION_MASK_GA, *COLLISION_CATEGORY_MASK_ALL, *COLLISION_PART_MASK_ALL, false, Hash40::new("collision_attr_fire"), *ATTACK_SOUND_LEVEL_S, *COLLISION_SOUND_ATTR_FIRE, *ATTACK_REGION_NONE);
+        macros::ATTACK(agent, 1, 0, Hash40::new("top"), 2.4, 54, 100, 38, 38, 20.833336, 0.0, 11.458334, -1.0416667, None, None, None, 1.0, 0.0, *ATTACK_SETOFF_KIND_OFF, *ATTACK_LR_CHECK_POS, true, 0, 0.0, 0, false, false, false, false, true, *COLLISION_SITUATION_MASK_GA, *COLLISION_CATEGORY_MASK_ALL, *COLLISION_PART_MASK_ALL, false, Hash40::new("collision_attr_fire"), *ATTACK_SOUND_LEVEL_S, *COLLISION_SOUND_ATTR_FIRE, *ATTACK_REGION_NONE);
+    }
+    wait(agent.lua_state_agent, 2.0);
+    if macros::is_excute(agent) {
+        AttackModule::clear_all(agent.module_accessor);
+    }
+    wait(agent.lua_state_agent, 5.0);
+    if macros::is_excute(agent) {
+        macros::WHOLE_HIT(agent, *HIT_STATUS_NORMAL);
+    }
+}
+
+
+// ---- Revenge turn AIR (Incineroar) : effect_specialairlwturn, sys_ effects only (ADR 0002) ----
+unsafe extern "C" fn pikachu_effect_specialairlwturn(agent: &mut L2CAgentBase) {
+    frame(agent.lua_state_agent, 3.0);
+    if macros::is_excute(agent) {
+        macros::LANDING_EFFECT(agent, Hash40::new("sys_landing_smoke"), Hash40::new("top"), 0, 0, 0, 0, 0, 0, 1, 0, 0, 0, 0, 0, 0, false);
+    }
+}
+
 // ---- up-B ground (Game & Watch) : game_specialhi ----
 unsafe extern "C" fn pikachu_game_specialhi(agent: &mut L2CAgentBase) {
     frame(agent.lua_state_agent, 3.0);
@@ -731,6 +799,10 @@ pub fn install() {
         .effect_acmd("effect_speciallw", pikachu_effect_speciallw, Default)
         .game_acmd("game_specialairlw", pikachu_game_specialairlw, Default)
         .effect_acmd("effect_specialairlw", pikachu_effect_specialairlw, Default)
+        .game_acmd("game_speciallwturn", pikachu_game_speciallwturn, Default)
+        .effect_acmd("effect_speciallwturn", pikachu_effect_speciallwturn, Default)
+        .game_acmd("game_specialairlwturn", pikachu_game_specialairlwturn, Default)
+        .effect_acmd("effect_specialairlwturn", pikachu_effect_specialairlwturn, Default)
         .game_acmd("game_specialhi", pikachu_game_specialhi, Default)
         .effect_acmd("effect_specialhi", pikachu_effect_specialhi, Default)
         .game_acmd("game_specialairhi", pikachu_game_specialairhi, Default)

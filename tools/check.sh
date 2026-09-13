@@ -334,6 +334,9 @@ bash "$ROOT/tools/check-victim.sh" || rc=1
 echo; echo "== 4f. a status flag the status code reads still has an ACMD that sets it =="
 bash "$ROOT/tools/check-keepflags.sh" || rc=1
 
+echo; echo "== 4g. every game_ script a shipped motion names is actually installed =="
+bash "$ROOT/tools/check-scripts.sh" || rc=1
+
 echo; echo "== 4c. hand-written code uses no other fighter's constants =="
 bash "$ROOT/tools/check-status.sh" || rc=1
 

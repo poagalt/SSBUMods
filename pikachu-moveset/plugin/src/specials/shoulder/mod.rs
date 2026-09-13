@@ -559,25 +559,28 @@ unsafe fn requested_throw(fighter: &mut L2CFighterCommon) -> Option<i32> {
     if cat2 & *FIGHTER_PAD_CMD_CAT2_FLAG_THROW_F != 0 {
         return Some(RAT_STATUS_KIND_THROW_F_F);
     }
-    // `IsThrowStick` DECIDES THE DIRECTION, IT DOES NOT GATE THE THROW. A cargo attack press with
-    // the stick neutral is a forward throw in the real move, so requiring a deflection here would
-    // remove the most common input in the move. DK's helper reads it alongside the cat1 button
-    // mask for the same reason: to know whether a direction was asked for.
-    let x = if fighter.IsThrowStick().get_bool() {
-        ControlModule::get_stick_x(boma) * PostureModule::lr(boma)
-    } else {
-        0.0
-    };
-    let y = ControlModule::get_stick_y(boma);
-    if y > 0.5 {
-        Some(RAT_STATUS_KIND_THROW_F_HI)
-    } else if y < -0.5 {
-        Some(RAT_STATUS_KIND_THROW_F_LW)
-    } else if x < -0.5 {
-        Some(RAT_STATUS_KIND_THROW_F_B)
-    } else {
-        Some(RAT_STATUS_KIND_THROW_F_F)
+    // FORWARD, AND THE THREE `0.5`s THAT USED TO BE HERE WERE THE LAST INVENTED NUMBERS IN THE
+    // CARRY.
+    //
+    // The fallback read `get_stick_y` and `get_stick_x * lr` against +/-0.5 -- thresholds from
+    // nowhere, exactly the kind `walk_stick_x` and `turn_stick_x` replaced in the walk. DK has no
+    // equivalent: `FUN_7100022520` takes its direction from the four cat2 THROW command flags
+    // above and reads `IsThrowStick` only to know whether a direction was ASKED for. No flag and
+    // no deflection is a forward throw, which is the most common input in the move.
+    //
+    // `IsThrowStick` is still called, because the source calls it and because its answer is worth
+    // having in the log: a press that reads `true` here and produced no cat2 flag is the input
+    // system disagreeing with the stick, which would be a real finding rather than something to
+    // paper over with a threshold.
+    if fighter.IsThrowStick().get_bool() && cat2 == 0 {
+        crate::telemetry::sink::crumb(format!(
+            "[rat] SHOULDER throw: IsThrowStick true but no cat2 flag -- taking forward, stick \
+             ({:.2},{:.2})",
+            ControlModule::get_stick_x(boma),
+            ControlModule::get_stick_y(boma)
+        ));
     }
+    Some(RAT_STATUS_KIND_THROW_F_F)
 }
 
 /// `common/pass_stick_y`, `common/pass_flick_y` -- the soft-platform drop, and the FIRST thing

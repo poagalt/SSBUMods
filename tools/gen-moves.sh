@@ -111,6 +111,19 @@ SPECIALS="
 # GAOGAEN status flags, correctly, and their frame numbers are the only record of the timing).
 Revenge counter (Incineroar)|gaogaen|SpecialLw|speciallw
 Revenge counter AIR (Incineroar)|gaogaen|SpecialAirLw|specialairlw
+# THE TURN-AROUND HALF OF REVENGE, found by tools/check-scripts.sh and missing since the counter
+# was ported. special_lw_turn and special_air_lw_turn are in tools/ported-motions.txt -- the
+# animations have been shipping all along -- and their motion entries name game_speciallwturn and
+# game_specialairlwturn, which nothing installed. The scripts are not decorative: each is a
+# WHOLE_HIT of HIT_STATUS_XLU, a REVERSE_LR on frame 4, and two ATTACKs on frame 8 with
+# collision_attr_fire. That is the retaliation when the counter is hit from behind, and without
+# them Incineroar's turn animation played with no hitbox and no turn.
+#
+# NO BACKTICKS IN THIS STRING. These lists are plain double-quoted shell strings, so a backtick is
+# command substitution -- the first draft of this comment quoted the macro names in backticks and
+# the build tried to RUN game_speciallwturn.
+Revenge turn (Incineroar)|gaogaen|SpecialLwTurn|speciallwturn
+Revenge turn AIR (Incineroar)|gaogaen|SpecialAirLwTurn|specialairlwturn
 # Game & Watch up-B, GENERATED now rather than hand-placed in src/specials/acmd.
 #
 # It was hand-written because deforeign strips FIGHTER_GAMEWATCH_* statements and the three

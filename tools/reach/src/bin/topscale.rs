@@ -87,6 +87,21 @@ const MAP: &[(&str, &str)] = &[
     ("pikachu_game_speciallw", "gaogaen"),
     ("pikachu_game_speciallwstart", "gaogaen"),
     ("pikachu_game_specialairlw", "gaogaen"),
+    // REVENGE'S TURN, ADDED THE SAME DAY THE SCRIPT WAS, AND THE OMISSION COST THE SAME 0.44.
+    //
+    // `tools/check-scripts.sh` found that `game_speciallwturn` and `game_specialairlwturn` were
+    // named by two shipped motions and installed by nothing. Adding them to gen-moves.sh's list
+    // produced the scripts and immediately produced `revenge_turn_incineroar is 0.44 world units
+    // off the source character` -- the very number the comment above records for Revenge when this
+    // pass was not reaching the specials at all. Two hitboxes on `top` with radii of 10 and 20 are
+    // the largest top-anchored capsules in the moveset, which is why the radius error was 0.80.
+    //
+    // Third list in a row to need the same row added by hand: gen-moves.sh's SPECIALS,
+    // tools/moves.tsv, and this. check-hitboxes.sh caught it, which is the system working -- but
+    // only because the move was in moves.tsv, and moves.tsv is the one of the three nothing
+    // enforces.
+    ("pikachu_game_speciallwturn", "gaogaen"),
+    ("pikachu_game_specialairlwturn", "gaogaen"),
     ("pikachu_game_specialsstart", "gaogaen"),
     ("pikachu_game_specialsshoulder", "gaogaen"),
     ("pikachu_game_specialslariat", "gaogaen"),

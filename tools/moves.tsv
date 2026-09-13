@@ -53,3 +53,5 @@ donkey	ThrowFF	throwff	e01throwff	throws	cargo_throw_f_dk
 donkey	ThrowFB	throwfb	e01throwfb	throws	cargo_throw_b_dk
 donkey	ThrowFHi	throwfhi	e01throwfhi	throws	cargo_throw_hi_dk
 donkey	ThrowFLw	throwflw	e01throwflw	throws	cargo_throw_lw_dk
+gaogaen	SpecialLwTurn	speciallwturn	d03speciallwturn	specials_acmd	revenge_turn_incineroar
+gaogaen	SpecialAirLwTurn	specialairlwturn	d03specialairlwturn	specials_acmd	revenge_air_turn_incineroar
