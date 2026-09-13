@@ -833,13 +833,15 @@ unsafe fn whip_update_areas(fighter: &mut L2CFighterCommon) {
     // anywhere.
     //
     // `special_s_lariat_offset_x1` = -24 is where the ropes are; -10 is
-    // `special_s_lariat_end_offset_x1`, the line past which the window CLOSES on the way home. So
-    // the sequence is: out to -24 (the rope hit), turn, back through [-24, -10] with the window
-    // open, past -10 it shuts, past -6 it is a whiff. `reached_rope` is the rope hit and it is the
-    // only thing that may trigger the rebound; `in_lariat` is the window and only means anything
-    // once he is on his way back.
-    let reached_rope = off <= lariat_x;
-    if reached_rope {
+    // `special_s_lariat_end_offset_x1`, the line past which the window CLOSES on the way home.
+    //
+    // -24 IS NOT THE ROPE. That reading drove the rebound off this line for four rounds, and the
+    // native measurement says the rope catches the victim at -41.55 -- seventeen units further --
+    // while -24 is simply the first of three tripwires they cross going out and again coming back.
+    // The rebound is now timed, not placed: see `whip_flight`. All this line does is latch "they
+    // have been out past the lariat line at least once", which is what makes the interval
+    // meaningful on the return trip and nothing else.
+    if off <= lariat_x {
         state::set_lariat_been_out(entry, true);
     }
     let in_lariat = state::lariat_been_out(entry) && off >= lariat_x && off <= lariat_end_x;
@@ -932,30 +934,7 @@ unsafe fn whip_update_areas(fighter: &mut L2CFighterCommon) {
     // `change_status` in it at all, so it cannot decide its own length -- natively the rope's next
     // event is what ends it, and in the recording the victim's 0x178 and 0x179 entry traces are
     // adjacent lines. Holding them there for a duration would mean inventing one.
-    let id = state::swing_thrown_fighter(entry);
-    if let Some(vboma) = crate::victim::boma(id) {
-        let vst = StatusModule::status_kind(vboma);
-        if reached_rope && vst == *FIGHTER_STATUS_KIND_SWING_GAOGAEN_THROWN {
-            crate::telemetry::sink::diag(format!(
-                "[rat] WHIP p{entry} rope hit at off={off:.2} (rope is {lariat_x:.0}) -- \
-                 attaching {id:#x} to the ropes"
-            ));
-            crate::victim::request_status(
-                vboma,
-                *FIGHTER_STATUS_KIND_SWING_GAOGAEN_ATTACH_ROPE,
-                "whip rope caught them",
-            );
-        } else if vst == *FIGHTER_STATUS_KIND_SWING_GAOGAEN_ATTACH_ROPE {
-            crate::telemetry::sink::diag(format!(
-                "[rat] WHIP p{entry} rope releases {id:#x} -- rebounding"
-            ));
-            crate::victim::request_status(
-                vboma,
-                *FIGHTER_STATUS_KIND_SWING_GAOGAEN_RETURN,
-                "whip rope rebound",
-            );
-        }
-    }
+    whip_flight(fighter, entry, off);
     if state::lariat_been_out(entry) && !in_lariat {
         if off > lariat_end_x {
             WorkModule::on_flag(boma, *FIGHTER_GAOGAEN_STATUS_SPECIAL_S_FLAG_LARIAT_END_AREA);
@@ -1619,4 +1598,100 @@ pub fn install() {
         .status(Main, RAT_STATUS_KIND_SPECIAL_S_END, end_main)
         .status(End, RAT_STATUS_KIND_SPECIAL_S_END, end_end)
         .install();
+}
+
+/// How long the ropes hold the victim, in captor animation frames.
+///
+/// THE ONE NUMBER IN THE WHIP THAT IS MEASURED RATHER THAN READ. It is not in `param_special_s` --
+/// the whole object is dumped in `tools/prc-tool` output and there is no rope entry in it -- because
+/// it belongs to the rope ARTICLE, which ADR 0004 excludes. So it comes from three native whips
+/// that agree to the frame:
+///
+///     NATIVE captor st=0x1e1 f=44 | victim st=0x178 off=-41.55
+///     NATIVE captor st=0x1e1 f=64 | victim st=0x179 off=-46.59
+///     NATIVE captor st=0x1e1 f=42 | victim st=0x178 off=-39.46
+///     NATIVE captor st=0x1e1 f=63 | victim st=0x179 off=-44.50
+///
+/// Twenty and twenty-one captor animation frames, with the victim moving five units in all of
+/// them: the stretch and the hold. This is the "missing pieces of animation for the bounce against
+/// the rope" from the playtest, and holding them for one frame is why "the timing needed to get the
+/// ideal lariat is way too fast".
+const ROPE_HOLD_FRAMES: i32 = 20;
+
+/// THE TWO LEGS OF THE FLIGHT, TIMED BY THE GAME'S OWN FRAME COUNTS INSTEAD OF BY A DISTANCE.
+///
+/// This replaces a watcher that put the victim on the ropes the frame their captor-relative x
+/// crossed `special_s_lariat_offset_x1` (-24). The native measurement says that is the wrong
+/// mechanism and the wrong place:
+///
+///     f1   victim 0x176 CATCHED      off=+14.41   rope flags 00
+///     f36  victim 0x177 THROWN       off=-7.09    rope flags 01   <- the ACMD's frame-37 flag
+///     f44  victim 0x178 ATTACH_ROPE  off=-41.55   rope flags 01
+///     f64  victim 0x179 RETURN       off=-46.59   rope flags 01
+///     f73  follow-up                 off=+3.09
+///
+/// The victim is already BEHIND him at -7.09 when the throw fires -- the swing happens during
+/// CATCHED -- and the rope catches them at -41.55, seventeen units past the -24 line. So -24 was
+/// never the rope; it is a tripwire the victim crosses on the way out and again on the way back,
+/// which is what the three area params are for and why they are all `node = top` with
+/// `x1 == x2`.
+///
+/// THE LEG LENGTHS ARE PARAMS, AND THEY MATCH THE MEASUREMENT EXACTLY:
+///
+///     special_s_through_target_motion_frame_fix        = 8   THROWN, measured f36 -> f44
+///     special_s_through_target_return_motion_frame_fix = 8   RETURN, measured f64 -> ~f73
+///
+/// So the outbound leg ends on a frame count, not at a place, and the distance it covers is
+/// whatever `special_s_through_target_speed` = 11.2 and the engine's braking produce -- which is
+/// the game deciding it rather than this port choosing it.
+///
+/// AND THE AREA FLAGS ARE NEVER RAISED NATIVELY. `area L=0 Lend=0 F=0` on every frame of all
+/// three whips, while Incineroar still reached LARIAT and SHOULDER. Whatever raises them for him
+/// is the rope article's business. This port raises them from the geometry instead -- see the
+/// block above -- which now works for the first time, because the victim finally travels far
+/// enough to cross the three lines on the way back.
+unsafe fn whip_flight(fighter: &mut L2CFighterCommon, entry: usize, off: f32) {
+    let boma = fighter.module_accessor;
+    let id = state::swing_thrown_fighter(entry);
+    let Some(vboma) = crate::victim::boma(id) else {
+        return;
+    };
+    let vst = StatusModule::status_kind(vboma);
+    let thrown = *FIGHTER_STATUS_KIND_SWING_GAOGAEN_THROWN;
+    let attached = *FIGHTER_STATUS_KIND_SWING_GAOGAEN_ATTACH_ROPE;
+    if vst != thrown && vst != attached {
+        state::set_flight_frames(entry, 0);
+        return;
+    }
+    let n = state::flight_frames(entry) + 1;
+    state::set_flight_frames(entry, n);
+
+    if vst == thrown {
+        let out = WorkModule::get_param_float(
+            boma,
+            hash40("param_special_s"),
+            hash40("special_s_through_target_motion_frame_fix"),
+        ) as i32;
+        if n >= out.max(1) {
+            crate::telemetry::sink::diag(format!(
+                "[rat] WHIP p{entry} {id:#x} reached the ropes after {n}f at off={off:.2} \
+                 (motion_frame_fix {out}) -- attaching"
+            ));
+            state::set_flight_frames(entry, 0);
+            crate::victim::request_status(vboma, attached, "whip rope caught them");
+        }
+        return;
+    }
+
+    if n >= ROPE_HOLD_FRAMES {
+        crate::telemetry::sink::diag(format!(
+            "[rat] WHIP p{entry} rope releases {id:#x} after {n}f at off={off:.2} -- rebounding"
+        ));
+        state::set_flight_frames(entry, 0);
+        crate::victim::request_status(
+            vboma,
+            *FIGHTER_STATUS_KIND_SWING_GAOGAEN_RETURN,
+            "whip rope rebound",
+        );
+    }
 }

@@ -132,6 +132,7 @@ pub fn reset(entry: usize) {
         LARIAT_AREA_LENGTH[entry] = 0.0;
         ROPE_X[entry] = 0.0;
         ROPE_X_SET[entry] = false;
+        FLIGHT_FRAMES[entry] = 0;
     }
 }
 
@@ -200,3 +201,10 @@ slot!(
 );
 slot!(rope_x, set_rope_x, ROPE_X, f32, 0.0);
 slot!(rope_x_set, set_rope_x_set, ROPE_X_SET, bool, false);
+
+/// Frames elapsed in the current leg of the victim's flight -- THROWN, then ATTACH_ROPE.
+///
+/// NOT ONE OF INCINEROAR'S IDS. For him the rope article ends each leg by sending an event; this
+/// counts instead. See `whip_flight` for the two numbers and where each comes from.
+static mut FLIGHT_FRAMES: [i32; MAX] = [0; MAX];
+slot!(flight_frames, set_flight_frames, FLIGHT_FRAMES, i32, 0);

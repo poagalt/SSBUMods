@@ -290,13 +290,44 @@ pub unsafe fn release(entry: usize, why: &str) {
 ///
 /// THE VICTIM'S SIDE IS DELIBERATELY NOT TOUCHED HERE. Unlinking them crashed the game once
 /// already; see the note in `cut_capture`.
+/// `LinkModule::unlink` ON AN EMPTY LINK IS A CRASH, AND IT HAS NOW CAUSED BOTH OF THEM.
+///
+/// Second crash, and the log ends on the call with nothing after it:
+///
+///     TRACE pika0 st=0x1f9 LinkModule::unlink(link=0)          <- cut_capture, returned
+///     HOLD p0 after release: ours_linked=false ...             <- so the list is now empty
+///     HOLD p0 released 0x10000 after 190f: victim mashed out
+///     SHOULDER p0 apply_lift_param(false)
+///     TRACE pika0 st=0x1f9 CaptureModule::set_ignore_catching(false)
+///     TRACE pika0 st=0x1f9 LinkModule::unlink(link=0)          <- leave_carry, last line
+///
+/// `ours_linked=false` is printed between the two calls, so the second one ran against a list that
+/// was already empty. The mash-out reaches both `release` and, a few lines later through
+/// `shoulder_exit`, `leave_carry` -- and both now call the same teardown, which was the point of
+/// unifying them and also what made the double call possible.
+///
+/// AND IT RETROSPECTIVELY EXPLAINS THE FIRST CRASH BETTER THAN I DID. Last commit blamed the
+/// victim-side unlink on "a list the engine is holding a pointer into", which was a story. The
+/// real shape is the same as this one: `CAPTURE_CUT` unlinks the victim itself, so our call
+/// afterwards was also an unlink of an empty list. One bug, twice, with two different
+/// explanations from me and only the second one measured.
+///
+/// So the teardown is idempotent instead of once-only, which is the property it actually needs:
+/// it is reached from a status loop, from an exit line and from the hold ceiling, and no ordering
+/// between those three is guaranteed.
+unsafe fn unlink_if_linked(boma: *mut BattleObjectModuleAccessor) {
+    if LinkModule::is_linked(boma, *LINK_NO_CAPTURE) {
+        LinkModule::unlink(boma, *LINK_NO_CAPTURE);
+    }
+}
+
 pub unsafe fn drop_capture(entry: usize, why: &str) {
     let Some(ours) = boma(id_of_entry(entry as u32)) else { return };
     if CatchModule::is_catch(ours) {
         CatchModule::catch_cut(ours, false, false);
     }
     CaptureModule::set_ignore_catching(ours, false);
-    LinkModule::unlink(ours, *LINK_NO_CAPTURE);
+    unlink_if_linked(ours);
     crate::telemetry::sink::diag(format!(
         "[rat] HOLD p{entry} dropped the capture ({why}): ours_linked={} ignore_catching={} \
          is_catch={}",
@@ -656,7 +687,7 @@ pub unsafe fn cut_capture(entry: usize, why: &str) -> bool {
     // time, from outside their own update and in the same frame, is a list the engine is holding a
     // pointer into. Our own side is a different list and unlinking it is safe -- that call is the
     // one immediately before, and it returned.
-    LinkModule::unlink(ours, *LINK_NO_CAPTURE);
+    unlink_if_linked(ours);
     // WHAT IS STILL TRUE AFTER THE RELEASE, ONCE PER RELEASE. Every remaining theory about the
     // blocked grab is a different one of these four, and the log has never yet said which.
     crate::telemetry::sink::diag(format!(
