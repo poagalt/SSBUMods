@@ -225,6 +225,13 @@ unsafe fn still_held(boma: *mut BattleObjectModuleAccessor, entry: usize) -> boo
                  which is what CaptureWaitCommon does",
                 VICTIM[entry]
             ));
+            // RELEASED HERE, NOT LEFT TO THE CEILING. Returning false ends the carry and
+            // `shoulder_exit` cuts the catch, but nothing dropped the hold -- so `HELD_ID` stayed
+            // set and `tick_hold`'s ceiling was what finally let go, seconds later. That is the
+            // reported "t-posing stuck behavior... becomes dislodged after a few seconds": the
+            // few seconds are the ceiling. `release` requests CAPTURE_CUT on them, which is how
+            // the engine pops an escapee out of an ordinary grab.
+            crate::victim::release(entry, "victim mashed out of the carry");
             return false;
         }
     }

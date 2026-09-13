@@ -595,6 +595,30 @@ pub unsafe fn cut_capture(entry: usize, why: &str) -> bool {
     if CaptureModule::is_capture(vboma) {
         request_status(vboma, *FIGHTER_STATUS_KIND_CAPTURE_CUT, "releasing a held victim");
     }
+    // AND THE LINK IS UNDONE ON BOTH ENDS, BECAUSE THIS PORT MADE IT ON BOTH ENDS.
+    //
+    // Neither source fighter has anything to undo here: Donkey Kong and Incineroar reach their
+    // carries out of a catch the ENGINE established, so the engine's own teardown unlinks them.
+    // This port calls `LinkModule::link` twice by hand -- once on us, once on the victim, because
+    // `Link(this, no, id)` writes only the caller's slot -- and called `unlink` nowhere for the
+    // cargo at all.
+    //
+    // A node left on our LINK_NO_CAPTURE is a captor the engine believes is already holding
+    // somebody, which is the reported "still can't grab mario after a cargo throw" and, now that
+    // the same code runs for both, "the grab failure also happens after an alolan whip lands".
+    LinkModule::unlink(ours, *LINK_NO_CAPTURE);
+    LinkModule::unlink(vboma, *LINK_NO_CAPTURE);
+    // WHAT IS STILL TRUE AFTER THE RELEASE, ONCE PER RELEASE. Every remaining theory about the
+    // blocked grab is a different one of these four, and the log has never yet said which.
+    crate::telemetry::sink::diag(format!(
+        "[rat] HOLD p{entry} after release: ours_linked={} ignore_catching={} is_catch={} \
+         their_capture={} their_st={:#x}",
+        LinkModule::is_linked(ours, *LINK_NO_CAPTURE),
+        CaptureModule::is_ignore_catching(ours),
+        CatchModule::is_catch(ours),
+        CaptureModule::is_capture(vboma),
+        StatusModule::status_kind(vboma)
+    ));
     true
 }
 
