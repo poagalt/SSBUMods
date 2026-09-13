@@ -80,5 +80,13 @@ pub fn install() {
         .status(Pre, RAT_STATUS_KIND_SPECIAL_HI_CLOSE, pikachu_specialhiclose_pre)
         .status(Main, RAT_STATUS_KIND_SPECIAL_HI_CLOSE, pikachu_specialhiclose_main)
         .status(End, RAT_STATUS_KIND_SPECIAL_HI_CLOSE, pikachu_specialhiclose_end)
+        // ALSO ON `Exit`, BECAUSE `End` DOES NOT FIRE FOR A STATUS PAST PIKACHU'S OWN COUNT.
+        //
+        // G&W's `SpecialHiClose_end` exhausts the jump counter, and this had been transcribed
+        // correctly and never run: modified Pikachu kept his double jump after the up-B, which
+        // G&W does not. The body is a plain assignment, so running on both lines is harmless and
+        // needs no latch. See the note in `specials::whip` for the measurement and the two engine
+        // offsets that put both lines inside one function.
+        .status(Exit, RAT_STATUS_KIND_SPECIAL_HI_CLOSE, pikachu_specialhiclose_end)
         .install();
 }

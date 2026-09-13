@@ -121,5 +121,7 @@ pub fn install() {
         .status(Init, RAT_STATUS_KIND_SPECIAL_HI_OPEN, pikachu_specialhifall_init)
         .status(Main, RAT_STATUS_KIND_SPECIAL_HI_OPEN, pikachu_specialhifall_main)
         .status(End, RAT_STATUS_KIND_SPECIAL_HI_OPEN, pikachu_specialhifall_end)
+        // ALSO ON `Exit` -- same reason as `specials::specialhiclose`. Idempotent body.
+        .status(Exit, RAT_STATUS_KIND_SPECIAL_HI_OPEN, pikachu_specialhifall_end)
         .install();
 }

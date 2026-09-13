@@ -209,7 +209,26 @@ pub const MAX_HOLD_FRAMES: i32 = 170;
 /// Per-entry ceiling, seeded from the victim's own clatter timer in `hold`.
 static mut HOLD_CEILING: [i32; 8] = [MAX_HOLD_FRAMES; 8];
 
-static mut HELD_ID: [u32; 8] = [0; 8];
+/// WHO WE ARE HOLDING, PER ENTRY, OR `NOBODY`.
+///
+/// THE SENTINEL USED TO BE `0`, AND `0` IS PLAYER ONE.
+///
+/// `id_of_entry` is `entry << 16`, so player one's battle object id IS zero -- the log line that
+/// caught it reads `their_capture=true their_st=0x1f8`, and 0x1f8 is SHOULDER_WAIT, one of this
+/// port's own CAPTOR statuses. No victim can be in it. `boma(HELD_ID[entry])` had resolved to
+/// Pikachu himself, because nobody was held and the empty sentinel was a valid id.
+///
+/// Two bugs in one: every `their_*` field printed at release time was read off the wrong fighter,
+/// which is three rounds of misleading diagnostics; and a Pikachu in any slot but the first who
+/// grabs PLAYER ONE stores id 0, which every `== 0` guard then reads as "nobody held" -- so the
+/// hold is never ticked, never released and never forgotten.
+///
+/// `u32::MAX` is safe as the sentinel WITHOUT depending on `BATTLE_OBJECT_ID_INVALID`'s value,
+/// because the occupancy test is `plausible`, and `plausible` rejects anything whose low sixteen
+/// bits are set. It cannot collide with a fighter id in any slot.
+pub const NOBODY: u32 = u32::MAX;
+
+static mut HELD_ID: [u32; 8] = [NOBODY; 8];
 static mut HELD_FOR: [i32; 8] = [0; 8];
 
 /// Take ownership of a victim. Returns false if the id is not a live fighter.
@@ -237,7 +256,7 @@ pub unsafe fn hold(entry: usize, id: u32) -> bool {
 
 /// Give them up.
 pub unsafe fn release(entry: usize, why: &str) {
-    if entry >= 8 || HELD_ID[entry] == 0 {
+    if entry >= 8 || !plausible(HELD_ID[entry]) {
         return;
     }
     // THE ENGINE'S HALF OF THE RELEASE, from the one place every path goes through.
@@ -407,14 +426,14 @@ pub unsafe fn drop_capture(entry: usize, why: &str) {
 }
 
 pub unsafe fn forget(entry: usize, why: &str) {
-    if entry >= 8 || HELD_ID[entry] == 0 {
+    if entry >= 8 || !plausible(HELD_ID[entry]) {
         return;
     }
     crate::telemetry::sink::crumb(format!(
         "[rat] HOLD p{entry} released {:#x} after {}f: {why}",
         HELD_ID[entry], HELD_FOR[entry]
     ));
-    HELD_ID[entry] = 0;
+    HELD_ID[entry] = NOBODY;
     HELD_FOR[entry] = 0;
 }
 
@@ -423,7 +442,7 @@ pub unsafe fn forget(entry: usize, why: &str) {
 /// Ours to answer, with three ways to lose them and none of them being "the engine stopped
 /// agreeing": the object went away, the hold timed out, or somebody called `release`.
 pub unsafe fn held(entry: usize) -> Option<(u32, *mut BattleObjectModuleAccessor)> {
-    if entry >= 8 || HELD_ID[entry] == 0 {
+    if entry >= 8 || !plausible(HELD_ID[entry]) {
         return None;
     }
     let id = HELD_ID[entry];
@@ -445,7 +464,7 @@ pub unsafe fn held_frames(entry: usize) -> i32 {
 /// Advance the hold clock. Called once per frame from the telemetry hook, next to `new_frame`,
 /// so a hold cannot outlive its ceiling even if the move that created it stops running.
 pub unsafe fn tick_hold(entry: usize) {
-    if entry >= 8 || HELD_ID[entry] == 0 {
+    if entry >= 8 || !plausible(HELD_ID[entry]) {
         return;
     }
     HELD_FOR[entry] += 1;
@@ -675,7 +694,7 @@ static mut LAST_SEEN: [Option<(i32, bool, u32, bool)>; 8] = [None; 8];
 /// Returns whether anything was cut, so a caller can log the difference between "released the
 /// engine's hold" and "there was nothing to release".
 pub unsafe fn cut_capture(entry: usize, why: &str) -> bool {
-    if entry >= 8 || HELD_ID[entry] == 0 {
+    if entry >= 8 || !plausible(HELD_ID[entry]) {
         return false;
     }
     let id = HELD_ID[entry];

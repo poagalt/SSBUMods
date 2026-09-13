@@ -153,3 +153,41 @@ pub unsafe fn change_motion(boma: *mut BattleObjectModuleAccessor, name: &str, t
     MotionModule::change_motion(boma, h, 0.0, 1.0, false, 0.0, false, false);
     true
 }
+
+/// WHY AN ORDINARY GRAB DID NOT CONVERT, MEASURED AT THE MOMENT IT STARTS.
+///
+/// A BLOCKED GRAB IS NOT A WHIFF, and telling them apart was the whole difficulty. The digest is
+/// unambiguous once you have both shapes side by side:
+///
+///     CATCH 7f  -> CATCH_PULL   connected -- Pikachu's catch frames are 6 and 7
+///     CATCH 51f -> WAIT         whiffed   -- the whole fifty-frame animation ran
+///     CATCH 8f  -> WAIT         connected, then failed to convert
+///
+/// Fourteen of the third kind are in the logs, and for three rounds they were read as whiffs and
+/// answered by looking at Pikachu's reach. They are not about reach: the collision landed on the
+/// frame it always lands on, and the engine then declined to start the grab. What can decline it
+/// is the target -- a fighter the engine still believes is captured, or one left with
+/// `ignore_catching`, cannot be caught by anybody.
+///
+/// So this prints the answer instead of inferring it. Every live fighter, every flag the engine
+/// consults, on the frame Pikachu enters CATCH. Cheap: once per grab attempt.
+pub unsafe fn catch_start(entry: usize, me: *mut BattleObjectModuleAccessor) {
+    use smash::app::lua_bind::{CaptureModule, CatchModule};
+    let mut line = format!(
+        "[rat] CATCH p{entry} starting: mine is_catch={} ignore_catching={} is_capture={}",
+        CatchModule::is_catch(me),
+        CaptureModule::is_ignore_catching(me),
+        CaptureModule::is_capture(me),
+    );
+    for (id, them) in crate::victim::others(crate::victim::id_of_entry(entry as u32)) {
+        line.push_str(&format!(
+            " | {id:#x} st={} is_capture={} ignore_catching={} captured_by={:#x} clatter={}",
+            st(smash::app::lua_bind::StatusModule::status_kind(them)),
+            CaptureModule::is_capture(them),
+            CaptureModule::is_ignore_catching(them),
+            CaptureModule::catch_object_id(them) as u32,
+            smash::app::lua_bind::ControlModule::get_clatter_time(them, 0),
+        ));
+    }
+    event(line);
+}

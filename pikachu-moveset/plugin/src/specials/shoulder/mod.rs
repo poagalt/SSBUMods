@@ -73,7 +73,9 @@ const TURN_FRAME: &str = "turn_frame";
 /// were entry 0 and the victim was entry 1. So a fighter's object id is `entry << 16`, not the
 /// `0x5000000n` the invalid sentinel suggested. Kept here as the id directly, since that is what
 /// `sv_battle_object` wants.
-static mut VICTIM: [u32; 8] = [0; 8];
+// `crate::victim::NOBODY`, not `0`: player one's battle object id IS zero, so a zero here
+// resolves to a real fighter. See the note on `crate::victim::HELD_ID`.
+static mut VICTIM: [u32; 8] = [crate::victim::NOBODY; 8];
 static mut CARRY_FRAMES: [i32; 8] = [0; 8];
 
 unsafe fn entry_of(boma: *mut BattleObjectModuleAccessor) -> usize {

@@ -143,6 +143,12 @@ unsafe fn entry_of(boma: *mut BattleObjectModuleAccessor) -> usize {
 /// FIGHTER_STATUS_ATTR_START_TURN and the throw passes FIGHTER_STATUS_ATTR_DISABLE_TURN_DAMAGE.
 unsafe fn whip_pre(fighter: &mut L2CFighterCommon, status_attr: i32) -> L2CValue {
     let boma = fighter.module_accessor;
+    // A whip status is starting, so the previous transition's two end lines are both behind us
+    // and the next one may run its body again. See `end_line_first`.
+    let entry = entry_of(boma);
+    if entry < 8 {
+        END_BODY_DONE[entry] = false;
+    }
     StatusModule::init_settings(
         boma,
         SituationKind(*SITUATION_KIND_NONE),
@@ -535,6 +541,68 @@ unsafe fn whip_release(fighter: &mut L2CFighterCommon) -> bool {
     true
 }
 
+/// THE `End` LINE NEVER REACHES THIS PORT'S OWN STATUSES, AND THAT IS THE WHOLE REGRAB LOCKOUT.
+///
+/// Every one of the six whip statuses puts its teardown in `status_end`, because that is where
+/// Incineroar puts his -- `vendor/ssbu-status/.../gaogaen/status/SpecialSThrow/` holds `end.c`
+/// and no `exit.c`, and under ADR 0006 the line the source has is the line this port registers.
+/// `whip_release` is the body of it: the two unlinks, the CAPTURE_CUT safety net, and
+/// `victim::drop_capture`, which is what clears the engine's record of the catch off the victim.
+///
+/// IT HAS NEVER RUN. Not once, across every recorded playtest:
+///
+///     whip catches logged, pt19 + pt21 + pt22            ~100
+///     `dropped the capture (whip over)`                     0
+///     `dropped the capture (throw over|carry released)`     15   <- the carry, which uses `Exit`
+///
+/// `drop_capture`'s closing diag is unconditional, so zero lines means zero calls. The two
+/// `TRACE pika0 st=0x1f5 LinkModule::unlink(link=0)` lines in pt22 are not evidence against it:
+/// they are `end_main`'s own unlink at the bottom of this file, running in 0x1f5 because that is
+/// the status whose Main they are.
+///
+/// So the victim keeps `is_capture` forever, and a fighter the engine believes is captured cannot
+/// be caught. That is the reported bug exactly -- and the CATCH digests say the same thing from
+/// the other side, because a BLOCKED GRAB IS NOT A WHIFF:
+///
+///     CATCH 7f  -> CATCH_PULL   a catch that CONNECTED (Pikachu's catch frames are 6-7)
+///     CATCH 51f -> WAIT         a real whiff: the whole fifty-frame animation
+///     CATCH 8f  -> WAIT         connected, then died instead of converting   <- the lockout
+///
+/// WHY `Exit` AND NOT SOMETHING ELSE. Both lines are dispatched from the same engine function,
+/// one after the other: smashline hooks the End line at `+0x689c` and the Exit line at `+0x6950`,
+/// and `vendor/main/common-nro-symbols.txt` puts both offsets inside
+/// `L2CFighterBase::sub_end_status_msc` (0x7100006730 -> 0x71000069f0). `Exit` therefore runs at
+/// the same moment of the same transition, and the carry proves it reaches a custom status. This
+/// is not a different behaviour; it is the source's `end` body on the only line that arrives.
+///
+/// `End` STAYS REGISTERED. It costs nothing, it is the line the source has, and registering both
+/// is what makes the next log state which one the engine actually called.
+static mut END_BODY_DONE: [bool; 8] = [false; 8];
+
+/// Is this the first of the transition's two end lines to arrive?
+///
+/// Latched, because `End` and `Exit` both fire from `sub_end_status_msc` and `failure_end`'s
+/// `reverse_lr` is NOT idempotent -- running it twice would turn Pikachu back around and look
+/// exactly like nothing had happened.
+///
+/// Cleared in `whip_pre`, which is safe because the next status's Pre always runs after both end
+/// lines of the status it replaced.
+unsafe fn end_line_first(fighter: &mut L2CFighterCommon, line: &str) -> bool {
+    let entry = entry_of(fighter.module_accessor);
+    if entry >= 8 {
+        return true;
+    }
+    if END_BODY_DONE[entry] {
+        return false;
+    }
+    END_BODY_DONE[entry] = true;
+    crate::telemetry::sink::diag(format!(
+        "[rat] WHIP p{entry} status_end body reached via the {line} line, leaving {:#x}",
+        StatusModule::status_kind(fighter.module_accessor)
+    ));
+    true
+}
+
 unsafe extern "C" fn special_s_pre(fighter: &mut L2CFighterCommon) -> L2CValue {
     whip_pre(fighter, *FIGHTER_STATUS_ATTR_START_TURN)
 }
@@ -822,12 +890,14 @@ unsafe fn update_rope_x(fighter: &mut L2CFighterCommon) {
             return;
         }
     }
-    let lariat_x = WorkModule::get_param_float(
-        boma,
-        hash40("param_special_s"),
-        hash40("special_s_lariat_offset_x1"),
+    // `ROPE_OFFSET_X`, NOT `special_s_lariat_offset_x1`. The lariat offsets describe the WINDOW
+    // the follow-up connects in, which is a different thing that happens to be on the same axis;
+    // the docs already recorded that -24 is not the rope and this is the read that was still
+    // using it.
+    state::set_rope_x(
+        entry,
+        PostureModule::pos_x(boma) + ROPE_OFFSET_X * PostureModule::lr(boma),
     );
-    state::set_rope_x(entry, PostureModule::pos_x(boma) + lariat_x * PostureModule::lr(boma));
     state::set_rope_x_set(entry, true);
 }
 
@@ -1199,9 +1269,20 @@ unsafe extern "C" fn special_s_end(_fighter: &mut L2CFighterCommon) -> L2CValue 
 /// requests `SWING_GAOGAEN_THROWN`, `_ATTACH_ROPE` or `_RETURN`. There is no article to retire, so
 /// there is nothing for the call to do; it is not a gap in knowledge, it is a consequence of a
 /// decision already made and checked.
-unsafe extern "C" fn special_s_throw_end(fighter: &mut L2CFighterCommon) -> L2CValue {
+unsafe fn special_s_throw_end_body(fighter: &mut L2CFighterCommon, line: &str) -> L2CValue {
+    if !end_line_first(fighter, line) {
+        return false.into();
+    }
     whip_release(fighter);
     false.into()
+}
+
+unsafe extern "C" fn special_s_throw_end(f: &mut L2CFighterCommon) -> L2CValue {
+    special_s_throw_end_body(f, "End")
+}
+
+unsafe extern "C" fn special_s_throw_exit(f: &mut L2CFighterCommon) -> L2CValue {
+    special_s_throw_end_body(f, "Exit")
 }
 
 /// SPECIAL_S_SHOULDER -- the body slam. Source pre `0x7100005170`, main `0x7100005550`,
@@ -1233,9 +1314,20 @@ unsafe extern "C" fn shoulder_main(fighter: &mut L2CFighterCommon) -> L2CValue {
     fighter.sub_shift_status_main(L2CValue::Ptr(followup_main_loop as *const () as _))
 }
 
-unsafe extern "C" fn shoulder_end(fighter: &mut L2CFighterCommon) -> L2CValue {
+unsafe fn shoulder_end_body(fighter: &mut L2CFighterCommon, line: &str) -> L2CValue {
+    if !end_line_first(fighter, line) {
+        return false.into();
+    }
     whip_release(fighter);
     false.into()
+}
+
+unsafe extern "C" fn shoulder_end(f: &mut L2CFighterCommon) -> L2CValue {
+    shoulder_end_body(f, "End")
+}
+
+unsafe extern "C" fn shoulder_exit(f: &mut L2CFighterCommon) -> L2CValue {
+    shoulder_end_body(f, "Exit")
 }
 
 /// SPECIAL_S_LARIAT -- the spinning throw. Source pre `0x7100005870`, main `0x7100005c50`,
@@ -1296,9 +1388,20 @@ unsafe extern "C" fn lariat_main(fighter: &mut L2CFighterCommon) -> L2CValue {
     fighter.sub_shift_status_main(L2CValue::Ptr(followup_main_loop as *const () as _))
 }
 
-unsafe extern "C" fn lariat_end(fighter: &mut L2CFighterCommon) -> L2CValue {
+unsafe fn lariat_end_body(fighter: &mut L2CFighterCommon, line: &str) -> L2CValue {
+    if !end_line_first(fighter, line) {
+        return false.into();
+    }
     whip_release(fighter);
     false.into()
+}
+
+unsafe extern "C" fn lariat_end(f: &mut L2CFighterCommon) -> L2CValue {
+    lariat_end_body(f, "End")
+}
+
+unsafe extern "C" fn lariat_exit(f: &mut L2CFighterCommon) -> L2CValue {
+    lariat_end_body(f, "Exit")
 }
 
 /// SPECIAL_S_FAILURE -- the whiff. Source pre `0x7100006310`, main `0x71000066f0`,
@@ -1342,7 +1445,16 @@ unsafe extern "C" fn failure_main(fighter: &mut L2CFighterCommon) -> L2CValue {
 ///
 ///     0x71000206c0(agent)
 ///     if <situation test> { PostureModule::reverse_lr(); PostureModule::update_rot_y_lr() }
-unsafe extern "C" fn failure_end(fighter: &mut L2CFighterCommon) -> L2CValue {
+/// THE TURN-AROUND HAS NEVER HAPPENED EITHER, for the same reason the release never has.
+///
+/// This is the second casualty of the dead `End` line and it is the one you can see: Incineroar
+/// ends a whiffed whip facing the other way, and modified Pikachu has been shrugging and staying
+/// put through every one of the 24 failures in pt22. It comes back with the release, on the line
+/// that arrives.
+unsafe fn failure_end_body(fighter: &mut L2CFighterCommon, line: &str) -> L2CValue {
+    if !end_line_first(fighter, line) {
+        return false.into();
+    }
     let boma = fighter.module_accessor;
     whip_release(fighter);
     if fighter.global_table[0x16] == *SITUATION_KIND_GROUND {
@@ -1350,6 +1462,14 @@ unsafe extern "C" fn failure_end(fighter: &mut L2CFighterCommon) -> L2CValue {
         PostureModule::update_rot_y_lr(boma);
     }
     false.into()
+}
+
+unsafe extern "C" fn failure_end(f: &mut L2CFighterCommon) -> L2CValue {
+    failure_end_body(f, "End")
+}
+
+unsafe extern "C" fn failure_exit(f: &mut L2CFighterCommon) -> L2CValue {
+    failure_end_body(f, "Exit")
 }
 
 /// SPECIAL_S_END -- the common exit. Source pre `0x7100006b70`, main `0x7100006f50`,
@@ -1638,20 +1758,67 @@ pub fn install() {
         .status(Pre, RAT_STATUS_KIND_SPECIAL_S_THROW, special_s_throw_pre)
         .status(Main, RAT_STATUS_KIND_SPECIAL_S_THROW, special_s_throw_main)
         .status(End, RAT_STATUS_KIND_SPECIAL_S_THROW, special_s_throw_end)
+        .status(Exit, RAT_STATUS_KIND_SPECIAL_S_THROW, special_s_throw_exit)
         .status(Pre, RAT_STATUS_KIND_SPECIAL_S_SHOULDER, shoulder_pre)
         .status(Main, RAT_STATUS_KIND_SPECIAL_S_SHOULDER, shoulder_main)
         .status(End, RAT_STATUS_KIND_SPECIAL_S_SHOULDER, shoulder_end)
+        .status(Exit, RAT_STATUS_KIND_SPECIAL_S_SHOULDER, shoulder_exit)
         .status(Pre, RAT_STATUS_KIND_SPECIAL_S_LARIAT, lariat_pre)
         .status(Main, RAT_STATUS_KIND_SPECIAL_S_LARIAT, lariat_main)
         .status(End, RAT_STATUS_KIND_SPECIAL_S_LARIAT, lariat_end)
+        .status(Exit, RAT_STATUS_KIND_SPECIAL_S_LARIAT, lariat_exit)
         .status(Pre, RAT_STATUS_KIND_SPECIAL_S_FAILURE, failure_pre)
         .status(Main, RAT_STATUS_KIND_SPECIAL_S_FAILURE, failure_main)
         .status(End, RAT_STATUS_KIND_SPECIAL_S_FAILURE, failure_end)
+        .status(Exit, RAT_STATUS_KIND_SPECIAL_S_FAILURE, failure_exit)
         .status(Pre, RAT_STATUS_KIND_SPECIAL_S_END, end_pre)
         .status(Main, RAT_STATUS_KIND_SPECIAL_S_END, end_main)
         .status(End, RAT_STATUS_KIND_SPECIAL_S_END, end_end)
         .install();
 }
+
+/// WHERE THE ROPES ARE, in the captor's facing frame at the moment of the throw.
+///
+/// MEASURED, LIKE `ROPE_HOLD_FRAMES`, AND FOR THE SAME REASON. The ropes belong to gaogaen's
+/// ROPE article, which ADR 0004 excludes, so their position is not in `param_special_s` -- the
+/// whole object is dumped in `tools/prc-tool` output and there is no rope entry in it. What there
+/// is instead is 8070 frames of traced native Incineroar, and the outbound leg in them has ZERO
+/// variance across 58 whips:
+///
+///     victim st  frame  off        delta
+///     0x176      19     +1.49              last CATCHED frame, being dragged in
+///     0x177      0      -7.09              THROWN begins, always here
+///     0x177      1      -18.29     -11.20  = special_s_through_target_speed
+///     0x177      2      -29.49     -11.20
+///     0x177      3      -40.69     -11.20  <- the ropes
+///     0x178      0      -41.55             ATTACH_ROPE
+///     0x178      -      -48.15      -6.60  = four frames of _speed_over_rope (1.6)
+///     0x178      -      -48.32 .. -49.39   a decaying spring tail, 1.24 in total
+///     0x179      1      -46.59     +2.80   = special_s_through_target_return_speed
+///
+/// Every number in that table except the two `off` extremes is a param this port already reads.
+/// `-40.69` is exactly `-7.09 - 3 * 11.20`, so the leg is four frames of the game's own speed and
+/// the constant is really "four frames" written as a distance -- which is the form the trigger
+/// needs, because comparing a world x cannot drift with a captor who is still sliding.
+///
+/// THE PORT WAS USING `special_s_lariat_offset_x1` (-24) FOR THIS, and that is the reported bug:
+/// -24 puts the line between the second and third frame of the leg, so the victim attached at
+/// -29.49 instead of -40.69. One frame short of the ropes, every time. "It goes 4 tiles in the
+/// training room instead of 5."
+const ROPE_OFFSET_X: f32 = -40.69;
+
+/// How far the ropes give before they stop, measured from `ROPE_OFFSET_X`.
+///
+/// The 6.60 and the 1.24 spring tail in the table above, which together put the native extreme at
+/// off = -48.53. The engine produces this leg ITSELF once the victim is past
+/// `SPECIAL_S_FLOAT_ROPE_X` -- it drops them from `_speed` to `_speed_over_rope` -- so this is not
+/// a motion this port drives, it is only where it stops.
+///
+/// AND THE VARIANCE WAS THE MISSING STOP, NOT THE CREEP. Before the rope was a place at all the
+/// port let that 1.6 run until the hold timer happened to fire, and the same whip finished
+/// anywhere from -48.69 to -58.29: "modified pikachu sometimes throws farther". The creep is
+/// deterministic; what was not was when anybody told it to end.
+const ROPE_STRETCH_X: f32 = 7.84;
 
 /// How long the ropes hold the victim, in captor animation frames.
 ///
@@ -1740,18 +1907,43 @@ unsafe fn whip_flight(fighter: &mut L2CFighterCommon, entry: usize, off: f32) {
         // drift with the captor the way a captor-relative offset does. `_motion_frame_fix` stays
         // as the bound -- it is the game's own number for how long this leg may last, and without
         // it a victim who somehow never reaches the line would stay in THROWN forever.
-        let reached = (PostureModule::pos_x(vboma) - state::rope_x(entry))
-            * PostureModule::lr(boma)
-            <= 0.0;
+        // THE LINE IS WHERE THE ENGINE SLOWS THEM; THE EXTENT IS WHERE WE STOP THEM.
+        //
+        // Attaching AT the line was the second half of the distance bug. `SPECIAL_S_FLOAT_ROPE_X`
+        // -- which `params::get_float_hook` answers with `state::rope_x` -- is the read that makes
+        // the engine drop the victim from `_speed` to `_speed_over_rope`, and that slow leg IS the
+        // rope stretching. Forcing ATTACH_ROPE the frame they touch the line pre-empts it: the
+        // victim froze on the spot for the whole twenty-frame hold, which is the flat
+        // `off=-29.49` repeated ten times in pt22.
+        //
+        // So the trigger moves out by the measured give, and the engine plays both halves.
+        let lr = PostureModule::lr(boma);
+        let extent_x = state::rope_x(entry) - ROPE_STRETCH_X * lr;
+        let reached = (PostureModule::pos_x(vboma) - extent_x) * lr <= 0.0;
+        // The backstop now has to cover the slow leg too, or it would fire first and reintroduce
+        // the early attach it exists to prevent. `_motion_frame_fix` is the game's number for the
+        // fast leg; the frames the stretch needs are the give divided by the game's own speed for
+        // it. Both halves from params, so the bound tracks them if they ever differ.
+        let over_rope = WorkModule::get_param_float(
+            boma,
+            hash40("param_special_s"),
+            hash40("special_s_through_target_speed_over_rope"),
+        );
         let bound = WorkModule::get_param_float(
             boma,
             hash40("param_special_s"),
             hash40("special_s_through_target_motion_frame_fix"),
-        ) as i32;
+        ) as i32
+            + if over_rope > 0.0 {
+                (ROPE_STRETCH_X / over_rope).ceil() as i32
+            } else {
+                0
+            };
         if reached || n >= bound.max(1) {
             crate::telemetry::sink::diag(format!(
                 "[rat] WHIP p{entry} {id:#x} reached the ropes after {n}f at off={off:.2} \
-                 (rope_x={:.2} their_x={:.2} by_place={reached} bound={bound}) -- attaching",
+                 (rope_x={:.2} extent_x={extent_x:.2} their_x={:.2} by_place={reached} \
+                 bound={bound}) -- attaching",
                 state::rope_x(entry),
                 PostureModule::pos_x(vboma)
             ));

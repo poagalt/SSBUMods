@@ -99,6 +99,13 @@ pub unsafe fn tick(boma: *mut BattleObjectModuleAccessor, entry: usize, status: 
         return;
     }
 
+    // Entering CATCH is the one status whose OUTCOME the digest cannot explain on its own -- the
+    // frame count says whether the collision connected, and nothing says why a connected one did
+    // not convert. See `probe::catch_start`.
+    if status == *FIGHTER_STATUS_KIND_CATCH {
+        super::probe::catch_start(entry, boma);
+    }
+
     // Reaching an ordinary resting state ends the move.
     if is_idle(status) {
         flush(entry, status);
@@ -115,7 +122,7 @@ pub unsafe fn tick(boma: *mut BattleObjectModuleAccessor, entry: usize, status: 
     TRAIL[entry][LEN[entry]] = status;
     FRAMES[entry][LEN[entry]] = 0;
     LEN[entry] += 1;
-    let _ = boma;
+
 }
 
 /// Emit the trail and clear it.

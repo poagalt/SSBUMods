@@ -90,4 +90,59 @@ if [ -n "$missing" ]; then
 else
     echo "  ok  every Init/Exec/Exit the source has is registered ($checked line(s) checked)"
 fi
+
+# AND EVERY NEW STATUS THAT REGISTERS `End` MUST REGISTER `Exit` TOO, BECAUSE `End` NEVER ARRIVES.
+#
+# THE BUG THAT COST THE MOST ROUNDS OF ALL, and unlike the three above it was registered correctly
+# the whole time. `.status(End, RAT_STATUS_KIND_SPECIAL_S_THROW, ...)` is exactly what gaogaen
+# has -- `SpecialSThrow/end.c` exists and there is no `exit.c` -- and the engine simply never
+# called it for a status id past Pikachu's own count:
+#
+#   whip catches logged, pt19 + pt21 + pt22               ~100
+#   `dropped the capture (whip over)`, from the End body      0
+#   the carry's releases, from an `Exit` body                15
+#
+# So the whip never released its victim, the victim kept `is_capture` forever, and no grab could
+# start -- "after hitting a cargo throw or alolan whip in any capacity modified pikachu cannot grab
+# the opponent", for three rounds, with the release code sitting there correct and unreached. Two
+# more were dead the same way and nobody had noticed: BOTH up-B statuses exhaust the jump counter
+# in their end line, so modified Pikachu kept a double jump G&W does not have.
+#
+# `Exit` IS THE SAME MOMENT, NOT A DIFFERENT BEHAVIOUR. Both lines dispatch from one engine
+# function: smashline hooks End at +0x689c and Exit at +0x6950, and both offsets fall inside
+# `L2CFighterBase::sub_end_status_msc` (0x7100006730 -> 0x71000069f0) in
+# vendor/main/common-nro-symbols.txt.
+#
+# THIS SCANS THE REGISTRATIONS, NOT THE DECOMP, and that is the point. Checking `end.c` against
+# MAP would have missed RAT_STATUS_KIND_SPECIAL_HI_OPEN entirely -- it is the port's own
+# construction standing in for G&W's parachute article, so it has no source directory to look in,
+# and its end line was just as dead.
+#
+# Exempt, with reasons, because the rule is about bodies that DO something:
+#   SPECIAL_S_END    gaogaen's end line only retires the ROPE article, which ADR 0004 excludes, so
+#                    the port's body is an empty `false.into()` and has nothing to reach.
+#   SPECIAL_LW_HIT   `pikachu_speciallw_end` is registered on this as well as on the VANILLA
+#                    SPECIAL_LW, whose End does fire. gaogaen's own `SpecialLwHit_end` is a bare
+#                    `return 0` -- he reverts the absorb on the way OUT of SpecialLw, before
+#                    SpecialLwHit is ever entered -- so this registration is redundant either way.
+EXIT_EXEMPT="RAT_STATUS_KIND_SPECIAL_S_END RAT_STATUS_KIND_SPECIAL_LW_HIT"
+
+end_missing=""; end_checked=0
+for kind in $(grep -rhoE "\.status\(End,[[:space:]]*RAT_STATUS_KIND_[A-Z_0-9]+," \
+                  pikachu-moveset/plugin/src/ | grep -oE "RAT_STATUS_KIND_[A-Z_0-9]+" | sort -u); do
+    case " $EXIT_EXEMPT " in *" $kind "*) continue ;; esac
+    end_checked=$((end_checked+1))
+    if ! grep -rqsE "\.status\(Exit,[[:space:]]*$kind," pikachu-moveset/plugin/src/; then
+        end_missing="$end_missing
+       Exit on $kind  (it registers End, and End does not fire for a new status)"
+        rc=1
+    fi
+done
+
+if [ -n "$end_missing" ]; then
+    echo "  FAIL these new statuses register End with no Exit, so their end body never runs:$end_missing"
+else
+    echo "  ok  every new status registering End also registers Exit ($end_checked checked)"
+fi
+
 exit $rc
