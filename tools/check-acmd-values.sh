@@ -43,7 +43,16 @@ while read -r f acmd fn stem mod label; do
         if ! grep -q "fn pikachu_${kind}_${fn}(" "$S/$mod/mod.rs" 2>/dev/null; then continue; fi
         subset=""
         [ "$kind" = "effect" ] && subset="--subset"
-        out=$("$P" "$src" "${kind}_$fn" "$S/$mod/mod.rs" "pikachu_${kind}_$fn" $subset 2>&1)
+        # THE BONE ANCHOR IS EXEMPT FOR THE SCRIPTS `tools/reach rebase` REWROTE, and the list is
+        # the one that pass WROTE rather than one declared here. Chrom's jab and Palutena's n-air
+        # ride grafted bones that do not exist in the runtime skeleton, so their hitboxes are moved
+        # onto `haver` with the offsets rotated; every other argument is still compared.
+        reb=""
+        if [ -f "$ROOT/work/rebase/rebased.txt" ] \
+           && grep -qx "$fn" "$ROOT/work/rebase/rebased.txt" 2>/dev/null; then
+            reb="--rebased"
+        fi
+        out=$("$P" "$src" "${kind}_$fn" "$S/$mod/mod.rs" "pikachu_${kind}_$fn" $subset $reb 2>&1)
         rc=$?
         [ "$kind" = "game" ] && moves=$((moves+1))
         if [ "$kind" = "game" ]; then

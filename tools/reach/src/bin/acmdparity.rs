@@ -155,6 +155,7 @@ fn main() {
     //
     // So every call we KEEP must appear in the source, identically, in order. Drops are free;
     // changes and inventions are not.
+    let rebased = a.iter().any(|x| x == "--rebased");
     if a.iter().any(|x| x == "--subset") {
         let mut si = 0usize;
         let mut dropped = 0usize;
@@ -204,11 +205,36 @@ fn main() {
             bad += 1;
             continue;
         }
-        let skip: HashSet<usize> = CALLS
+        let mut skip: HashSet<usize> = CALLS
             .iter()
             .find(|(c, _)| c == sc)
             .map(|(_, g)| g.iter().copied().collect())
             .unwrap_or_default();
+        // `--rebased` ALSO SKIPS THE BONE ANCHOR, for the two scripts `tools/reach rebase`
+        // rewrites.
+        //
+        // The bone is argument 3 of ATTACK and 2 of CATCH, and it is deliberately NOT geometry in
+        // the general case: a ported hitbox on the wrong bone is one of the most damaging errors
+        // possible and this check is the only thing that would catch it. But Chrom's jab and
+        // Palutena's n-air ride grafted bones that do not exist in the runtime skeleton -- proved
+        // by `telemetry::mirror_probe`, which reads them nowhere near their own parent and
+        // differently in each facing -- so the rebase pass moves them onto `haver` with the
+        // offsets rotated by the grafted bone's own transform.
+        //
+        // Which scripts those are is not declared here: `check-acmd-values.sh` reads the list the
+        // rebase pass itself wrote. Every other argument of those calls is still compared, which
+        // is the point -- their damage, angle and knockback must still be the source's.
+        if rebased {
+            match *sc {
+                "macros::ATTACK(" => {
+                    skip.insert(3);
+                }
+                "macros::CATCH(" => {
+                    skip.insert(2);
+                }
+                _ => {}
+            }
+        }
         if sa.len() != oa.len() {
             println!("  call {i} {sc} has {} args in source and {} in ours", sa.len(), oa.len());
             bad += 1;

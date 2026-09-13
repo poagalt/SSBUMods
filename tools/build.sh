@@ -126,6 +126,16 @@ bash "$ROOT/tools/gen-config.sh"
 echo; echo "== 3f. regenerate the in-game self-test's motion table =="
 bash "$ROOT/tools/gen-selftest.sh"
 
+# BEFORE topscale, because this pass produces `haver`-anchored offsets and topscale only touches
+# `top`-anchored ones -- so running it after would leave the rebased hitboxes correctly alone,
+# while running topscale first would scale offsets this pass is about to rotate.
+echo; echo "== 3g. export the animations whose hitboxes ride a grafted bone =="
+bash "$ROOT/tools/gen-rebase-anims.sh"
+
+echo; echo "== 3h. move hitboxes off the grafted bones, which do not exist at runtime =="
+"$ROOT/tools/reach/target/release/rebase.exe" \
+  "$ROOT/pikachu-moveset/plugin/src" "$ROOT/work/bones/out.json" "$ROOT/work/rebase" | tail -1
+
 echo; echo "== 4. scale top-anchored hitbox offsets =="
 "$ROOT/tools/reach/target/release/topscale.exe" \
   "$ROOT/pikachu-moveset/plugin/src" "$ROOT/tools/scales.tsv" | tail -1
