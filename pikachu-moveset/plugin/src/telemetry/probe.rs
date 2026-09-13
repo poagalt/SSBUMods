@@ -39,6 +39,37 @@ pub const VERBOSE: bool = true;
 /// without a lookup table. Anything not here prints as a number, which is still better than the
 /// previous state of everything printing as a number.
 pub fn status_name(k: i32) -> &'static str {
+    // THE VICTIM-SIDE FAMILY COMES FROM THE GAME'S OWN CONSTANTS, NOT FROM LITERALS, and that is
+    // the whole reason this block exists separately from the match below.
+    //
+    // `HOLD p0 dropped the capture (...): their_capture=true their_st=0x44` is the single most
+    // important line this project prints -- it is the state of the fighter we just let go -- and
+    // `0x44` is unreadable. A comment in `crate::victim` asserts it is CAPTURE_CUT; nothing local
+    // proves that, and asserting a status number from memory is exactly the kind of invented fact
+    // this moveset is not allowed to have. Comparing against the LuaConst makes the log say the
+    // name, so there is nothing left to remember or to get wrong.
+    //
+    // These are COMMON statuses, not any one fighter's, so naming them here is not the thing
+    // `tools/check-status.sh` forbids. The SWING_GAOGAEN ids are the whip's victim statuses and
+    // `specials::whip` already references them for the same reason.
+    let victim: &[(i32, &'static str)] = &[
+        (*FIGHTER_STATUS_KIND_CAPTURE_CUT, "CAPTURE_CUT"),
+        (*FIGHTER_STATUS_KIND_CAPTURE_WAIT, "CAPTURE_WAIT"),
+        (*FIGHTER_STATUS_KIND_CAPTURE_PULLED, "CAPTURE_PULLED"),
+        (*FIGHTER_STATUS_KIND_THROWN, "THROWN"),
+        (*FIGHTER_STATUS_KIND_SWING_GAOGAEN_CATCHED, "SWING_CATCHED"),
+        (*FIGHTER_STATUS_KIND_SWING_GAOGAEN_THROWN, "SWING_THROWN"),
+        (*FIGHTER_STATUS_KIND_SWING_GAOGAEN_ATTACH_ROPE, "SWING_ATTACH_ROPE"),
+        (*FIGHTER_STATUS_KIND_SWING_GAOGAEN_RETURN, "SWING_RETURN"),
+        (*FIGHTER_STATUS_KIND_SWING_GAOGAEN_LARIAT, "SWING_LARIAT"),
+        (*FIGHTER_STATUS_KIND_SWING_GAOGAEN_SHOULDER, "SWING_SHOULDER"),
+        (*FIGHTER_STATUS_KIND_SWING_GAOGAEN_FAILURE, "SWING_FAILURE"),
+    ];
+    for (id, name) in victim {
+        if k == *id {
+            return name;
+        }
+    }
     match k {
         // The moveset's own kinds, from src/specials/status.rs.
         0x1F0 => "RAT_SPECIAL_HI_CLOSE",

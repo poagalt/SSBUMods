@@ -74,11 +74,44 @@ unsafe fn find_caught_victim(
 ) -> Option<(u32, *mut BattleObjectModuleAccessor)> {
     let me = (*boma).battle_object_id;
     for (id, vboma) in crate::victim::others(me) {
-        if CaptureModule::is_capture(vboma) && CaptureModule::catch_object_id(vboma) as u32 == me {
+        let st = StatusModule::status_kind(vboma);
+        // The macro's own target status, which is the reliable signal: `macros::CATCH` takes the
+        // victim's status as an argument and this moveset's ACMD passes SWING_GAOGAEN_CATCHED.
+        if st == *FIGHTER_STATUS_KIND_SWING_GAOGAEN_CATCHED {
             return Some((id, vboma));
         }
-        if StatusModule::status_kind(vboma) == *FIGHTER_STATUS_KIND_SWING_GAOGAEN_CATCHED {
-            return Some((id, vboma));
+        if CaptureModule::is_capture(vboma) && CaptureModule::catch_object_id(vboma) as u32 == me {
+            // AND THIS TEST, ALONE, IS ALSO THE STALE-RECORD TEST -- WHICH IS WHY IT NEEDS THE
+            // SECOND HALF.
+            //
+            // "The engine believes this fighter is captured and names us as the captor" is exactly
+            // what an unreleased whip leaves behind, so before the release was fixed this adopted
+            // a victim who was standing in an ordinary status and had not been caught at all. Five
+            // times across pt21 and pt22, and the move collapsed on the spot every time:
+            //
+            //   WHIP p0 ENGINE caught 0x10000 -- adopting, no port-side claim
+            //   VICTIM p0 whip: status=0x1f captured=true master=0x0
+            //   MOVE p0 side-B whip: SPECIAL_S 17f -> RAT_SPECIAL_S_THROW 1f -> ..._END 45f -> WAIT
+            //
+            // 0x1f is not a whip status and not a capture status. That is the reported "after one
+            // hit alolan whip the next attempted alolan whip stops short of the opponent no matter
+            // what", and the root cause was the dead `End` line rather than anything here -- but a
+            // test that cannot tell a fresh catch from a leaked record should not be the one
+            // deciding, so it now has to agree with the victim's status too.
+            //
+            // REFUSING IS LOGGED, because a stale record reaching here again means the release
+            // regressed and this is where it would be visible first.
+            if st == *FIGHTER_STATUS_KIND_CAPTURE_WAIT
+                || st == *FIGHTER_STATUS_KIND_CAPTURE_PULLED
+                || st == *FIGHTER_STATUS_KIND_SWING_GAOGAEN_CATCHED
+            {
+                return Some((id, vboma));
+            }
+            crate::telemetry::sink::diag(format!(
+                "[rat] WHIP {id:#x} is flagged captured by us but is in {} -- a leaked capture \
+                 record, NOT adopting it as a catch",
+                crate::telemetry::probe::st(st)
+            ));
         }
     }
     None
@@ -238,10 +271,11 @@ pub unsafe fn try_catch(fighter: &mut L2CFighterCommon) -> bool {
     // `special_s_main_loop` still has to ask.
     //
     // So: if the engine did it, adopt it and get out of the way. Only substitute when it declined.
-    if let Some((them, _)) = find_caught_victim(boma) {
+    if let Some((them, _vboma)) = find_caught_victim(boma) {
         state::set_swing_thrown_fighter(entry, them);
         crate::telemetry::sink::diag(format!(
-            "[rat] WHIP p{entry} ENGINE caught {them:#x} -- adopting, no port-side claim"
+            "[rat] WHIP p{entry} ENGINE caught {them:#x} in {} -- adopting, no port-side claim",
+            crate::telemetry::probe::st(StatusModule::status_kind(_vboma))
         ));
         return true;
     }

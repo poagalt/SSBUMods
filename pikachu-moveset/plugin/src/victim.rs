@@ -411,17 +411,20 @@ pub unsafe fn drop_capture(entry: usize, why: &str) {
             CaptureModule::capture_cut(vboma, true, false, false);
         }
     }
+    // `who` names the fighter, because reading this line off the WRONG fighter is what the old
+    // `0` sentinel did for three rounds -- see the note on `HELD_ID`.
     let their = boma(HELD_ID[entry])
         .map(|v| (CaptureModule::is_capture(v), StatusModule::status_kind(v)))
         .unwrap_or((false, -1));
     crate::telemetry::sink::diag(format!(
         "[rat] HOLD p{entry} dropped the capture ({why}): ours_linked={} ignore_catching={} \
-         is_catch={} their_capture={} their_st={:#x}",
+         is_catch={} their={:#x} their_capture={} their_st={}",
         LinkModule::is_linked(ours, *LINK_NO_CAPTURE),
         CaptureModule::is_ignore_catching(ours),
         CatchModule::is_catch(ours),
+        HELD_ID[entry],
         their.0,
-        their.1
+        crate::telemetry::probe::st(their.1)
     ));
 }
 
@@ -806,12 +809,12 @@ pub unsafe fn cut_capture(entry: usize, why: &str) -> bool {
     // blocked grab is a different one of these four, and the log has never yet said which.
     crate::telemetry::sink::diag(format!(
         "[rat] HOLD p{entry} after release: ours_linked={} ignore_catching={} is_catch={} \
-         their_capture={} their_st={:#x}",
+         their_capture={} their_st={}",
         LinkModule::is_linked(ours, *LINK_NO_CAPTURE),
         CaptureModule::is_ignore_catching(ours),
         CatchModule::is_catch(ours),
         CaptureModule::is_capture(vboma),
-        StatusModule::status_kind(vboma)
+        crate::telemetry::probe::st(StatusModule::status_kind(vboma))
     ));
     true
 }
