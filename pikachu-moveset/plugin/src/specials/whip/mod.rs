@@ -882,14 +882,31 @@ unsafe fn whip_update_areas(fighter: &mut L2CFighterCommon) {
     }
     let in_lariat = state::lariat_been_out(entry) && off >= lariat_x && off <= lariat_end_x;
     let f = MotionModule::frame(boma) as i32;
-    if f % 10 == 0 {
+    // EVERY FRAME WHILE THEY ARE IN THE AIR, ten-frame samples otherwise.
+    //
+    // The last open question about the whip is the one the playtest describes as "the frame where
+    // lariat lands mario is mostly behind pikachu already, barely at the edge of the hitbox", and
+    // it cannot be answered at ten-frame resolution: the native return leg is NINE frames long. A
+    // per-frame `off` during THROWN/ATTACH_ROPE/RETURN is directly comparable to the native
+    // recording, which has
+    //
+    //     f36 THROWN off=-7.09   f44 ATTACH_ROPE off=-41.55   f64 RETURN off=-46.59   f73 off=+3.09
+    //
+    // i.e. roughly 5.5 units a frame coming home. `special_s_through_target_return_speed` is 2.8,
+    // so either the captor closes the other half himself during the lariat or the port is reading
+    // the return wrong -- and those two look identical at this resolution and nothing alike at
+    // one frame.
+    let vst = crate::victim::boma(state::swing_thrown_fighter(entry))
+        .map(|v| StatusModule::status_kind(v))
+        .unwrap_or(-1);
+    let in_flight = vst == *FIGHTER_STATUS_KIND_SWING_GAOGAEN_THROWN
+        || vst == *FIGHTER_STATUS_KIND_SWING_GAOGAEN_ATTACH_ROPE
+        || vst == *FIGHTER_STATUS_KIND_SWING_GAOGAEN_RETURN;
+    if in_flight || f % 10 == 0 {
         crate::telemetry::sink::diag(format!(
             "[rat] WHIP p{entry} f{f} area: off={off:.2} in={in_lariat} out={} \
-             lariat={lariat_x:.0} end={lariat_end_x:.0} fail={failure_x:.0} vst={:#x} lr={:.0}",
+             lariat={lariat_x:.0} end={lariat_end_x:.0} fail={failure_x:.0} vst={vst:#x} lr={:.0}",
             state::lariat_been_out(entry),
-            crate::victim::boma(state::swing_thrown_fighter(entry))
-                .map(|v| StatusModule::status_kind(v))
-                .unwrap_or(-1),
             PostureModule::lr(boma)
         ));
     }
