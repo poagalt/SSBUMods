@@ -442,25 +442,43 @@ unsafe fn whip_release(fighter: &mut L2CFighterCommon) -> bool {
     if CaptureModule::is_capture(boma) {
         return false;
     }
-    if !LinkModule::is_link(boma, link) {
-        return false;
-    }
-
-    // `link` splices the slot into both the parent and the child list, so the fighter being thrown
-    // is reachable as this object's PARENT here and as its NODE below. Both directions are torn
-    // down, in this order.
-    let parent = LinkModule::get_parent_id(boma, link, false);
-    let thrown = state::swing_thrown_fighter(entry_of(boma));
-    if parent as u32 == thrown {
-        if WorkModule::is_flag(boma, *FIGHTER_GAOGAEN_STATUS_SPECIAL_S_FLAG_HIT) {
-            LinkModule::send_event_parents(boma, link, Hash40 { hash: 0x18f836a168 });
-        }
-        LinkModule::unlink(boma, link);
-    }
-    if LinkModule::is_linked(boma, link) {
-        LinkModule::send_event_nodes(boma, link, Hash40 { hash: 0x1465ed7a5c }, 0);
-        if LinkModule::is_link(boma, link) {
+    // THIS USED TO BE AN EARLY RETURN, AND THAT `return` IS THE ALTERNATING WHIP.
+    //
+    // The playtest found the pattern that names it: "after one hit alolan whip the next attempted
+    // alolan whip stops short of the opponent no matter what and displays the shrug animation
+    // instead of grabbing them, and if I try alolan whip again after that it works", and the same
+    // alternation for the ordinary grab.
+    //
+    // A SUCCESSFUL whip unlinks its own victim -- `status_SwingGaogaenThrown`'s first act is
+    // `LinkModule::unlink(link=0)`, which the native recording shows plainly. So by the time the
+    // END status's `end` line runs, `is_link` is already false, this returned false, and the
+    // PORT-SIDE teardown at the bottom of this function -- `drop_capture`, `untrace`, `forget` --
+    // never ran. The engine kept its capture record, so no grab could start and the next whip's
+    // `find_victim_in_range` skipped a victim it believed was already held. What eventually
+    // cleared it was `tick_hold`'s ceiling, 170 frames later, which is about how long it takes to
+    // try again: hence alternation rather than a permanent lock.
+    //
+    // Incineroar's guard is right FOR HIS TEARDOWN -- there is no link to unlink and no event to
+    // send -- so it is now a conditional around exactly that work instead of a return. His other
+    // guard, `is_capture(boma)` above, stays a return: a Pikachu who got grabbed mid-whip must not
+    // tear down the grab holding him, and our teardown would unlink it.
+    if LinkModule::is_link(boma, link) {
+        // `link` splices the slot into both the parent and the child list, so the fighter being
+        // thrown is reachable as this object's PARENT here and as its NODE below. Both directions
+        // are torn down, in this order.
+        let parent = LinkModule::get_parent_id(boma, link, false);
+        let thrown = state::swing_thrown_fighter(entry_of(boma));
+        if parent as u32 == thrown {
+            if WorkModule::is_flag(boma, *FIGHTER_GAOGAEN_STATUS_SPECIAL_S_FLAG_HIT) {
+                LinkModule::send_event_parents(boma, link, Hash40 { hash: 0x18f836a168 });
+            }
             LinkModule::unlink(boma, link);
+        }
+        if LinkModule::is_linked(boma, link) {
+            LinkModule::send_event_nodes(boma, link, Hash40 { hash: 0x1465ed7a5c }, 0);
+            if LinkModule::is_link(boma, link) {
+                LinkModule::unlink(boma, link);
+            }
         }
     }
     // ---- BELOW HERE IS NOT PART OF THE TRANSCRIPTION ----
@@ -781,11 +799,29 @@ unsafe extern "C" fn special_s_throw_main(fighter: &mut L2CFighterCommon) -> L2C
 /// already watching for as its rebound trigger; the change is that it is handed to the engine as
 /// `FIGHTER_GAOGAEN_STATUS_SPECIAL_S_FLOAT_ROPE_X` (through `src/params`) instead of watched.
 ///
-/// Refreshed every frame rather than latched, because the captor moves: he is still sliding on
-/// `special_s_catch_brake_x` when the throw goes out, and a real rope article would move with him.
+/// LATCHED THE MOMENT THE VICTIM LEAVES HIS HANDS, NOT REFRESHED FOR THE WHOLE MOVE.
+///
+/// It used to refresh every frame, justified as "a real rope article would move with him". That
+/// was a guess and it is the reported "mario seems to travel a variable distance for the alolan
+/// whip throw-out": the victim's own status reads this float to decide where to stop, and the
+/// captor is still sliding on `special_s_catch_brake_x` while they fly -- so the finish line moved
+/// under them by however much he happened to have left to slide. A rope is a thing in the world.
+/// It is placed once.
+///
+/// Still refreshed while they are HELD, because until the throw fires the rope has not been placed
+/// yet and the captor's lunge is what decides where it goes.
 unsafe fn update_rope_x(fighter: &mut L2CFighterCommon) {
     let boma = fighter.module_accessor;
     let entry = entry_of(boma);
+    if let Some(vboma) = crate::victim::boma(state::swing_thrown_fighter(entry)) {
+        let vst = StatusModule::status_kind(vboma);
+        let flying = vst == *FIGHTER_STATUS_KIND_SWING_GAOGAEN_THROWN
+            || vst == *FIGHTER_STATUS_KIND_SWING_GAOGAEN_ATTACH_ROPE
+            || vst == *FIGHTER_STATUS_KIND_SWING_GAOGAEN_RETURN;
+        if flying && state::rope_x_set(entry) {
+            return;
+        }
+    }
     let lariat_x = WorkModule::get_param_float(
         boma,
         hash40("param_special_s"),

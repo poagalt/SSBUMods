@@ -540,47 +540,72 @@ unsafe fn requested_throw(fighter: &mut L2CFighterCommon) -> Option<i32> {
     // system resolved one, and from the raw stick otherwise -- the command flags are better
     // because they account for smash-stick deflection, buffering and per-controller deadzones,
     // and the raw read is the fallback for an attack pressed with the stick already held.
-    let pressed = ControlModule::check_button_trigger(boma, *CONTROL_PAD_BUTTON_ATTACK)
-        || ControlModule::check_button_trigger(boma, *CONTROL_PAD_BUTTON_SPECIAL);
-    if !pressed {
+    // `IsThrowStick()` RETURNS A TABLE, NOT A BOOL, AND THAT IS THE WHOLE OF "CARGO DOWN AND UP
+    // THROW RESULT IN FORWARD THROW WITH THE LEFT STICK BUT WORK FINE WITH THE C-STICK".
+    //
+    // DK's helper, disassembled to the branch (donkey 0x7100022744 onward):
+    //
+    //     btn = globalTable[0x20] & (CAT1_SPECIAL_N | _SPECIAL_S | _SPECIAL_HI | _SPECIAL_LW
+    //                                | _ATTACK_N)
+    //     stick = self:IsThrowStick()
+    //     if btn and (globalTable[0x21] & CAT2_THROW_F  or stick["f"])  -> THROW_F_F,  true
+    //     if btn and (globalTable[0x21] & CAT2_THROW_B  or stick["b"])  -> THROW_F_B,  true
+    //     if btn and (globalTable[0x21] & CAT2_THROW_HI or stick["hi"]) -> THROW_F_HI, true
+    //     if btn and (globalTable[0x21] & CAT2_THROW_LW or stick["lw"]) -> THROW_F_LW, true
+    //
+    // The four `operator[](phx::Hash40)` calls resolve to `f`, `b`, `hi` and `lw` -- four fields of
+    // a table the engine fills in from its own throw-stick logic. This port read the return value
+    // as `IsThrowStick().get_bool()` and then invented +/-0.5 stick thresholds beside it, then
+    // deleted those and defaulted to forward, which is why the C-stick still worked and the left
+    // stick did not: the C-stick raises a cat2 THROW command flag, and the left stick with an
+    // attack press raises none -- its direction is ONLY in that table.
+    //
+    // THE BUTTON IS THE CAT1 COMMAND MASK, which is also DK's and replaces a
+    // `check_button_trigger` pair. The note that pair replaced is still true -- a cat2 flag alone
+    // as the trigger threw the victim on the first carry frame and froze the game in round 2 --
+    // but cat1 is not cat2: those five are ATTACK/SPECIAL *commands*, recognised once per input by
+    // the input system, and they are what DK gates on. `MAX_SHIFTS_PER_FRAME` did not exist when
+    // that freeze happened and now caps the whole class at eight changes a frame.
+    let btn = fighter.global_table[0x20].get_i32()
+        & (*FIGHTER_PAD_CMD_CAT1_FLAG_SPECIAL_N
+            | *FIGHTER_PAD_CMD_CAT1_FLAG_SPECIAL_S
+            | *FIGHTER_PAD_CMD_CAT1_FLAG_SPECIAL_HI
+            | *FIGHTER_PAD_CMD_CAT1_FLAG_SPECIAL_LW
+            | *FIGHTER_PAD_CMD_CAT1_FLAG_ATTACK_N);
+    if btn == 0 {
         return None;
     }
-
-    let cat2 = ControlModule::get_command_flag_cat(boma, 1);
-    if cat2 & *FIGHTER_PAD_CMD_CAT2_FLAG_THROW_HI != 0 {
-        return Some(RAT_STATUS_KIND_THROW_F_HI);
+    let cat2 = fighter.global_table[0x21].get_i32();
+    let stick = fighter.IsThrowStick();
+    // DK tests them in this order: f, b, hi, lw.
+    for (mask, name, status) in [
+        (*FIGHTER_PAD_CMD_CAT2_FLAG_THROW_F, "f", RAT_STATUS_KIND_THROW_F_F),
+        (*FIGHTER_PAD_CMD_CAT2_FLAG_THROW_B, "b", RAT_STATUS_KIND_THROW_F_B),
+        (*FIGHTER_PAD_CMD_CAT2_FLAG_THROW_HI, "hi", RAT_STATUS_KIND_THROW_F_HI),
+        (*FIGHTER_PAD_CMD_CAT2_FLAG_THROW_LW, "lw", RAT_STATUS_KIND_THROW_F_LW),
+    ] {
+        if cat2 & mask != 0 || stick[name].try_get_bool().unwrap_or(false) {
+            return Some(status);
+        }
     }
-    if cat2 & *FIGHTER_PAD_CMD_CAT2_FLAG_THROW_LW != 0 {
-        return Some(RAT_STATUS_KIND_THROW_F_LW);
-    }
-    if cat2 & *FIGHTER_PAD_CMD_CAT2_FLAG_THROW_B != 0 {
-        return Some(RAT_STATUS_KIND_THROW_F_B);
-    }
-    if cat2 & *FIGHTER_PAD_CMD_CAT2_FLAG_THROW_F != 0 {
-        return Some(RAT_STATUS_KIND_THROW_F_F);
-    }
-    // FORWARD, AND THE THREE `0.5`s THAT USED TO BE HERE WERE THE LAST INVENTED NUMBERS IN THE
-    // CARRY.
+    // NO DIRECTION AT ALL IS NOT A THROW FOR DK -- he has four tests and no `else`, so an
+    // attack press with a neutral stick falls out of the helper and the carry continues.
     //
-    // The fallback read `get_stick_y` and `get_stick_x * lr` against +/-0.5 -- thresholds from
-    // nowhere, exactly the kind `walk_stick_x` and `turn_stick_x` replaced in the walk. DK has no
-    // equivalent: `FUN_7100022520` takes its direction from the four cat2 THROW command flags
-    // above and reads `IsThrowStick` only to know whether a direction was ASKED for. No flag and
-    // no deflection is a forward throw, which is the most common input in the move.
-    //
-    // `IsThrowStick` is still called, because the source calls it and because its answer is worth
-    // having in the log: a press that reads `true` here and produced no cat2 flag is the input
-    // system disagreeing with the stick, which would be a real finding rather than something to
-    // paper over with a threshold.
-    if fighter.IsThrowStick().get_bool() && cat2 == 0 {
-        crate::telemetry::sink::crumb(format!(
-            "[rat] SHOULDER throw: IsThrowStick true but no cat2 flag -- taking forward, stick \
-             ({:.2},{:.2})",
-            ControlModule::get_stick_x(boma),
-            ControlModule::get_stick_y(boma)
-        ));
-    }
-    Some(RAT_STATUS_KIND_THROW_F_F)
+    // This used to return forward here, on the reasoning that "a cargo attack press with the
+    // stick neutral is a forward throw in the real move". That was an invention twice over: it is
+    // not what the source does, and the four `stick[...]` fields are exactly the engine's own
+    // answer to "was a direction asked for". Logged rather than silently swallowed, because a
+    // button press that produces no direction at all is the input this port has most often got
+    // wrong.
+    crate::telemetry::sink::crumb(format!(
+        "[rat] SHOULDER throw: cat1 press with no direction (cat2={cat2:#x}, stick f/b/hi/lw = \
+         {}/{}/{}/{}) -- not a throw, per DK's four tests and no else",
+        stick["f"].try_get_bool().unwrap_or(false),
+        stick["b"].try_get_bool().unwrap_or(false),
+        stick["hi"].try_get_bool().unwrap_or(false),
+        stick["lw"].try_get_bool().unwrap_or(false),
+    ));
+    None
 }
 
 /// `common/pass_stick_y`, `common/pass_flick_y` -- the soft-platform drop, and the FIRST thing
