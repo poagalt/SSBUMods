@@ -940,9 +940,48 @@ unsafe extern "C" fn special_s_throw_main_loop(fighter: &mut L2CFighterCommon) -
         );
     }
 
-    if !WorkModule::is_flag(boma, *FIGHTER_GAOGAEN_STATUS_SPECIAL_S_FLAG_THROW_ROPE_END) {
+    // THE FOLLOW-UP WINDOW OPENS WHEN `THROW_ROPE_END` IS SET, AND THIS PORT HAD THE TEST
+    // INVERTED. That one `!` is why neither follow-up has ever happened.
+    //
+    // Straight out of `SpecialSThrow_main_loop` (gaogaen), and the branch polarity is read from
+    // Ghidra's own `if ((bVar2 & 1U) == 0)`, which is the FALSE arm:
+    //
+    //     if is_flag(SPECIAL_S_FLAG_THROW_ROPE_END) then
+    //         if not (180.0 <= globalTable[0xe]) then
+    //             if is_flag(FAILURE_AREA) then change_status(SPECIAL_S_FAILURE, true)
+    //             elseif is_flag(LARIAT_AREA) and is_flag(LARIAT_END_AREA) == false then ...
+    //     else
+    //         <the situation swap and the motion tail>
+    //     end
+    //
+    // `THROW_ROPE_END` means "the victim is on their way to the ropes" -- it is raised, a dozen
+    // lines above this, on the same frame the throw event goes out. So gating the follow-ups on
+    // its ABSENCE made them reachable only before the throw and unreachable for the entire flight.
+    // The measured log is exactly that shape: the throw event at f30 raises the flag, the victim
+    // arrives in the lariat window at f60 with `in=true`, and Pikachu goes
+    // `RAT_SPECIAL_S_THROW(0x1f4) -> 0x1f5` -- SPECIAL_S_END -- without ever looking.
+    //
+    //     [rat] TRACE pika0 st=0x1f4 ... LinkModule::send_event_nodes(event=0x13b7318a5a)
+    //     [rat] WHIP p0 f60 area: off=-21.89 in=true out=true lariat=-24 end=-10 fail=-6
+    //     [rat] pika0 motion 0x0fec894555 ended after 89f
+    //
+    // AND THE FAILURE BRANCH WAS THE WRONG STATUS. It went to `SPECIAL_S_END` with `false`;
+    // Incineroar changes to `SPECIAL_S_FAILURE` with `true`. SPECIAL_S_FAILURE is a status this
+    // port already ships, with its own motion -- the whiff animation -- and END is the ordinary
+    // recovery. Sending a whiff to END skips the animation that tells the player they missed.
+    //
+    // The 180-frame guard is `_ZNK3lib8L2CValueleERKS0_` at gaogaen 0x71000229ec, the only
+    // ordering operator in the whole function, so there is no ambiguity about which comparison it
+    // is. `global_table[0xe]` is the status frame, as `whip_followup_loop` already reads it.
+    let window_open =
+        WorkModule::is_flag(boma, *FIGHTER_GAOGAEN_STATUS_SPECIAL_S_FLAG_THROW_ROPE_END)
+            && !(180.0 <= fighter.global_table[0xe].get_f32());
+    if window_open {
         if WorkModule::is_flag(boma, *FIGHTER_GAOGAEN_STATUS_SPECIAL_S_FLAG_FAILURE_AREA) {
-            fighter.change_status(RAT_STATUS_KIND_SPECIAL_S_END.into(), false.into());
+            crate::telemetry::sink::diag(format!(
+                "[rat] WHIP p{entry} the victim came back past the failure line -- SPECIAL_S_FAILURE"
+            ));
+            fighter.change_status(RAT_STATUS_KIND_SPECIAL_S_FAILURE.into(), true.into());
             return 0.into();
         }
 
