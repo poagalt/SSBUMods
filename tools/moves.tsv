@@ -44,3 +44,7 @@ gaogaen	SpecialAirLw	specialairlw	d03specialairlw	specials_acmd	revenge_air_hit_
 palutena	Catch	catch	e00catch	throws	grab_palutena
 palutena	CatchDash	catchdash	e00catchdash	throws	grab_dash_palutena
 palutena	CatchTurn	catchturn	e00catchturn	throws	grab_turn_palutena
+gaogaen	SpecialSThrow	specialsthrow	d01specialsthrow	specials_acmd	whip_throw_incineroar
+gaogaen	SpecialSEnd	specialsend	d01specialsend	specials_acmd	whip_end_incineroar
+gaogaen	SpecialAirSThrow	specialairsthrow	d01specialairsthrow	specials_acmd	whip_air_throw_incineroar
+gaogaen	SpecialAirSEnd	specialairsend	d01specialairsend	specials_acmd	whip_air_end_incineroar
