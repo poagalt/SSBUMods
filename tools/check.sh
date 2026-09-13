@@ -337,6 +337,12 @@ bash "$ROOT/tools/check-keepflags.sh" || rc=1
 echo; echo "== 4g. every game_ script a shipped motion names is actually installed =="
 bash "$ROOT/tools/check-scripts.sh" || rc=1
 
+echo; echo "== 4h. the three hand-maintained port lists agree =="
+bash "$ROOT/tools/check-lists.sh" || rc=1
+
+echo; echo "== 4i. every Init/Exec/Exit the source status has is registered =="
+bash "$ROOT/tools/check-statuslines.sh" || rc=1
+
 echo; echo "== 4c. hand-written code uses no other fighter's constants =="
 bash "$ROOT/tools/check-status.sh" || rc=1
 

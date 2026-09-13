@@ -55,3 +55,6 @@ donkey	ThrowFHi	throwfhi	e01throwfhi	throws	cargo_throw_hi_dk
 donkey	ThrowFLw	throwflw	e01throwflw	throws	cargo_throw_lw_dk
 gaogaen	SpecialLwTurn	speciallwturn	d03speciallwturn	specials_acmd	revenge_turn_incineroar
 gaogaen	SpecialAirLwTurn	specialairlwturn	d03specialairlwturn	specials_acmd	revenge_air_turn_incineroar
+fox	EscapeAir	escapeair	b02escapeair	dodges	airdodge_fox
+fox	EscapeAirSlide	escapeairslide	b02escapeair	dodges	airdodge_dir_fox
+fox	EscapeF	escapef	b02escapef	dodges	roll_f_fox

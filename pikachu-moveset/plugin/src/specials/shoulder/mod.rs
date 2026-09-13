@@ -1430,24 +1430,39 @@ unsafe extern "C" fn throw_pre(fighter: &mut L2CFighterCommon) -> L2CValue {
 /// half of "a spinning arms animation that looks like an animation that would happen when mario is
 /// falling": the carry never told them to be carried and the throw never told them they were
 /// thrown.
-fn thrown_motion(throw: &str) -> &'static str {
-    match throw {
-        "throw_f_f" => "thrown_f_donkey_f",
-        "throw_f_b" => "thrown_f_donkey_b",
-        "throw_f_hi" => "thrown_f_donkey_hi",
-        _ => "thrown_f_donkey_lw",
-    }
-}
 
- unsafe fn throw_main(fighter: &mut L2CFighterCommon, motion: &str) -> L2CValue {
+/// `ThrowFF_init`, and it IS an init line -- `tools/check-statuslines.sh` found all four throws
+/// with an `init.c` in the decomp and no `Init` registered here.
+///
+/// THE BODY WAS ALREADY HERE, IN `main`, WHICH IS ONE STATUS LINE TOO LATE. `pre`, then `init`,
+/// then `main`: telling the victim they have been thrown is the first thing DK does in the status,
+/// and doing it from `main` means the throw's own first frame has already run. It also has to
+/// happen before `game_throwff`'s `ATTACK_ABS` on frame 0 has anything to resolve against.
+///
+/// AND IT READS THE MOTION OUT OF THE WORK INT RATHER THAN OFF A STRING WE PASSED IN.
+/// `ShoulderStart_exit` wrote the throw's motion name into
+/// `FIGHTER_STATUS_CATCH_WAIT_WORK_INT_MOTION_KIND` (that is `leave_carry`), and DK's init reads it
+/// straight back to pick the victim's thrown animation. The port had a `thrown_motion(&str)` doing
+/// the same mapping off a hardcoded argument, which worked but left the work int written and
+/// unread -- a loop the source closes and this port did not.
+///
+/// The target object is the LINK's node id for the same reason: it is what DK reads, and it cannot
+/// disagree with the engine the way our own `VICTIM[entry]` can.
+unsafe extern "C" fn throw_init(fighter: &mut L2CFighterCommon) -> L2CValue {
     let boma = fighter.module_accessor;
     let entry = entry_of(boma);
-    WorkModule::set_int64(boma, VICTIM[entry] as u64, *FIGHTER_STATUS_THROW_WORK_INT_TARGET_OBJECT);
+    let kind = WorkModule::get_int64(boma, *FIGHTER_STATUS_CATCH_WAIT_WORK_INT_MOTION_KIND);
+    let thrown = if kind == Hash40::new("throw_f_f").hash {
+        "thrown_f_donkey_f"
+    } else if kind == Hash40::new("throw_f_b").hash {
+        "thrown_f_donkey_b"
+    } else if kind == Hash40::new("throw_f_hi").hash {
+        "thrown_f_donkey_hi"
+    } else {
+        "thrown_f_donkey_lw"
+    };
     WorkModule::set_int64(boma, 0, *FIGHTER_STATUS_THROW_WORK_INT_TARGET_HIT_GROUP);
     WorkModule::set_int64(boma, 0, *FIGHTER_STATUS_THROW_WORK_INT_TARGET_HIT_NO);
-    // TELL THE VICTIM THEY HAVE BEEN THROWN -- DK does this in the throw status's Init line and
-    // this port never did it at all. See `thrown_motion`.
-    let thrown = thrown_motion(motion);
     if linked_victim(boma, entry, "throw") {
         LinkModule::send_event_nodes_throw(
             boma,
@@ -1458,12 +1473,29 @@ fn thrown_motion(throw: &str) -> &'static str {
             *FIGHTER_STATUS_THROW_WORK_INT_TARGET_HIT_NO,
             *FIGHTER_STATUS_THROW_WORK_FLOAT_MOTION_RATE,
         );
+        let them = LinkModule::get_node_object_id(boma, *LINK_NO_CAPTURE);
+        WorkModule::set_int64(boma, them as u64, *FIGHTER_STATUS_THROW_WORK_INT_TARGET_OBJECT);
+    } else {
+        // No link means no engine-side throw target, and `game_throwff`'s `ATK_HIT_ABS` on frame
+        // 15 reads this. Our own bookkeeping is the fallback, which is the ADR 0004 shape again:
+        // the precondition DK gets for free has to be supplied here.
+        WorkModule::set_int64(
+            boma,
+            VICTIM[entry] as u64,
+            *FIGHTER_STATUS_THROW_WORK_INT_TARGET_OBJECT,
+        );
     }
     crate::telemetry::probe::event(format!(
-        "[rat] SHOULDER p{entry} throw motion '{motion}' target={:#x}; {}",
-        VICTIM[entry],
+        "[rat] SHOULDER p{entry} throw init: motion_kind={kind:#x} -> victim plays {thrown}, \
+         target={:#x}; {}",
+        WorkModule::get_int64(boma, *FIGHTER_STATUS_THROW_WORK_INT_TARGET_OBJECT),
         crate::telemetry::probe::ctx(boma)
     ));
+    0.into()
+}
+
+ unsafe fn throw_main(fighter: &mut L2CFighterCommon, motion: &str) -> L2CValue {
+    let boma = fighter.module_accessor;
     MotionModule::change_motion(boma, Hash40::new(motion), 0.0, 1.0, false, 0.0, false, false);
     fighter.sub_shift_status_main(L2CValue::Ptr(throw_loop as *const () as _))
 }
@@ -1622,15 +1654,19 @@ pub fn install() {
         .status(Pre,  RAT_STATUS_KIND_SHOULDER_PASS,    shoulder_pass_pre)
         .status(Main, RAT_STATUS_KIND_SHOULDER_PASS,    shoulder_pass_main)
         .status(Exit, RAT_STATUS_KIND_SHOULDER_PASS,    shoulder_exit)
+        .status(Init, RAT_STATUS_KIND_THROW_F_F, throw_init)
         .status(Pre,  RAT_STATUS_KIND_THROW_F_F,  throw_pre)
         .status(Main, RAT_STATUS_KIND_THROW_F_F,  throw_ff_main)
         .status(Exit, RAT_STATUS_KIND_THROW_F_F,  throw_exit)
+        .status(Init, RAT_STATUS_KIND_THROW_F_B, throw_init)
         .status(Pre,  RAT_STATUS_KIND_THROW_F_B,  throw_pre)
         .status(Main, RAT_STATUS_KIND_THROW_F_B,  throw_fb_main)
         .status(Exit, RAT_STATUS_KIND_THROW_F_B,  throw_exit)
+        .status(Init, RAT_STATUS_KIND_THROW_F_HI, throw_init)
         .status(Pre,  RAT_STATUS_KIND_THROW_F_HI, throw_pre)
         .status(Main, RAT_STATUS_KIND_THROW_F_HI, throw_fhi_main)
         .status(Exit, RAT_STATUS_KIND_THROW_F_HI, throw_exit)
+        .status(Init, RAT_STATUS_KIND_THROW_F_LW, throw_init)
         .status(Pre,  RAT_STATUS_KIND_THROW_F_LW, throw_pre)
         .status(Main, RAT_STATUS_KIND_THROW_F_LW, throw_flw_main)
         .status(Exit, RAT_STATUS_KIND_THROW_F_LW, throw_exit)
