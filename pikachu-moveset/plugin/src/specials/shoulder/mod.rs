@@ -61,6 +61,9 @@ const SHOULDER_WAIT_FRAME: f32 = 15.0;
 /// `common/turn_stick_x` -- the same commons DK's ShoulderWait reads.
 const WALK_STICK_X: &str = "walk_stick_x";
 const TURN_STICK_X: &str = "turn_stick_x";
+/// `common/turn_frame`, the countdown ShoulderTurn_main writes into
+/// FIGHTER_STATUS_TURN_WORK_FLOAT_TURN_FRAME so the engine knows when to flip him.
+const TURN_FRAME: &str = "turn_frame";
 
 /// The carried fighter's battle object id, per entry.
 ///
@@ -246,44 +249,76 @@ unsafe fn still_held(boma: *mut BattleObjectModuleAccessor, entry: usize) -> boo
 /// The attack-absolute data is the throw relationship -- it is what
 /// FIGHTER_STATUS_THROW_WORK_INT_TARGET_OBJECT is read against -- and entering a status without
 /// this flag discards it, so the engine has no reason to keep the capture alive.
+/// EVERY ARGUMENT IS NOW PER-STATUS, BECAUSE DK'S ARE.
+///
+/// This helper used to hardcode four of them and it was wrong on three counts, each measurable:
+///
+///   * `SITUATION_KIND_NONE` for all ten. DK names the real situation in every one --
+///     GROUND for Start/Wait/Walk/Turn/Landing/JumpSquat, AIR for Fall/Jump/Pass. `init_settings`
+///     uses it to decide whether the status is entered as a grounded or airborne one, which is
+///     what tells the engine's ground correction and the fall machinery what they are looking at.
+///   * `NONE_FLAG/_INT/_FLOAT` for all ten. ShoulderFall passes the three `FALL` keep flags,
+///     because it is a fall and wants the fall work preserved.
+///   * `set_fighter_status_data`'s 7th argument always 0. ShoulderWalk passes
+///     `FIGHTER_STATUS_ATTR_SCALE_KINETIC_ENERGY` -- and ShoulderWalk is the one status in the
+///     carry whose kinetic type is MOTION_LOOP, i.e. the one where the animation's own
+///     displacement is the movement. That attribute is how the engine scales it. Without it the
+///     walk had nothing to scale and nothing to move, which is half of "cargo throw can only move
+///     the opposite direction that the initial grab happened in".
+///
+/// Argument names follow skyline-smash's own (`arg2`, `grab_invun`, `arg6`, `arg8`), because
+/// guessing at better ones would be inventing meaning the binding does not have.
+#[allow(clippy::too_many_arguments)]
 unsafe fn shoulder_pre(
     fighter: &mut L2CFighterCommon,
+    situation: i32,
     kinetic: i32,
     ground_correct: i32,
+    keep: (i32, i32, i32),
+    arg2: bool,
+    arg6: bool,
+    arg8: u32,
 ) -> L2CValue {
     StatusModule::init_settings(
         fighter.module_accessor,
-        smash::app::SituationKind(*SITUATION_KIND_NONE),
+        smash::app::SituationKind(situation),
         kinetic,
         ground_correct as u32,
         smash::app::GroundCliffCheckKind(*GROUND_CLIFF_CHECK_KIND_NONE),
         true,
-        *FIGHTER_STATUS_WORK_KEEP_FLAG_NONE_FLAG,
-        *FIGHTER_STATUS_WORK_KEEP_FLAG_NONE_INT,
-        *FIGHTER_STATUS_WORK_KEEP_FLAG_NONE_FLOAT,
+        keep.0,
+        keep.1,
+        keep.2,
         *FS_SUCCEEDS_KEEP_ATTACK_ABSOLUTE,
     );
     FighterStatusModuleImpl::set_fighter_status_data(
         fighter.module_accessor,
-        // His first argument is `true` here and `false` in the throws. Both copied rather than
-        // chosen.
-        true,
+        arg2,
         *FIGHTER_TREADED_KIND_NO_REAC,
         false,
         false,
-        false,
+        arg6,
         0,
-        0,
+        arg8,
         0,
         0,
     );
     0.into()
 }
 
+/// `FIGHTER_STATUS_WORK_KEEP_FLAG_NONE_*`, the triple eight of the ten carry statuses pass.
+unsafe fn keep_none() -> (i32, i32, i32) {
+    (
+        *FIGHTER_STATUS_WORK_KEEP_FLAG_NONE_FLAG,
+        *FIGHTER_STATUS_WORK_KEEP_FLAG_NONE_INT,
+        *FIGHTER_STATUS_WORK_KEEP_FLAG_NONE_FLOAT,
+    )
+}
+
 // ---- SHOULDER_START : the lift, out of throw_f ----------------------------------------------
 
 unsafe extern "C" fn shoulder_start_pre(fighter: &mut L2CFighterCommon) -> L2CValue {
-    shoulder_pre(fighter, *FIGHTER_KINETIC_TYPE_MOTION, *GROUND_CORRECT_KIND_GROUND_OTTOTTO)
+    shoulder_pre(fighter, *SITUATION_KIND_GROUND, *FIGHTER_KINETIC_TYPE_MOTION, *GROUND_CORRECT_KIND_GROUND_OTTOTTO, keep_none(), true, false, 0)
 }
 
 unsafe extern "C" fn shoulder_start_main(fighter: &mut L2CFighterCommon) -> L2CValue {
@@ -413,7 +448,7 @@ unsafe extern "C" fn shoulder_start_loop(fighter: &mut L2CFighterCommon) -> L2CV
 // ---- SHOULDER_WAIT : the hold, and the decision point ----------------------------------------
 
 unsafe extern "C" fn shoulder_wait_pre(fighter: &mut L2CFighterCommon) -> L2CValue {
-    shoulder_pre(fighter, *FIGHTER_KINETIC_TYPE_MOTION, *GROUND_CORRECT_KIND_GROUND_OTTOTTO)
+    shoulder_pre(fighter, *SITUATION_KIND_GROUND, *FIGHTER_KINETIC_TYPE_MOTION, *GROUND_CORRECT_KIND_GROUND_OTTOTTO, keep_none(), true, false, 0)
 }
 
 unsafe extern "C" fn shoulder_wait_main(fighter: &mut L2CFighterCommon) -> L2CValue {
@@ -458,6 +493,26 @@ unsafe extern "C" fn shoulder_wait_main(fighter: &mut L2CFighterCommon) -> L2CVa
 /// is what committed a throw on the first carry frame and froze the game in round 2.
 unsafe fn requested_throw(fighter: &mut L2CFighterCommon) -> Option<i32> {
     let boma = fighter.module_accessor;
+
+    // THE FIRST THING DK'S HELPER DOES, AND THIS PORT ONLY DESCRIBED IT. The comment above has
+    // listed `ControlModule::get_clatter_time` on the victim, "`<= 0` returns early with no
+    // throw", since the helper was first read -- and nothing implemented it. Straight from
+    // donkey 0x7100022520, the first eight calls of the function:
+    //
+    //     LinkModule::get_node_object_id(boma, LINK_NO_CAPTURE)
+    //     sv_battle_object::module_accessor(that)
+    //     ControlModule::get_clatter_time(that, 0)
+    //     operator<=(0.0)      -> return false
+    //
+    // A victim whose mash timer has hit zero is a victim who is leaving, and throwing them on the
+    // frame they escape is a throw with nobody in it. The node id is read off the LINK rather
+    // than off our own bookkeeping, which is DK's source of truth too.
+    let them = LinkModule::get_node_object_id(boma, *LINK_NO_CAPTURE) as u32;
+    if let Some(vboma) = crate::victim::boma(them) {
+        if ControlModule::get_clatter_time(vboma, 0) <= 0.0 {
+            return None;
+        }
+    }
 
     // THE BUTTON IS THE TRIGGER. THE STICK ONLY CHOOSES THE DIRECTION.
     //
@@ -518,6 +573,160 @@ unsafe fn requested_throw(fighter: &mut L2CFighterCommon) -> Option<i32> {
     }
 }
 
+/// `common/pass_stick_y`, `common/pass_flick_y` -- the soft-platform drop, and the FIRST thing
+/// both of DK's ground loops test.
+const PASS_STICK_Y: &str = "pass_stick_y";
+const PASS_FLICK_Y: &str = "pass_flick_y";
+/// `common/jump_stick_y`, `common/jump_flick_y`, `common/jump_neutral_y` -- the jump out of the
+/// carry.
+const JUMP_STICK_Y: &str = "jump_stick_y";
+const JUMP_FLICK_Y: &str = "jump_flick_y";
+const JUMP_NEUTRAL_Y: &str = "jump_neutral_y";
+
+/// `global_table[0x1a]`, THE ENGINE'S OWN CACHED STICK X, TIMES `lr`.
+///
+/// THIS IS THE WHOLE ANSWER TO "CARGO THROW CAN ONLY MOVE THE OPPOSITE DIRECTION THAT THE INITIAL
+/// GRAB HAPPENED IN".
+///
+/// Both of DK's ground loops compute exactly this expression and compare it against a param. The
+/// port compared `ControlModule::get_stick_x(boma).abs()` against one threshold and
+/// `stick_x * lr` against the negation of another, which is three separate departures:
+///
+///   * `abs()` throws away the sign, so "stick forward" and "stick backward" were the same input
+///     and the walk could only ever go one way -- the reported symptom, exactly.
+///   * the thresholds were read with `get_param_float(boma, hash40("turn_stick_x"), 0)`, passing
+///     the KEY as the param OBJECT and 0 as the key. The engine wants
+///     `(hash40("common"), hash40("turn_stick_x"))`. Both reads returned 0, and `.max(0.1)` then
+///     silently substituted a made-up 0.1 for both -- see `docs/decisions.md` on never inventing
+///     a number.
+///   * the turn test negated the param. DK does not: `common/turn_stick_x` is already the
+///     negative threshold, so negating it flips the whole comparison.
+///
+/// `0x1a` is the cached stick x rather than a fresh `ControlModule` read, and that is checked, not
+/// assumed: the same `globalTable[0x1a] * lr` appears in Game & Watch's `FinalRun_main_loop`
+/// compared against `common/turn_run_stick_x`, and in DK's ShoulderWait compared against
+/// `common/turn_stick_x` and `common/walk_stick_x` -- three stick-x thresholds, one slot. The
+/// multiply is `_ZNK3lib8L2CValuemlERKS0_`, resolved out of the NRO's own .dynsym rather than read
+/// off Ghidra's collapsed `operator_` name.
+unsafe fn stick_x_lr(fighter: &mut L2CFighterCommon) -> f32 {
+    fighter.global_table[0x1a].get_f32() * PostureModule::lr(fighter.module_accessor)
+}
+
+unsafe fn common_param_f(boma: *mut BattleObjectModuleAccessor, key: &str) -> f32 {
+    WorkModule::get_param_float(boma, hash40("common"), hash40(key))
+}
+
+unsafe fn common_param_i(boma: *mut BattleObjectModuleAccessor, key: &str) -> i32 {
+    WorkModule::get_param_int(boma, hash40("common"), hash40(key))
+}
+
+/// DK's soft-platform drop test, shared by ShoulderWait (donkey 0x7100024240) and ShoulderWalk
+/// (0x7100023cd0), where it is the first thing either of them checks after the throw and jump
+/// helpers:
+///
+///     if get_stick_y() <= get_param_float(common, pass_stick_y)
+///        and globalTable[0x1d] < get_param_int(common, pass_flick_y)
+///        and globalTable[0x16] == SITUATION_KIND_GROUND
+///        and GroundModule::is_passable_check()
+///     then change_status(SHOULDER_PASS, true) end
+///
+/// `globalTable[0x1d]` is the flick-y age in frames -- it is compared with an INT param called
+/// `pass_flick_y`, and the same slot appears in the jump helper against `jump_flick_y`.
+unsafe fn shoulder_pass_check(fighter: &mut L2CFighterCommon, entry: usize) -> bool {
+    let boma = fighter.module_accessor;
+    if ControlModule::get_stick_y(boma) <= common_param_f(boma, PASS_STICK_Y)
+        && fighter.global_table[0x1d].get_i32() < common_param_i(boma, PASS_FLICK_Y)
+        && fighter.global_table[0x16] == *SITUATION_KIND_GROUND
+        && GroundModule::is_passable_check(boma)
+    {
+        carry_change(fighter, entry, RAT_STATUS_KIND_SHOULDER_PASS, "SHOULDER_PASS");
+        return true;
+    }
+    false
+}
+
+/// DK's JUMP-OUT-OF-THE-CARRY, `FUN_7100023820`, transcribed. Called every frame by ShoulderWait,
+/// ShoulderWalk and ShoulderTurn -- three of his eleven -- and by nothing else.
+///
+/// THIS FUNCTION IS "I ALSO CAN'T JUMP WHILE IN CARGO THROW". It did not exist here.
+///
+///     if (check_button_trigger(CONTROL_PAD_BUTTON_JUMP)
+///         or (globalTable[0x20] & FIGHTER_PAD_CMD_CAT1_FLAG_JUMP_BUTTON))
+///        and globalTable[0x16] == SITUATION_KIND_GROUND then
+///         change_status(SHOULDER_JUMP_SQUAT_B, true); return true
+///     end
+///     if get_param_float(common, jump_stick_y) <= get_stick_y()
+///        and globalTable[0x1d] < get_param_int(common, jump_flick_y)
+///        and globalTable[0x16] == SITUATION_KIND_GROUND
+///        and ControlModule::is_enable_flick_jump() then
+///         change_status(SHOULDER_JUMP_SQUAT, true); return true
+///     end
+///     return false
+///
+/// TWO JUMPSQUATS, AND THE SUFFIX IS THE INPUT, NOT THE DIRECTION. `_B` is the one the BUTTON
+/// reaches and the plain one is the one the STICK FLICK reaches -- which reads backwards until you
+/// see what the difference is for: `FUN_7100022f30` tests `status_kind == SHOULDER_JUMP_SQUAT_B`
+/// and, if so, watches for the jump button being RELEASED during the squat to reserve a short
+/// hop. A flick jump has no button to release, so it decides the same thing from
+/// `common/jump_neutral_y` instead. Two statuses because the short-hop rule differs, not because
+/// the jump does.
+unsafe fn shoulder_jump_check(fighter: &mut L2CFighterCommon, entry: usize) -> bool {
+    let boma = fighter.module_accessor;
+    let pressed = ControlModule::check_button_trigger(boma, *CONTROL_PAD_BUTTON_JUMP)
+        || (fighter.global_table[0x20].get_i32() & *FIGHTER_PAD_CMD_CAT1_FLAG_JUMP_BUTTON) != 0;
+    if pressed && fighter.global_table[0x16] == *SITUATION_KIND_GROUND {
+        crate::telemetry::probe::event(format!(
+            "[rat] SHOULDER p{entry} jump (button) out of the carry after {}f",
+            CARRY_FRAMES[entry]
+        ));
+        carry_change(
+            fighter,
+            entry,
+            RAT_STATUS_KIND_SHOULDER_JUMP_SQUAT_B,
+            "SHOULDER_JUMP_SQUAT_B",
+        );
+        return true;
+    }
+    if common_param_f(boma, JUMP_STICK_Y) <= ControlModule::get_stick_y(boma)
+        && fighter.global_table[0x1d].get_i32() < common_param_i(boma, JUMP_FLICK_Y)
+        && fighter.global_table[0x16] == *SITUATION_KIND_GROUND
+        && ControlModule::is_enable_flick_jump(boma)
+    {
+        crate::telemetry::probe::event(format!(
+            "[rat] SHOULDER p{entry} jump (flick) out of the carry after {}f",
+            CARRY_FRAMES[entry]
+        ));
+        carry_change(
+            fighter,
+            entry,
+            RAT_STATUS_KIND_SHOULDER_JUMP_SQUAT,
+            "SHOULDER_JUMP_SQUAT",
+        );
+        return true;
+    }
+    false
+}
+
+/// The two things every grounded carry loop does before it looks at the stick: DK's
+/// `FUN_7100022520` (the throw) and `FUN_7100023820` (the jump), in that order, and either one
+/// returning true ends the frame.
+///
+/// Returns `Some(())` when one of them took the frame.
+unsafe fn carry_interrupts(fighter: &mut L2CFighterCommon, entry: usize) -> bool {
+    let boma = fighter.module_accessor;
+    if let Some(next) = requested_throw(fighter) {
+        crate::telemetry::probe::event(format!(
+            "[rat] SHOULDER p{entry} throw {} after {}f; {}",
+            crate::telemetry::probe::st(next),
+            CARRY_FRAMES[entry],
+            crate::telemetry::probe::ctx(boma)
+        ));
+        carry_change(fighter, entry, next, "requested throw");
+        return true;
+    }
+    shoulder_jump_check(fighter, entry)
+}
+
 unsafe extern "C" fn shoulder_wait_loop(fighter: &mut L2CFighterCommon) -> L2CValue {
     let boma = fighter.module_accessor;
     let entry = entry_of(boma);
@@ -533,31 +742,62 @@ unsafe extern "C" fn shoulder_wait_loop(fighter: &mut L2CFighterCommon) -> L2CVa
         apply_lift_param(boma, entry, false);
         return carry_change(fighter, entry, *FIGHTER_STATUS_KIND_WAIT, "victim lost -> WAIT");
     }
-    if let Some(next) = requested_throw(fighter) {
-        crate::telemetry::probe::event(format!(
-            "[rat] SHOULDER p{entry} throw {} after {}f; {}",
-            crate::telemetry::probe::st(next),
-            CARRY_FRAMES[entry],
-            crate::telemetry::probe::ctx(boma)
-        ));
-        return carry_change(fighter, entry, next, "requested throw");
+    // DK's two helpers, in his order: the throw, then the jump.
+    if carry_interrupts(fighter, entry) {
+        return 1.into();
     }
-    // Airborne -- walked off a ledge.
-    if StatusModule::situation_kind(boma) != *SITUATION_KIND_GROUND {
-        return carry_change(fighter, entry, RAT_STATUS_KIND_SHOULDER_FALL, "SHOULDER_FALL");
+    // Then the soft-platform drop, which is his third test and not his last.
+    if shoulder_pass_check(fighter, entry) {
+        return 1.into();
     }
 
-    // DK's ShoulderWait reads `common/turn_stick_x` and `common/walk_stick_x` in that order, and
-    // turn wins -- the stick pointing behind you is a turn, not a backwards walk.
-    let stick_x = ControlModule::get_stick_x(boma);
-    let lr = PostureModule::lr(boma);
-    let turn_min = WorkModule::get_param_float(boma, smash::hash40(TURN_STICK_X), 0);
-    let walk_min = WorkModule::get_param_float(boma, smash::hash40(WALK_STICK_X), 0);
-    if stick_x * lr < -turn_min.max(0.1) {
+    // DONKEY KONG'S SHOULDERWAIT DECISION, donkey 0x7100024240, transcribed:
+    //
+    //     if globalTable[0x1a] * lr <= get_param_float(common, turn_stick_x)
+    //        and globalTable[0x16] == SITUATION_KIND_GROUND      -> SHOULDER_TURN, true
+    //     if get_param_float(common, walk_stick_x) <= globalTable[0x1a] * lr
+    //        and globalTable[0x16] == SITUATION_KIND_GROUND      -> SHOULDER_WALK, true
+    //     if globalTable[0x16] == SITUATION_KIND_AIR             -> SHOULDER_FALL, false
+    //     if MotionModule::is_end() and motion_kind() != hash40("shoulder_wait")
+    //                                                            -> change_motion(shoulder_wait)
+    //
+    // NOTE THE ARGUMENT ORDER OF THE TWO COMPARISONS. Turn is `stick <= turn_stick_x`; walk is
+    // `walk_stick_x <= stick`. They are the same operator (`_ZNK3lib8L2CValueleERKS0_`) with the
+    // operands swapped, which is how one slot and two params give a signed window: below the
+    // negative threshold is a turn, above the positive one is a walk, between them is neither.
+    // `.abs()` cannot express that, which is why the port could only walk one way.
+    //
+    // THE AIR TEST MOVED. It used to be first, and `!= GROUND` rather than `== AIR` -- so any
+    // situation that is neither (CLIFF, for one) fell into SHOULDER_FALL. DK tests `== AIR` and
+    // tests it last, after the stick.
+    let stick = stick_x_lr(fighter);
+    let ground = fighter.global_table[0x16] == *SITUATION_KIND_GROUND;
+    if stick <= common_param_f(boma, TURN_STICK_X) && ground {
         return carry_change(fighter, entry, RAT_STATUS_KIND_SHOULDER_TURN, "SHOULDER_TURN");
     }
-    if stick_x.abs() > walk_min.max(0.1) {
+    if common_param_f(boma, WALK_STICK_X) <= stick && ground {
         return carry_change(fighter, entry, RAT_STATUS_KIND_SHOULDER_WALK, "SHOULDER_WALK");
+    }
+    if fighter.global_table[0x16] == *SITUATION_KIND_AIR {
+        return carry_change(fighter, entry, RAT_STATUS_KIND_SHOULDER_FALL, "SHOULDER_FALL");
+    }
+    // HIS ANIMATION REFRESH, WHICH IS WHY THE LOG SAID `WAIT entered` FOUR TIMES A CARRY.
+    //
+    // `shoulder_wait_main` changes motion on entry, so the port's only way to loop the pose was
+    // to re-enter the status -- and re-entering WAIT is what the measured log shows happening,
+    // four times in one carry with nothing else between. DK refreshes it in place instead, and
+    // only when the motion has actually ended and is not already the one he wants.
+    if MotionModule::is_end(boma) && MotionModule::motion_kind(boma) != hash40("shoulder_wait") {
+        MotionModule::change_motion(
+            boma,
+            Hash40::new("shoulder_wait"),
+            0.0,
+            1.0,
+            false,
+            0.0,
+            false,
+            false,
+        );
     }
     0.into()
 }
@@ -566,7 +806,17 @@ unsafe extern "C" fn shoulder_wait_loop(fighter: &mut L2CFighterCommon) -> L2CVa
 
 unsafe extern "C" fn shoulder_walk_pre(fighter: &mut L2CFighterCommon) -> L2CValue {
     // MOTION_LOOP: the animation moves him. This is the fix for the unbounded speed.
-    shoulder_pre(fighter, *FIGHTER_KINETIC_TYPE_MOTION_LOOP, *GROUND_CORRECT_KIND_GROUND_OTTOTTO)
+    shoulder_pre(
+        fighter,
+        *SITUATION_KIND_GROUND,
+        *FIGHTER_KINETIC_TYPE_MOTION_LOOP,
+        *GROUND_CORRECT_KIND_GROUND_OTTOTTO,
+        keep_none(),
+        true,
+        false,
+        // THE ONE ARGUMENT THAT IS NOT ZERO IN ANY OF THE TEN. See `shoulder_pre`.
+        *FIGHTER_STATUS_ATTR_SCALE_KINETIC_ENERGY as u32,
+    )
 }
 
 /// DK's `SHOULDER_WALK` `INIT_STATUS`, donkey `0x7100008650`, which is ONE CALL:
@@ -587,14 +837,60 @@ unsafe extern "C" fn shoulder_walk_pre(fighter: &mut L2CFighterCommon) -> L2CVal
 /// resolves them in that order to `shoulder_walk_fast`, `_middle`, `_slow`. Two of the three are
 /// eighteen characters, so the length byte alone could not have told fast from slow.
 ///
-/// His `EXEC_STATUS` for this status (`0x7100006170`) contains no calls at all -- the per-frame
-/// drive is entirely the common walk code, which is the point of routing through it.
+/// THE COMMENT THAT USED TO STAND HERE WAS THE LOAD-BEARING WRONG FACT IN THIS WHOLE MODULE. It
+/// said: "His `EXEC_STATUS` for this status (`0x7100006170`) contains no calls at all -- the
+/// per-frame drive is entirely the common walk code, which is the point of routing through it."
+///
+/// `0x7100006170` is `L2CFighterDonkey::status::ShoulderWalk_exec` and it contains ONE call, which
+/// is the per-frame drive:
+///
+///     sub_walk_uniq_process_main_common("shoulder_walk_fast", "shoulder_walk_middle",
+///                                       "shoulder_walk_slow", lib::L2CValue::NIL)
+///
+/// So "the per-frame drive is entirely the common walk code" was right and "contains no calls at
+/// all" was wrong about the same three lines of assembly, and because the port believed the second
+/// half it registered no `Exec` -- which means `calc_walk_speed` and `set_walk_motion` ran once,
+/// at `INIT_STATUS`, and never again. A three-speed walk whose speed is chosen once is a walk
+/// that does not move.
+///
+/// HOW THE OLD READING HAPPENED, since the same mistake is cheap to repeat: I read the
+/// disassembly of the wrong address and did not cross-check it against
+/// `vendor/ssbu-status/.../ShoulderWalk/exec.c`, which has had the call in it the whole time. The
+/// named decomp is the cheaper source and it should be read first; the disassembler is for what
+/// the decomp could not name.
+///
+/// THE ARGUMENT TYPES ARE ALSO FIXED HERE. These were `L2CValue::new_int(hash)`. DK constructs
+/// them with `_ZN3lib8L2CValueC1EN3phx6Hash40E` -- the Hash40 constructor, PLT stub 0x7100120a20,
+/// the same stub for all three -- so they are L2C values of type Hash, not Int, and the fourth
+/// argument is `_ZN3lib8L2CValueC1Eb` with `wzr`, so a Bool false rather than an Int 0. L2C is
+/// typed; `as_hash()` on an Int is not the same read.
 unsafe extern "C" fn shoulder_walk_init(fighter: &mut L2CFighterCommon) -> L2CValue {
     fighter.sub_walk_uniq_process_init_common(
-        L2CValue::new_int(Hash40::new("shoulder_walk_fast").hash),
-        L2CValue::new_int(Hash40::new("shoulder_walk_middle").hash),
-        L2CValue::new_int(Hash40::new("shoulder_walk_slow").hash),
-        L2CValue::new_int(0),
+        L2CValue::new_hash(Hash40::new("shoulder_walk_fast").hash),
+        L2CValue::new_hash(Hash40::new("shoulder_walk_middle").hash),
+        L2CValue::new_hash(Hash40::new("shoulder_walk_slow").hash),
+        L2CValue::new_bool(false),
+    );
+    0.into()
+}
+
+/// DK's `ShoulderWalk` `EXEC_STATUS`, donkey `0x7100006170`, which runs EVERY FRAME.
+///
+/// The fourth argument is `lib::L2CValue::NIL` and that is read off the binary rather than off
+/// Ghidra's label for it. The instruction is an `adrp`/`ldr` of GOT slot `0x1766c0` followed by
+/// the COPY constructor `_ZN3lib8L2CValueC1ERKS0_`, and `disasm --got` names that slot
+/// `_ZN3lib8L2CValue3NILE`. Ghidra's export calls the same address `LUA_SCRIPT_LINE_SYSTEM_POST`,
+/// which is a real constant (= 1) but not what is there: every genuine lua_const in these
+/// functions is a four-byte `ldr w1, [x24, #off]` out of
+/// `L2CAgentGeneratedBase::const_value_table__` at slot `0x1766b8`, never a whole-object copy.
+/// The same NIL slot is what DK substitutes when `sv_battle_object::module_accessor` returns null
+/// in his throw helper, which only makes sense for a nil.
+unsafe extern "C" fn shoulder_walk_exec(fighter: &mut L2CFighterCommon) -> L2CValue {
+    fighter.sub_walk_uniq_process_main_common(
+        L2CValue::new_hash(Hash40::new("shoulder_walk_fast").hash),
+        L2CValue::new_hash(Hash40::new("shoulder_walk_middle").hash),
+        L2CValue::new_hash(Hash40::new("shoulder_walk_slow").hash),
+        L2CValue::new_void(),
     );
     0.into()
 }
@@ -615,19 +911,36 @@ unsafe extern "C" fn shoulder_walk_loop(fighter: &mut L2CFighterCommon) -> L2CVa
         apply_lift_param(boma, entry, false);
         return carry_change(fighter, entry, *FIGHTER_STATUS_KIND_WAIT, "victim lost -> WAIT");
     }
-    if let Some(next) = requested_throw(fighter) {
-        return carry_change(fighter, entry, next, "requested throw");
+    if carry_interrupts(fighter, entry) {
+        return 1.into();
     }
-    if StatusModule::situation_kind(boma) != *SITUATION_KIND_GROUND {
-        return carry_change(fighter, entry, RAT_STATUS_KIND_SHOULDER_FALL, "SHOULDER_FALL");
+    if shoulder_pass_check(fighter, entry) {
+        return 1.into();
     }
-    let stick_x = ControlModule::get_stick_x(boma);
-    let lr = PostureModule::lr(boma);
-    if stick_x * lr < -0.1 {
-        return carry_change(fighter, entry, RAT_STATUS_KIND_SHOULDER_TURN, "SHOULDER_TURN");
-    }
-    if stick_x.abs() <= 0.1 {
+
+    // DONKEY KONG'S SHOULDERWALK DECISION, donkey 0x7100023cd0, and it is SHORTER than the port's:
+    //
+    //     if globalTable[0x1a] * lr < get_param_float(common, walk_stick_x)
+    //        and globalTable[0x16] == SITUATION_KIND_GROUND      -> SHOULDER_WAIT, true
+    //     if globalTable[0x16] == SITUATION_KIND_AIR             -> SHOULDER_FALL, false
+    //
+    // THERE IS NO TURN BRANCH HERE. The port had one, testing `stick_x * lr < -0.1` -- a
+    // threshold from nowhere -- and DK has none: walking with the stick pulled behind you drops
+    // below `walk_stick_x`, which returns you to WAIT, and WAIT is where the turn decision lives.
+    // Turning straight out of the walk skips the thing that owns that choice.
+    //
+    // THE OPERATOR IS `<`, NOT `<=`. ShoulderWait uses `<=` for both of its comparisons and
+    // ShoulderWalk uses `<` for this one (`_ZNK3lib8L2CValueltERKS0_` at donkey 0x7100023fbc
+    // against `_ZNK3lib8L2CValueleERKS0_` at 0x7100024668), so exactly at the threshold he keeps
+    // walking. Copied rather than rounded off.
+    let stick = stick_x_lr(fighter);
+    if stick < common_param_f(boma, WALK_STICK_X)
+        && fighter.global_table[0x16] == *SITUATION_KIND_GROUND
+    {
         return carry_change(fighter, entry, RAT_STATUS_KIND_SHOULDER_WAIT, "SHOULDER_WAIT");
+    }
+    if fighter.global_table[0x16] == *SITUATION_KIND_AIR {
+        return carry_change(fighter, entry, RAT_STATUS_KIND_SHOULDER_FALL, "SHOULDER_FALL");
     }
     0.into()
 }
@@ -635,15 +948,37 @@ unsafe extern "C" fn shoulder_walk_loop(fighter: &mut L2CFighterCommon) -> L2CVa
 // ---- SHOULDER_TURN ---------------------------------------------------------------------------
 
 unsafe extern "C" fn shoulder_turn_pre(fighter: &mut L2CFighterCommon) -> L2CValue {
-    shoulder_pre(fighter, *FIGHTER_KINETIC_TYPE_TURN, *GROUND_CORRECT_KIND_GROUND)
+    shoulder_pre(fighter, *SITUATION_KIND_GROUND, *FIGHTER_KINETIC_TYPE_TURN, *GROUND_CORRECT_KIND_GROUND, keep_none(), false, false, 0)
 }
 
+/// `ShoulderTurn_main`, donkey, transcribed -- and the two lines the port did not have are the
+/// entire reason the turn ever worked or did not.
+///
+///     WorkModule::set_float(get_param_float(common, turn_frame),
+///                           FIGHTER_STATUS_TURN_WORK_FLOAT_TURN_FRAME)
+///     WorkModule::off_flag(FIGHTER_STATUS_TURN_FLAG_TURN)
+///     MotionModule::change_motion(hash40("shoulder_turn"), 0.0, 1.0, false, 0.0, false, false)
+///
+/// THE PORT FLIPPED HIM BY HAND AND THAT IS A SECOND WRITER. It called
+/// `PostureModule::reverse_lr` + `update_rot_y_lr` in the loop on `MotionModule::is_end`, with a
+/// comment claiming that "matches DK, whose animation carries the rotation and whose status only
+/// commits it once". DK's ShoulderTurn calls neither function. The flip is the ENGINE's, and these
+/// two work variables are how it is asked for: `FIGHTER_KINETIC_TYPE_TURN` (already in
+/// `shoulder_turn_pre`) plus a `TURN_FRAME` countdown plus `TURN_FLAG_TURN` cleared is the same
+/// contract every ordinary Turn status signs. With the engine flipping him AND the port flipping
+/// him, the two cancel -- he faces the way he started, `global_table[0x1a] * lr` never changes
+/// sign, and the carry can only ever walk in one direction. Which is the report.
 unsafe extern "C" fn shoulder_turn_main(fighter: &mut L2CFighterCommon) -> L2CValue {
     let boma = fighter.module_accessor;
+    let frames = common_param_f(boma, TURN_FRAME);
+    WorkModule::set_float(boma, frames, *FIGHTER_STATUS_TURN_WORK_FLOAT_TURN_FRAME);
+    WorkModule::off_flag(boma, *FIGHTER_STATUS_TURN_FLAG_TURN);
     MotionModule::change_motion(boma, Hash40::new("shoulder_turn"), 0.0, 1.0, false, 0.0, false, false);
     fighter.sub_shift_status_main(L2CValue::Ptr(shoulder_turn_loop as *const () as _))
 }
 
+/// `ShoulderTurn_main_loop`, donkey: the throw helper, the jump helper, then `is_end` deciding
+/// between FALL and WAIT on the situation. Nothing else.
 unsafe extern "C" fn shoulder_turn_loop(fighter: &mut L2CFighterCommon) -> L2CValue {
     let boma = fighter.module_accessor;
     let entry = entry_of(boma);
@@ -654,12 +989,16 @@ unsafe extern "C" fn shoulder_turn_loop(fighter: &mut L2CFighterCommon) -> L2CVa
         apply_lift_param(boma, entry, false);
         return carry_change(fighter, entry, *FIGHTER_STATUS_KIND_WAIT, "victim lost -> WAIT");
     }
+    if carry_interrupts(fighter, entry) {
+        return 1.into();
+    }
     if MotionModule::is_end(boma) {
-        // The turn is what flips him; doing it at the end matches DK, whose animation carries the
-        // rotation and whose status only commits it once.
-        PostureModule::reverse_lr(boma);
-        PostureModule::update_rot_y_lr(boma);
-        return carry_change(fighter, entry, RAT_STATUS_KIND_SHOULDER_WAIT, "SHOULDER_WAIT");
+        if fighter.global_table[0x16] == *SITUATION_KIND_AIR {
+            return carry_change(fighter, entry, RAT_STATUS_KIND_SHOULDER_FALL, "SHOULDER_FALL");
+        }
+        if fighter.global_table[0x16] == *SITUATION_KIND_GROUND {
+            return carry_change(fighter, entry, RAT_STATUS_KIND_SHOULDER_WAIT, "SHOULDER_WAIT");
+        }
     }
     0.into()
 }
@@ -667,15 +1006,52 @@ unsafe extern "C" fn shoulder_turn_loop(fighter: &mut L2CFighterCommon) -> L2CVa
 // ---- SHOULDER_FALL / _LANDING ----------------------------------------------------------------
 
 unsafe extern "C" fn shoulder_fall_pre(fighter: &mut L2CFighterCommon) -> L2CValue {
-    shoulder_pre(fighter, *FIGHTER_KINETIC_TYPE_MOTION_FALL, *GROUND_CORRECT_KIND_AIR)
+    shoulder_pre(
+        fighter,
+        *SITUATION_KIND_AIR,
+        *FIGHTER_KINETIC_TYPE_MOTION_FALL,
+        *GROUND_CORRECT_KIND_AIR,
+        // THE ONLY STATUS OF THE TEN THAT KEEPS ANY WORK, and it keeps the FALL work -- which is
+        // what carries the fall speed and the fall-special flags across the transition into it.
+        (
+            *FIGHTER_STATUS_WORK_KEEP_FLAG_FALL_FLAG,
+            *FIGHTER_STATUS_WORK_KEEP_FLAG_FALL_INT,
+            *FIGHTER_STATUS_WORK_KEEP_FLAG_FALL_FLOAT,
+        ),
+        false,
+        true,
+        0,
+    )
 }
 
+/// `ShoulderFall_main`, donkey: the motion change is CONDITIONAL on where he came from.
+///
+///     if globalTable[0xa] != FIGHTER_DONKEY_STATUS_KIND_SHOULDER_START then
+///         change_motion(hash40("shoulder_fall"), 0.0, 1.0, false, 0.0, false, false)
+///     end
+///
+/// `globalTable[0xa]` is the previous status kind (`[0xb]` is the next one, which `shoulder_exit`
+/// already reads). Falling straight out of the lift keeps the lift animation running rather than
+/// cutting to the fall pose mid-lift.
 unsafe extern "C" fn shoulder_fall_main(fighter: &mut L2CFighterCommon) -> L2CValue {
     let boma = fighter.module_accessor;
-    MotionModule::change_motion(boma, Hash40::new("shoulder_fall"), 0.0, 1.0, false, 0.0, false, false);
+    if fighter.global_table[0xa].get_i32() != RAT_STATUS_KIND_SHOULDER_START {
+        MotionModule::change_motion(boma, Hash40::new("shoulder_fall"), 0.0, 1.0, false, 0.0, false, false);
+    }
     fighter.sub_shift_status_main(L2CValue::Ptr(shoulder_fall_loop as *const () as _))
 }
 
+/// `ShoulderFall_main_loop`, donkey:
+///
+///     if throw_helper() then return 1 end
+///     if globalTable[0x16] == SITUATION_KIND_GROUND then
+///         change_status(SHOULDER_LANDING, false)
+///     elseif MotionModule::is_end() and motion_kind() != hash40("shoulder_fall") then
+///         change_motion(hash40("shoulder_fall"), 0.0, 1.0, false, 0.0, false, false)
+///     end
+///
+/// NO JUMP HELPER. He calls it from Wait, Walk and Turn and from none of the airborne statuses --
+/// there is no second jump out of a cargo carry.
 unsafe extern "C" fn shoulder_fall_loop(fighter: &mut L2CFighterCommon) -> L2CValue {
     let boma = fighter.module_accessor;
     let entry = entry_of(boma);
@@ -688,14 +1064,17 @@ unsafe extern "C" fn shoulder_fall_loop(fighter: &mut L2CFighterCommon) -> L2CVa
     if let Some(next) = requested_throw(fighter) {
         return carry_change(fighter, entry, next, "requested throw");
     }
-    if StatusModule::situation_kind(boma) == *SITUATION_KIND_GROUND {
+    if fighter.global_table[0x16] == *SITUATION_KIND_GROUND {
         return carry_change(fighter, entry, RAT_STATUS_KIND_SHOULDER_LANDING, "SHOULDER_LANDING");
+    }
+    if MotionModule::is_end(boma) && MotionModule::motion_kind(boma) != hash40("shoulder_fall") {
+        MotionModule::change_motion(boma, Hash40::new("shoulder_fall"), 0.0, 1.0, false, 0.0, false, false);
     }
     0.into()
 }
 
 unsafe extern "C" fn shoulder_landing_pre(fighter: &mut L2CFighterCommon) -> L2CValue {
-    shoulder_pre(fighter, *FIGHTER_KINETIC_TYPE_MOTION, *GROUND_CORRECT_KIND_GROUND_OTTOTTO)
+    shoulder_pre(fighter, *SITUATION_KIND_GROUND, *FIGHTER_KINETIC_TYPE_MOTION, *GROUND_CORRECT_KIND_GROUND_OTTOTTO, keep_none(), true, false, 0)
 }
 
 unsafe extern "C" fn shoulder_landing_main(fighter: &mut L2CFighterCommon) -> L2CValue {
@@ -714,10 +1093,210 @@ unsafe extern "C" fn shoulder_landing_loop(fighter: &mut L2CFighterCommon) -> L2
         apply_lift_param(boma, entry, false);
         return carry_change(fighter, entry, *FIGHTER_STATUS_KIND_WAIT, "victim lost -> WAIT");
     }
+    // `ShoulderLanding_main_loop`, donkey: the air test comes FIRST and unconditionally -- you can
+    // be knocked off the stage during the landing -- and only then does `is_end` decide.
+    if fighter.global_table[0x16] == *SITUATION_KIND_AIR {
+        return carry_change(fighter, entry, RAT_STATUS_KIND_SHOULDER_FALL, "SHOULDER_FALL");
+    }
     if MotionModule::is_end(boma) {
-        return carry_change(fighter, entry, RAT_STATUS_KIND_SHOULDER_WAIT, "SHOULDER_WAIT");
+        let next = if fighter.global_table[0x16] == *SITUATION_KIND_GROUND {
+            RAT_STATUS_KIND_SHOULDER_WAIT
+        } else {
+            RAT_STATUS_KIND_SHOULDER_FALL
+        };
+        return carry_change(fighter, entry, next, "landing over");
     }
     0.into()
+}
+
+// ---- THE JUMP OUT OF THE CARRY, AND THE DROP THROUGH A PLATFORM ------------------------------
+//
+// DK's last four carry statuses, and the reason this port had six of eleven. See
+// `shoulder_jump_check` for the helper that reaches them.
+
+/// Both jumpsquats share one `pre`: GROUND, MOTION, `GROUND_CORRECT_KIND_GROUND` -- not the
+/// OTTOTTO teeter correction the standing statuses use, because a jumpsquat is not a stance.
+unsafe extern "C" fn shoulder_jump_squat_pre(fighter: &mut L2CFighterCommon) -> L2CValue {
+    shoulder_pre(
+        fighter,
+        *SITUATION_KIND_GROUND,
+        *FIGHTER_KINETIC_TYPE_MOTION,
+        *GROUND_CORRECT_KIND_GROUND,
+        keep_none(),
+        true,
+        false,
+        0,
+    )
+}
+
+/// `FUN_7100022f30`, the short-hop decision, run every frame of the squat by the same function
+/// that runs the loop (DK installs entry point `0x7100023150` -- helper then loop -- in
+/// `globalTable[0x15]`, and hands `sub_shift_status_main` entry point `0x71000231b0`, which is the
+/// loop alone).
+///
+///     if globalTable[9] == FIGHTER_DONKEY_STATUS_KIND_SHOULDER_JUMP_SQUAT_B then
+///         if ControlModule::check_button_off(CONTROL_PAD_BUTTON_JUMP) then
+///             WorkModule::on_flag(FIGHTER_STATUS_WORK_ID_FLAG_RESERVE_JUMP_MINI)
+///         end
+///     elseif ControlModule::get_stick_y() < get_param_float(common, jump_neutral_y) then
+///         WorkModule::on_flag(FIGHTER_STATUS_WORK_ID_FLAG_RESERVE_JUMP_MINI)
+///     end
+///
+/// A DEVIATION, NAMED: `globalTable[0x15]`'s role is not identified here, so rather than write a
+/// slot whose meaning is a guess, the loop below calls this itself once per frame. That is what
+/// installing `0x7100023150` achieves -- the two entry points differ by exactly this call -- and
+/// running the superset entry once a frame is the same work in the same order. What it does not
+/// reproduce is whatever else `[0x15]` is read by, which is why it is written down here.
+unsafe fn reserve_jump_mini(fighter: &mut L2CFighterCommon) {
+    let boma = fighter.module_accessor;
+    if fighter.global_table[9].get_i32() == RAT_STATUS_KIND_SHOULDER_JUMP_SQUAT_B {
+        if ControlModule::check_button_off(boma, *CONTROL_PAD_BUTTON_JUMP) {
+            WorkModule::on_flag(boma, *FIGHTER_STATUS_WORK_ID_FLAG_RESERVE_JUMP_MINI);
+        }
+    } else if ControlModule::get_stick_y(boma) < common_param_f(boma, JUMP_NEUTRAL_Y) {
+        WorkModule::on_flag(boma, *FIGHTER_STATUS_WORK_ID_FLAG_RESERVE_JUMP_MINI);
+    }
+}
+
+/// `FUN_7100022d00`, the `main` both jumpsquats share.
+unsafe extern "C" fn shoulder_jump_squat_main(fighter: &mut L2CFighterCommon) -> L2CValue {
+    let boma = fighter.module_accessor;
+    MotionModule::change_motion(
+        boma,
+        Hash40::new("shoulder_jump_squat"),
+        0.0,
+        1.0,
+        false,
+        0.0,
+        false,
+        false,
+    );
+    if !StopModule::is_stop(boma) {
+        reserve_jump_mini(fighter);
+    }
+    fighter.sub_shift_status_main(L2CValue::Ptr(shoulder_jump_squat_loop as *const () as _))
+}
+
+/// `0x7100023150`/`0x71000231b0`, the jumpsquat loop:
+///
+///     reserve_jump_mini()                                  -- the [0x15] entry point's extra call
+///     if ControlModule::is_jump_mini_button() then
+///         WorkModule::on_flag(FIGHTER_STATUS_WORK_ID_FLAG_RESERVE_JUMP_MINI)
+///     end
+///     if MotionModule::is_end() then change_status(SHOULDER_JUMP, true)
+///     elseif globalTable[0x16] == SITUATION_KIND_AIR then change_status(SHOULDER_FALL, true) end
+///     if throw_helper() then return 1 end
+unsafe extern "C" fn shoulder_jump_squat_loop(fighter: &mut L2CFighterCommon) -> L2CValue {
+    let boma = fighter.module_accessor;
+    let entry = entry_of(boma);
+    CARRY_FRAMES[entry] += 1;
+    hold_victim(boma, entry);
+
+    if !still_held(boma, entry) {
+        apply_lift_param(boma, entry, false);
+        return carry_change(fighter, entry, *FIGHTER_STATUS_KIND_WAIT, "victim lost -> WAIT");
+    }
+    reserve_jump_mini(fighter);
+    if ControlModule::is_jump_mini_button(boma) {
+        WorkModule::on_flag(boma, *FIGHTER_STATUS_WORK_ID_FLAG_RESERVE_JUMP_MINI);
+    }
+    if MotionModule::is_end(boma) {
+        return carry_change(fighter, entry, RAT_STATUS_KIND_SHOULDER_JUMP, "SHOULDER_JUMP");
+    }
+    if fighter.global_table[0x16] == *SITUATION_KIND_AIR {
+        return carry_change(fighter, entry, RAT_STATUS_KIND_SHOULDER_FALL, "SHOULDER_FALL");
+    }
+    if let Some(next) = requested_throw(fighter) {
+        return carry_change(fighter, entry, next, "requested throw");
+    }
+    0.into()
+}
+
+/// `ShoulderJump_pre`, donkey: AIR, `FIGHTER_KINETIC_TYPE_JUMP`, `GROUND_CORRECT_KIND_AIR`.
+///
+/// JUMP is the kinetic type that reads the fighter's own jump params -- Pikachu's `jump_y`,
+/// `jump_speed_x_max` and the rest -- so the height of a cargo jump is Pikachu's height and not a
+/// number written here. That is the same relationship `sub_walk_uniq_process_*_common` gives the
+/// walk.
+unsafe extern "C" fn shoulder_jump_pre(fighter: &mut L2CFighterCommon) -> L2CValue {
+    shoulder_pre(
+        fighter,
+        *SITUATION_KIND_AIR,
+        *FIGHTER_KINETIC_TYPE_JUMP,
+        *GROUND_CORRECT_KIND_AIR,
+        keep_none(),
+        false,
+        true,
+        0,
+    )
+}
+
+unsafe extern "C" fn shoulder_jump_main(fighter: &mut L2CFighterCommon) -> L2CValue {
+    let boma = fighter.module_accessor;
+    MotionModule::change_motion(boma, Hash40::new("shoulder_jump"), 0.0, 1.0, false, 0.0, false, false);
+    fighter.sub_shift_status_main(L2CValue::Ptr(shoulder_jump_loop as *const () as _))
+}
+
+/// `ShoulderJump_main_loop`, donkey, which is two tests:
+///
+///     if throw_helper() then return 1 end
+///     if MotionModule::is_end() then change_status(SHOULDER_FALL, false) end
+unsafe extern "C" fn shoulder_jump_loop(fighter: &mut L2CFighterCommon) -> L2CValue {
+    let boma = fighter.module_accessor;
+    let entry = entry_of(boma);
+    CARRY_FRAMES[entry] += 1;
+    hold_victim(boma, entry);
+
+    if !still_held(boma, entry) {
+        return carry_change(fighter, entry, *FIGHTER_STATUS_KIND_FALL, "victim lost -> FALL");
+    }
+    if let Some(next) = requested_throw(fighter) {
+        return carry_change(fighter, entry, next, "requested throw");
+    }
+    if MotionModule::is_end(boma) {
+        return carry_change(fighter, entry, RAT_STATUS_KIND_SHOULDER_FALL, "SHOULDER_FALL");
+    }
+    0.into()
+}
+
+/// `ShoulderPass_pre`, donkey: AIR, MOTION_FALL, and `GROUND_CORRECT_KIND_KEEP` -- KEEP rather
+/// than AIR because `main` is about to do the correction itself, in the right order relative to
+/// `pass_floor`.
+unsafe extern "C" fn shoulder_pass_pre(fighter: &mut L2CFighterCommon) -> L2CValue {
+    shoulder_pre(
+        fighter,
+        *SITUATION_KIND_AIR,
+        *FIGHTER_KINETIC_TYPE_MOTION_FALL,
+        *GROUND_CORRECT_KIND_KEEP,
+        keep_none(),
+        false,
+        true,
+        0,
+    )
+}
+
+/// `ShoulderPass_main`, donkey, four calls in this order and the order is the whole function:
+///
+///     ControlModule::reset_flick_y()
+///     GroundModule::pass_floor()
+///     self:set_situation(SITUATION_KIND_AIR)
+///     GroundModule::correct(GROUND_CORRECT_KIND_AIR)
+///
+/// `pass_floor`'s result is constructed into an L2CValue and immediately discarded in his code, so
+/// it is not a condition -- the drop is unconditional once the status is entered, and the status
+/// is only entered after `GroundModule::is_passable_check` said yes. `reset_flick_y` FIRST is what
+/// stops the same downward flick being read again next frame as another drop.
+///
+/// DK then shifts to a loop that is the same function as `ShoulderFall_main` -- Ghidra folded them
+/// -- so the pass hands straight over to the fall, which is what the motion and the kinetic type
+/// already say it is.
+unsafe extern "C" fn shoulder_pass_main(fighter: &mut L2CFighterCommon) -> L2CValue {
+    let boma = fighter.module_accessor;
+    ControlModule::reset_flick_y(boma);
+    GroundModule::pass_floor(boma);
+    fighter.set_situation(L2CValue::new_int(*SITUATION_KIND_AIR as u64));
+    GroundModule::correct(boma, smash::app::GroundCorrectKind(*GROUND_CORRECT_KIND_AIR));
+    fighter.sub_shift_status_main(L2CValue::Ptr(shoulder_fall_main as *const () as _))
 }
 
 // ---- THE FOUR CARGO THROWS -------------------------------------------------------------------
@@ -850,6 +1429,34 @@ unsafe extern "C" fn throw_loop(fighter: &mut L2CFighterCommon) -> L2CValue {
     0.into()
 }
 
+/// `ThrowFF_exit` / `ThrowFB_exit` / `ThrowFHi_exit` / `ThrowFLw_exit`, donkey -- all four are the
+/// same folded function and its entire body is one call:
+///
+///     CatchModule::catch_cut(boma, false, false)
+///
+/// THIS IS "AFTER ONE CARGO THROW I CAN'T GRAB THE OPPONENT AGAIN UNTIL AN L+R+A RESET."
+///
+/// `enter_carry` records a capture and links both ends, which is what makes the carry work at all.
+/// Nothing undid it. `shoulder_exit` clears `ignore_catching` on the way into a throw, and the
+/// throw then ran to completion with the engine still holding a capture record naming Pikachu as
+/// the master of a fighter he had already thrown -- so the next catch had nowhere to go. The
+/// engine's own answer is this one line on the way OUT of the throw, and it was the only carry
+/// status without an `Exit` registered.
+///
+/// Registered on the four throws rather than called from `throw_loop`, for the reason
+/// `carry_change`'s comment already gives about `leave_carry`: an exit line runs when the engine
+/// ends the status too, and getting hit out of a cargo throw is exactly that case.
+unsafe extern "C" fn throw_exit(fighter: &mut L2CFighterCommon) -> L2CValue {
+    let boma = fighter.module_accessor;
+    let entry = entry_of(boma);
+    CatchModule::catch_cut(boma, false, false);
+    crate::telemetry::sink::diag(format!(
+        "[rat] SHOULDER p{entry} throw over: catch_cut, so the engine is holding nobody and the \
+         next grab can start"
+    ));
+    0.into()
+}
+
 unsafe extern "C" fn throw_ff_main(fighter: &mut L2CFighterCommon) -> L2CValue {
     throw_main(fighter, "throw_f_f")
 }
@@ -905,14 +1512,31 @@ pub fn install() {
         .status(Pre,  RAT_STATUS_KIND_SHOULDER_LANDING, shoulder_landing_pre)
         .status(Main, RAT_STATUS_KIND_SHOULDER_LANDING, shoulder_landing_main)
         .status(Exit, RAT_STATUS_KIND_SHOULDER_LANDING, shoulder_exit)
+        .status(Exec, RAT_STATUS_KIND_SHOULDER_WALK,    shoulder_walk_exec)
+        .status(Pre,  RAT_STATUS_KIND_SHOULDER_JUMP_SQUAT,   shoulder_jump_squat_pre)
+        .status(Main, RAT_STATUS_KIND_SHOULDER_JUMP_SQUAT,   shoulder_jump_squat_main)
+        .status(Exit, RAT_STATUS_KIND_SHOULDER_JUMP_SQUAT,   shoulder_exit)
+        .status(Pre,  RAT_STATUS_KIND_SHOULDER_JUMP_SQUAT_B, shoulder_jump_squat_pre)
+        .status(Main, RAT_STATUS_KIND_SHOULDER_JUMP_SQUAT_B, shoulder_jump_squat_main)
+        .status(Exit, RAT_STATUS_KIND_SHOULDER_JUMP_SQUAT_B, shoulder_exit)
+        .status(Pre,  RAT_STATUS_KIND_SHOULDER_JUMP,    shoulder_jump_pre)
+        .status(Main, RAT_STATUS_KIND_SHOULDER_JUMP,    shoulder_jump_main)
+        .status(Exit, RAT_STATUS_KIND_SHOULDER_JUMP,    shoulder_exit)
+        .status(Pre,  RAT_STATUS_KIND_SHOULDER_PASS,    shoulder_pass_pre)
+        .status(Main, RAT_STATUS_KIND_SHOULDER_PASS,    shoulder_pass_main)
+        .status(Exit, RAT_STATUS_KIND_SHOULDER_PASS,    shoulder_exit)
         .status(Pre,  RAT_STATUS_KIND_THROW_F_F,  throw_pre)
         .status(Main, RAT_STATUS_KIND_THROW_F_F,  throw_ff_main)
+        .status(Exit, RAT_STATUS_KIND_THROW_F_F,  throw_exit)
         .status(Pre,  RAT_STATUS_KIND_THROW_F_B,  throw_pre)
         .status(Main, RAT_STATUS_KIND_THROW_F_B,  throw_fb_main)
+        .status(Exit, RAT_STATUS_KIND_THROW_F_B,  throw_exit)
         .status(Pre,  RAT_STATUS_KIND_THROW_F_HI, throw_pre)
         .status(Main, RAT_STATUS_KIND_THROW_F_HI, throw_fhi_main)
+        .status(Exit, RAT_STATUS_KIND_THROW_F_HI, throw_exit)
         .status(Pre,  RAT_STATUS_KIND_THROW_F_LW, throw_pre)
         .status(Main, RAT_STATUS_KIND_THROW_F_LW, throw_flw_main)
+        .status(Exit, RAT_STATUS_KIND_THROW_F_LW, throw_exit)
         .install();
 }
 
@@ -1225,15 +1849,20 @@ unsafe extern "C" fn shoulder_exit(fighter: &mut L2CFighterCommon) -> L2CValue {
     0.into()
 }
 
-/// The six statuses that mean "still carrying", so `shoulder_exit` can tell a carry-to-carry
-/// transition from losing the carry. DK tests all eleven of his; these are the six this port has.
+/// The statuses that mean "still carrying", so `shoulder_exit` can tell a carry-to-carry
+/// transition from losing the carry. DK tests all eleven of his, in the order his exit lists them;
+/// this is now all ten of ours plus the four throws he also allows through.
 fn is_carry_status(kind: i32) -> bool {
     kind == RAT_STATUS_KIND_SHOULDER_START
         || kind == RAT_STATUS_KIND_SHOULDER_WAIT
         || kind == RAT_STATUS_KIND_SHOULDER_WALK
         || kind == RAT_STATUS_KIND_SHOULDER_TURN
+        || kind == RAT_STATUS_KIND_SHOULDER_JUMP_SQUAT
+        || kind == RAT_STATUS_KIND_SHOULDER_JUMP_SQUAT_B
+        || kind == RAT_STATUS_KIND_SHOULDER_JUMP
         || kind == RAT_STATUS_KIND_SHOULDER_FALL
         || kind == RAT_STATUS_KIND_SHOULDER_LANDING
+        || kind == RAT_STATUS_KIND_SHOULDER_PASS
 }
 
 /// Is there actually a fighter on the capture link, and says so once per carry.

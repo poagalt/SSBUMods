@@ -147,9 +147,35 @@ pub const FORBIDDEN_VICTIM_STATUSES: &[i32] = &[0x178];
 // A HOLD MUST EXPIRE. A flag that only we clear is a stuck grab waiting to happen, which is the
 // one failure worse than not grabbing at all. `special_s_catch_clatter_frame` is 85 frames of
 // mashing, so twice that is a ceiling no legitimate hold reaches and every broken one does.
+//
+// EXCEPT THAT THE CARGO CARRY REACHES IT EVERY SINGLE TIME, and the measurement is unambiguous.
+// Six carries in one session, and five of the six end here:
+//
+//   [rat] VICTIM p0 cargo: status=0xc5 captured=true master=0x0 clatter=426.0
+//   [rat] VICTIM p0 cargo: status=0xc6 captured=true master=0x0 clatter=425.0
+//   [rat] HOLD p0 asked the engine to cut the catch on 0x10000: hold ceiling reached
+//   [rat] HOLD p0 released 0x10000 after 171f: hold ceiling reached -- something never let go
+//
+// 171 frames, every time, on a carry whose clatter timer had 425 of 426 frames left. Nothing
+// "never let go" -- the ceiling let go, 255 frames early, and "after some time mario still gets
+// stuck to pikachu's feet" is the tail of a carry being cut while the animation is mid-pose.
+//
+// SO THE CEILING IS NOW THE ENGINE'S NUMBER RATHER THAN A CONSTANT DERIVED FROM ONE OF THE TWO
+// MOVES. `ControlModule::get_clatter_time` on the victim is what the engine's own escape check
+// tests and what `CaptureWaitCommon` counts down; it reads 85 for the whip's
+// SWING_GAOGAEN_CATCHED and 426 for the carry's SHOULDERED_DONKEY, both measured. Taking twice
+// whatever the engine set at the moment of the hold keeps the original whip ceiling exactly
+// (85 * 2 = 170) and stops the carry being cut at a third of its length.
+//
+// The flat floor stays for the case that matters most: a victim whose clatter reads 0 at the
+// moment of the hold is a hold this module should not trust for long.
 
-/// Ceiling on a hold, in frames. Twice Incineroar's 85-frame clatter window.
+/// Floor on the hold ceiling, in frames. Twice Incineroar's 85-frame clatter window, which is
+/// also what the derived ceiling comes to for the whip.
 pub const MAX_HOLD_FRAMES: i32 = 170;
+
+/// Per-entry ceiling, seeded from the victim's own clatter timer in `hold`.
+static mut HOLD_CEILING: [i32; 8] = [MAX_HOLD_FRAMES; 8];
 
 static mut HELD_ID: [u32; 8] = [0; 8];
 static mut HELD_FOR: [i32; 8] = [0; 8];
@@ -161,7 +187,19 @@ pub unsafe fn hold(entry: usize, id: u32) -> bool {
     }
     HELD_ID[entry] = id;
     HELD_FOR[entry] = 0;
-    crate::telemetry::sink::crumb(format!("[rat] HOLD p{entry} took {id:#x}"));
+    // Seeded from the engine's own mash timer for THIS grab -- see the note on MAX_HOLD_FRAMES.
+    // A grab the engine has not set a clatter for reads 0 and gets the flat floor.
+    let clatter = match boma(id) {
+        Some(vboma) => smash::app::lua_bind::ControlModule::get_clatter_time(vboma, 0),
+        None => 0.0,
+    };
+    let derived = (clatter * 2.0) as i32;
+    HOLD_CEILING[entry] = derived.max(MAX_HOLD_FRAMES);
+    crate::telemetry::sink::crumb(format!(
+        "[rat] HOLD p{entry} took {id:#x}; their clatter is {clatter} so this hold expires after \
+         {}f if nothing else ends it",
+        HOLD_CEILING[entry]
+    ));
     true
 }
 
@@ -220,7 +258,7 @@ pub unsafe fn tick_hold(entry: usize) {
         return;
     }
     HELD_FOR[entry] += 1;
-    if HELD_FOR[entry] > MAX_HOLD_FRAMES {
+    if HELD_FOR[entry] > HOLD_CEILING[entry] {
         release(entry, "hold ceiling reached -- something never let go");
     }
 }

@@ -92,11 +92,27 @@ pub const RAT_STATUS_KIND_THROW_F_B: i32 = 0x1FE;
 pub const RAT_STATUS_KIND_THROW_F_HI: i32 = 0x1FF;
 pub const RAT_STATUS_KIND_THROW_F_LW: i32 = 0x200;
 
-// NOT REPRODUCED, and named so the gap is visible: DK also has SHOULDER_JUMP_SQUAT,
-// _JUMP_SQUAT_B, _JUMP and _PASS -- jumping while carrying, and dropping through a soft platform.
-// Those need Pikachu's own jump params threaded through four more statuses, and the carry is
-// worth having without them; the jump transition is suppressed instead, so the input does
-// nothing rather than doing something wrong.
+// THE LAST FOUR OF DK'S ELEVEN, WHICH THIS PORT USED TO DECLINE TO SHIP.
+//
+// The note that stood here said they "need Pikachu's own jump params threaded through four more
+// statuses, and the carry is worth having without them; the jump transition is suppressed
+// instead, so the input does nothing rather than doing something wrong". The playtest answered
+// that: "I also can't jump while in cargo throw." Doing nothing IS doing something wrong -- a
+// cargo carry you cannot jump out of is not the move.
+//
+// And the reasoning was wrong on the facts too. Nothing here threads a jump param anywhere. DK's
+// jump out of the carry is one helper (`FUN_7100023820`, called from ShoulderWait, ShoulderWalk
+// and ShoulderTurn every frame) plus four statuses whose whole content is `init_settings`,
+// `set_fighter_status_data`, one `change_motion` and an `is_end` test -- and the parameters they
+// read (`common/jump_stick_y`, `common/jump_flick_y`, `common/jump_neutral_y`) are read off the
+// fighter running them, which is Pikachu, exactly as `walk_stick_x` already is.
+pub const RAT_STATUS_KIND_SHOULDER_JUMP_SQUAT: i32 = 0x202;
+pub const RAT_STATUS_KIND_SHOULDER_JUMP_SQUAT_B: i32 = 0x203;
+pub const RAT_STATUS_KIND_SHOULDER_JUMP: i32 = 0x204;
+/// Dropping through a soft platform while carrying. Reached from Wait and Walk on a downward
+/// flick, and it is the reason DK's two ground loops read `common/pass_stick_y` before anything
+/// else.
+pub const RAT_STATUS_KIND_SHOULDER_PASS: i32 = 0x205;
 
 /// Revenge's RETALIATION, which Incineroar runs as its own status and we were trying to run as a
 /// re-entry into SPECIAL_LW.
@@ -114,7 +130,7 @@ pub const RAT_STATUS_KIND_THROW_F_LW: i32 = 0x200;
 pub const RAT_STATUS_KIND_SPECIAL_LW_HIT: i32 = 0x201;
 
 /// One past the highest id above. Anything new goes here and this moves up.
-pub const RAT_STATUS_KIND_NUM: i32 = 0x202;
+pub const RAT_STATUS_KIND_NUM: i32 = 0x206;
 
 // Two things that must stay true, checked at compile time rather than trusted:
 //   * every id above Pikachu's own NUM, so none of them shadows one of his statuses;
@@ -123,7 +139,7 @@ pub const RAT_STATUS_KIND_NUM: i32 = 0x202;
 // is a runtime lazy static and cannot be used in a const context.
 const _: () = {
     let first = RAT_STATUS_KIND_SPECIAL_HI_CLOSE;
-    let last = RAT_STATUS_KIND_SPECIAL_LW_HIT;
+    let last = RAT_STATUS_KIND_SHOULDER_PASS;
     assert!(first >= 0x1F0);
     assert!(last < RAT_STATUS_KIND_NUM);
 };
