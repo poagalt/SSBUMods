@@ -68,10 +68,37 @@
 // and cannot fault. Prove the transport first, then extend the reach.
 use skyline::hooks::{getRegionAddress, Region};
 
-/// Flipped on for a dump session. A listening socket is not something to leave in a shipped mod
-/// indefinitely, but it costs nothing while idle and the alternative is another playtest to turn
-/// it on.
-pub const ENABLED: bool = true;
+/// OFF, AND IT IS OFF BECAUSE IT CRASHED THE GAME ON BOOT.
+///
+/// The note that stood here said "it costs nothing while idle and the alternative is another
+/// playtest to turn it on". The first half was wrong and the second half is what it cost:
+///
+///     [rat] telemetry sink opened
+///     [rat] telemetry installed; plugin BUILD a6e17fe+dirty
+///     [rat] TRACE engine capture tracer ARMED
+///     [rat] source tracing armed on gaogaen, donkey, gamewatch, packun
+///     [rat] MEMSERVE resolved; recv=true close=true
+///     [rat] articles: CLONE_ENABLED=false ...
+///     [rat] MEMSERVE listening on 6900          <- seven lines, and the file ends here
+///
+/// Seven lines and no `p0 pikachu object is alive`, so the plugin installed everything and the
+/// game died before a fighter existed. The Atmosphere report names the thread: not MainThread but
+/// `Thread_0x3B7E96CDAC`, faulting in `nnSdk __memcpy_device + 0x214` with a fault address of 0,
+/// called from `Skyline + 0x3524`. THAT IS THIS FILE'S THREAD, one statement past the line it just
+/// logged -- the accept loop.
+///
+/// I am not going to diagnose it further, because the cost/benefit is settled. This server exists
+/// to pull main's mapped regions off the console, it did that, and what it fetched -- main's
+/// `.data`, its symbol table and the twenty source NROs -- is vendored in the repo and will not
+/// need fetching again. Everything the moveset needs is in `vendor/`. An instrument that has to
+/// run at boot, on its own thread, with a listening socket, to deliver something already on disk
+/// is not worth one more boot crash.
+///
+/// The code stays. It is the only way this project has to read the running game's memory, the
+/// transport is proven, and the two crash classes it already survived are written down at the top
+/// of this file. If it is ever needed again, turn it on, take the dump, and turn it off in the
+/// same session -- which is what "flipped on for a dump session" was supposed to mean.
+pub const ENABLED: bool = false;
 
 /// Nothing else on this console answers here. sys-ftpd is 5000, arc_network is 43022.
 const PORT: u16 = 6900;
