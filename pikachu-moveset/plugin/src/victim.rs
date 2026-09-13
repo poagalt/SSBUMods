@@ -553,10 +553,48 @@ pub unsafe fn cut_capture(entry: usize, why: &str) -> bool {
     // the whole teardown itself on its next update, which is exactly why it cannot leave a
     // constraint behind.
     let Some(ours) = boma(id_of_entry(entry as u32)) else { return false };
-    CatchModule::catch_cut(ours, false, false);
-    crate::telemetry::sink::crumb(format!(
-        "[rat] HOLD p{entry} asked the engine to cut the catch on {id:#x}: {why}"
-    ));
+    // ONLY WHILE THE ENGINE AGREES WE ARE CATCHING, BECAUSE THE CALL IS A REQUEST AND AN
+    // UNCONSUMED REQUEST IS THE "NEEDS A FULL RESET" BUG.
+    //
+    // `CatchCut` writes `this->[0x93] = 1` and the engine acts on it at its next update -- but
+    // only while it has a catch to act on. The measured log has it issued from WAIT:
+    //
+    //     TRACE pika0 st=0x1ff mot=0xa249b58ab CatchModule::catch_cut(false, false)
+    //     SHOULDER p0 throw over: catch_cut, so the engine is holding nobody
+    //     TRACE pika0 st=0x0   mot=0x47dee83e5 CatchModule::catch_cut(false, false)   <- here
+    //     pika0 status WALK(0x1) -> CATCH(0x37) ... -> WAIT(0x0)
+    //     pika0 status WAIT(0x0) -> CATCH(0x37) ... -> WAIT(0x0)
+    //
+    // and every grab after it plays the whole animation and latches onto nobody. That is why the
+    // training mod's save-state restore does not clear it and the game's own reset does: the flag
+    // lives in the fighter's catch module, not in anything a save state captures.
+    //
+    // It got issued from WAIT because the throw was interrupted -- the digest shows
+    // `512(=0x200) 48f -> 181(=0xb5) 7f -> FALL_AERIAL`, so Pikachu was hit out of THROW_F_LW,
+    // `throw_loop` never saw `MotionModule::is_end`, `forget` never ran, and the hold ceiling
+    // fired several statuses later.
+    if CatchModule::is_catch(ours) {
+        CatchModule::catch_cut(ours, false, false);
+        crate::telemetry::sink::crumb(format!(
+            "[rat] HOLD p{entry} asked the engine to cut the catch on {id:#x}: {why}"
+        ));
+    }
+    // AND THE VICTIM IS RELEASED FROM THEIR SIDE, WHICH IS WHERE THE ENGINE DOES IT ANYWAY.
+    //
+    // `CAPTURE_CUT` (0x44) is the status the engine's own escape puts a captured fighter into --
+    // `CaptureWaitCommon` transitions there on `FIGHTER_STATUS_TRANSITION_TERM_ID_CAPTURE_CUT`
+    // when the clatter runs out. Requesting it drops the constraint and gives them a status with a
+    // real motion, which is the other half of the report: "after mario escapes the cargo throw he
+    // gets stuck to pikachu's feet again with a t-posing animation". A T-pose is a fighter with no
+    // valid motion, and a fighter still constrained to our bone with no status to play is exactly
+    // that.
+    //
+    // Safe to force by the same standard as the three SWING_GAOGAEN statuses: it is a COMMON
+    // status, every fighter reaches it from an ordinary grab, and it is already what the engine
+    // was going to do. `FORBIDDEN_VICTIM_STATUSES` is consulted first regardless.
+    if CaptureModule::is_capture(vboma) {
+        request_status(vboma, *FIGHTER_STATUS_KIND_CAPTURE_CUT, "releasing a held victim");
+    }
     true
 }
 

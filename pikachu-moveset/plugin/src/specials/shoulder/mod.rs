@@ -977,12 +977,55 @@ unsafe extern "C" fn shoulder_turn_main(fighter: &mut L2CFighterCommon) -> L2CVa
     fighter.sub_shift_status_main(L2CValue::Ptr(shoulder_turn_loop as *const () as _))
 }
 
+/// `FUN_7100023390`, DK's TURN DRIVER -- the per-frame half of the turn, which the port had none of.
+///
+/// THIS IS "THE SPRITE PERIODICALLY TURNS AROUND VERY QUICKLY" WHEN CARRYING BACKWARDS, and the
+/// measured digest is the whole diagnosis:
+///
+///     504(=0x1f8) 1f -> 506(=0x1fa) 16f -> 504 1f -> 506 16f -> 504 1f -> 506 16f
+///
+/// WAIT for one frame, TURN for sixteen -- `shoulder_turn` is a 15-frame motion -- then WAIT for
+/// one frame and turn again, forever. `shoulder_turn_main` wrote `common/turn_frame` into
+/// `FIGHTER_STATUS_TURN_WORK_FLOAT_TURN_FRAME` and cleared `FIGHTER_STATUS_TURN_FLAG_TURN`, which
+/// is the contract -- and then NOTHING COUNTED THE COUNTDOWN DOWN. `lr` never flipped, so the
+/// stick still pointed behind him when TURN handed back to WAIT, and WAIT turned him again.
+///
+/// The driver, from donkey 0x7100023390:
+///
+///     if arg == 1 then
+///         if 0.0 <= get_float(TURN_WORK_FLOAT_TURN_FRAME) then
+///             WorkModule::add_float(-1.0, TURN_WORK_FLOAT_TURN_FRAME)
+///         elseif not is_flag(TURN_FLAG_TURN) then
+///             WorkModule::on_flag(TURN_FLAG_TURN)
+///             PostureModule::reverse_lr()
+///         end
+///     end
+///
+/// So the flip is ONE event, guarded by its own flag, `turn_frame` frames into the status -- not
+/// something to do at `MotionModule::is_end`, which is what the port's deleted hand-rolled version
+/// did and got backwards.
+///
+/// `arg == 1` AND WHERE IT COMES FROM, named because it is the one thing here that is inferred.
+/// `ShoulderTurn_main` calls this once with a `false` -- which fails the `== 1` test and does
+/// nothing -- and separately assigns `globalTable[0x15] = DAT_71000235b0`, a thunk that calls it
+/// with 1. `[0x15]` is the same slot the jumpsquat uses for its own per-frame helper, so it is the
+/// status's per-frame line; running the body once per loop is the same work at the same rate.
+unsafe fn drive_turn(boma: *mut BattleObjectModuleAccessor) {
+    if 0.0 <= WorkModule::get_float(boma, *FIGHTER_STATUS_TURN_WORK_FLOAT_TURN_FRAME) {
+        WorkModule::add_float(boma, -1.0, *FIGHTER_STATUS_TURN_WORK_FLOAT_TURN_FRAME);
+    } else if !WorkModule::is_flag(boma, *FIGHTER_STATUS_TURN_FLAG_TURN) {
+        WorkModule::on_flag(boma, *FIGHTER_STATUS_TURN_FLAG_TURN);
+        PostureModule::reverse_lr(boma);
+    }
+}
+
 /// `ShoulderTurn_main_loop`, donkey: the throw helper, the jump helper, then `is_end` deciding
 /// between FALL and WAIT on the situation. Nothing else.
 unsafe extern "C" fn shoulder_turn_loop(fighter: &mut L2CFighterCommon) -> L2CValue {
     let boma = fighter.module_accessor;
     let entry = entry_of(boma);
     CARRY_FRAMES[entry] += 1;
+    drive_turn(boma);
     hold_victim(boma, entry);
 
     if !still_held(boma, entry) {

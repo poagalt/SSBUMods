@@ -146,6 +146,7 @@ unsafe extern "C" fn pikachu_telemetry(fighter: &mut L2CFighterCommon) {
     // The self-test's second pass, two seconds in. Which motions are missing has come back
     // differently from two loads of the same files, so asking once is not a measurement.
     selftest::tick(boma, entry);
+    trace_source_victim(boma, entry);
     // ONE PLACE THAT KNOWS A FRAME HAS PASSED. The per-frame status-change budget in
     // src/victim.rs is reset here, and only here: if a status cycle is running away the frame
     // never ends, so this never runs and the counter keeps climbing until it refuses. That is
@@ -311,5 +312,60 @@ pub fn install() {
         "[rat] source tracing armed on {} -- play one of them and the log records what the \
          REAL move does, frame by frame, to diff against ours",
         SOURCE_AGENTS.join(", ")
+    ));
+}
+
+/// THE ONE MEASUREMENT THE WHIP'S TIMING CANNOT BE DERIVED WITHOUT, and it needs one minute of
+/// native Incineroar rather than another disassembly.
+///
+/// What is known from the game's files: the victim is thrown at
+/// `special_s_through_target_speed` = 11.2, continues past the rope at `_speed_over_rope` = 1.6,
+/// comes back at `_return_speed` = 2.8, and the leg is bounded by `_cancel_frame` = 30. What is
+/// NOT in any file is how long the ROPE holds them -- how many frames of stretch before it snaps
+/// them back -- because that belongs to the rope article, and this port has no rope.
+///
+/// The port currently passes through `SWING_GAOGAEN_ATTACH_ROPE` in one frame, which is defensible
+/// (its `Main` has no `change_status`, so it cannot time itself) and is measurably too short: the
+/// playtest reports "the timing needed to get the ideal lariat is way too fast" and "it seems like
+/// you're missing pieces of animation for the bounce against the rope". Native Incineroar's throw
+/// status runs 52 frames against our 33.
+///
+/// Subtracting one from the other gives 19 and that is exactly the kind of number this project
+/// does not get to invent. So this records the real thing instead. It runs ONLY for a source
+/// fighter -- Incineroar, Donkey Kong, Game & Watch, Piranha Plant -- never for our Pikachu, so it
+/// costs nothing in an ordinary session and produces, per frame of a native Alolan Whip:
+///
+///   * the victim's status and its frame, so each leg's length is read off rather than inferred
+///   * their x relative to the captor, so the rope's distance and both speeds are measurable
+///   * the captor's own status frame, to line the two up
+///
+/// One native whip in the log settles the stretch duration, the rope distance and the width of the
+/// lariat window together.
+unsafe fn trace_source_victim(boma: *mut smash::app::BattleObjectModuleAccessor, entry: usize) {
+    // Never for us. `SOURCE_AGENTS` installs this same callback on the source fighters, and the
+    // only thing that tells the two apart at runtime is the fighter kind.
+    if utility::get_kind(&mut *boma) == *FIGHTER_KIND_PIKACHU {
+        return;
+    }
+    let st = StatusModule::status_kind(boma);
+    // Gaogaen's six side-B statuses are 0x1dd (common SPECIAL_S) and 0x1e0..0x1e5 in HIS table.
+    // Written as a range rather than by name because the names are his and must not be linked
+    // against -- see tools/check-status.sh.
+    if st != *FIGHTER_STATUS_KIND_SPECIAL_S && !(0x1e0..=0x1e5).contains(&st) {
+        return;
+    }
+    let them = LinkModule::get_node_object_id(boma, *LINK_NO_CAPTURE) as u32;
+    let Some(vboma) = crate::victim::boma(them) else {
+        return;
+    };
+    sink::diag(format!(
+        "[rat] NATIVE p{entry} captor st={st:#x} f={:.0} | victim {them:#x} st={:#x} f={:.0} \
+         off={:.2} vy={:.2} clatter={:.0}",
+        MotionModule::frame(boma),
+        StatusModule::status_kind(vboma),
+        MotionModule::frame(vboma),
+        (PostureModule::pos_x(vboma) - PostureModule::pos_x(boma)) * PostureModule::lr(boma),
+        PostureModule::pos_y(vboma) - PostureModule::pos_y(boma),
+        ControlModule::get_clatter_time(vboma, 0),
     ));
 }
