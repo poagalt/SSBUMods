@@ -29,13 +29,29 @@ OUT="$MOD/config.json"
 
 # target pikachu path | source path already in the game's archive
 #
-# Chrom's sword metal textures: the jab's hitboxes ride Sword1, the bone was grafted onto Pikachu's
-# skeleton, and the material references these three. Aliased rather than copied because the bytes
-# are already on the console.
+# THE GRAFTED WEAPONS' TEXTURES. `tools/merge-weapons.sh` merges each source fighter's weapon into
+# Pikachu's body model as a named mesh, and each of those meshes carries its source material --
+# which references textures by name. The names must resolve under Pikachu's own model directory,
+# but the BYTES are already on the console, so every one is ALIASED rather than copied. That is
+# what keeps this mod free of redistributed Nintendo texture data.
+#
+# Three per material, `_col` `_nor` `_prm`, read out of each source `model.numatb`. The fourth
+# reference every one of them carries is `#replace_cubemap`, which is a built-in and needs no file.
+#
+# Keep this in step with merge-weapons.sh's TABLE; tools/check-weapons.sh fails if they disagree.
 ALIASES="
 fighter/pikachu/model/body/c00/met_chrom_001_col.nutexb|fighter/chrom/model/sword/c00/met_chrom_001_col.nutexb
 fighter/pikachu/model/body/c00/met_chrom_001_nor.nutexb|fighter/chrom/model/sword/c00/met_chrom_001_nor.nutexb
 fighter/pikachu/model/body/c00/met_chrom_001_prm.nutexb|fighter/chrom/model/sword/c00/met_chrom_001_prm.nutexb
+fighter/pikachu/model/body/c00/def_cloud_004_col.nutexb|fighter/cloud/model/fusionsword/c00/def_cloud_004_col.nutexb
+fighter/pikachu/model/body/c00/def_cloud_004_nor.nutexb|fighter/cloud/model/fusionsword/c00/def_cloud_004_nor.nutexb
+fighter/pikachu/model/body/c00/def_cloud_004_prm.nutexb|fighter/cloud/model/fusionsword/c00/def_cloud_004_prm.nutexb
+fighter/pikachu/model/body/c00/alp_light_002_col.nutexb|fighter/elight/model/esword/c00/alp_light_002_col.nutexb
+fighter/pikachu/model/body/c00/alp_light_002_nor.nutexb|fighter/elight/model/esword/c00/alp_light_002_nor.nutexb
+fighter/pikachu/model/body/c00/alp_light_002_prm.nutexb|fighter/elight/model/esword/c00/alp_light_002_prm.nutexb
+fighter/pikachu/model/body/c00/metal_palutena_002_col.nutexb|fighter/palutena/model/body/c00/metal_palutena_002_col.nutexb
+fighter/pikachu/model/body/c00/metal_palutena_002_nor.nutexb|fighter/palutena/model/body/c00/metal_palutena_002_nor.nutexb
+fighter/pikachu/model/body/c00/metal_palutena_002_prm.nutexb|fighter/palutena/model/body/c00/metal_palutena_002_prm.nutexb
 "
 
 cd "$MOD"

@@ -343,6 +343,9 @@ bash "$ROOT/tools/check-lists.sh" || rc=1
 echo; echo "== 4i. every Init/Exec/Exit the source status has is registered =="
 bash "$ROOT/tools/check-statuslines.sh" || rc=1
 
+echo; echo "== 4k. the grafted weapons agree across the merge, the plugin and config.json =="
+bash "$ROOT/tools/check-weapons.sh" || rc=1
+
 echo; echo "== 4j. nothing this mod does reaches a fighter that is not Pikachu =="
 bash "$ROOT/tools/check-blastradius.sh" || rc=1
 

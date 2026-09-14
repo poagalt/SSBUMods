@@ -4,6 +4,15 @@
             "fighter/pikachu/model/body/c00/met_chrom_001_col.nutexb",
             "fighter/pikachu/model/body/c00/met_chrom_001_nor.nutexb",
             "fighter/pikachu/model/body/c00/met_chrom_001_prm.nutexb",
+            "fighter/pikachu/model/body/c00/def_cloud_004_col.nutexb",
+            "fighter/pikachu/model/body/c00/def_cloud_004_nor.nutexb",
+            "fighter/pikachu/model/body/c00/def_cloud_004_prm.nutexb",
+            "fighter/pikachu/model/body/c00/alp_light_002_col.nutexb",
+            "fighter/pikachu/model/body/c00/alp_light_002_nor.nutexb",
+            "fighter/pikachu/model/body/c00/alp_light_002_prm.nutexb",
+            "fighter/pikachu/model/body/c00/metal_palutena_002_col.nutexb",
+            "fighter/pikachu/model/body/c00/metal_palutena_002_nor.nutexb",
+            "fighter/pikachu/model/body/c00/metal_palutena_002_prm.nutexb",
             "fighter/pikachu/motion/body/c00/c03attacks4hi.nuanmb",
             "fighter/pikachu/motion/body/c00/c03attacks4lw.nuanmb",
             "fighter/pikachu/motion/body/c00/d01specialairsfailure.nuanmb",
@@ -39,6 +48,15 @@
     "share-to-added": {
         "fighter/chrom/model/sword/c00/met_chrom_001_col.nutexb": ["fighter/pikachu/model/body/c00/met_chrom_001_col.nutexb"],
         "fighter/chrom/model/sword/c00/met_chrom_001_nor.nutexb": ["fighter/pikachu/model/body/c00/met_chrom_001_nor.nutexb"],
-        "fighter/chrom/model/sword/c00/met_chrom_001_prm.nutexb": ["fighter/pikachu/model/body/c00/met_chrom_001_prm.nutexb"]
+        "fighter/chrom/model/sword/c00/met_chrom_001_prm.nutexb": ["fighter/pikachu/model/body/c00/met_chrom_001_prm.nutexb"],
+        "fighter/cloud/model/fusionsword/c00/def_cloud_004_col.nutexb": ["fighter/pikachu/model/body/c00/def_cloud_004_col.nutexb"],
+        "fighter/cloud/model/fusionsword/c00/def_cloud_004_nor.nutexb": ["fighter/pikachu/model/body/c00/def_cloud_004_nor.nutexb"],
+        "fighter/cloud/model/fusionsword/c00/def_cloud_004_prm.nutexb": ["fighter/pikachu/model/body/c00/def_cloud_004_prm.nutexb"],
+        "fighter/elight/model/esword/c00/alp_light_002_col.nutexb": ["fighter/pikachu/model/body/c00/alp_light_002_col.nutexb"],
+        "fighter/elight/model/esword/c00/alp_light_002_nor.nutexb": ["fighter/pikachu/model/body/c00/alp_light_002_nor.nutexb"],
+        "fighter/elight/model/esword/c00/alp_light_002_prm.nutexb": ["fighter/pikachu/model/body/c00/alp_light_002_prm.nutexb"],
+        "fighter/palutena/model/body/c00/metal_palutena_002_col.nutexb": ["fighter/pikachu/model/body/c00/metal_palutena_002_col.nutexb"],
+        "fighter/palutena/model/body/c00/metal_palutena_002_nor.nutexb": ["fighter/pikachu/model/body/c00/metal_palutena_002_nor.nutexb"],
+        "fighter/palutena/model/body/c00/metal_palutena_002_prm.nutexb": ["fighter/pikachu/model/body/c00/metal_palutena_002_prm.nutexb"]
     }
 }
