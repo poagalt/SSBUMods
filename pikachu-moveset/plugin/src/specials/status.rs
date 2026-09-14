@@ -129,8 +129,45 @@ pub const RAT_STATUS_KIND_SHOULDER_PASS: i32 = 0x205;
 /// movement setup -- differing only in which motion it plays.
 pub const RAT_STATUS_KIND_SPECIAL_LW_HIT: i32 = 0x201;
 
+/// Revenge's retaliation when the hit came from BEHIND, which is a second status and not a flip.
+///
+/// WHO PICKS IT IS ENGINE CODE, AND FINDING IT SETTLED AN OPEN QUESTION. `lua2cpp_gaogaen.nro`
+/// never requests SPECIAL_LW_HIT or SPECIAL_LW_TURN -- `disasm --scan 0xb574` and `0xb578` find
+/// each constant at its three registration sites and at exactly one comparison inside the shared
+/// movement helper, and nowhere else. Both transitions come from `main`, in a function whose entry
+/// point `--callees` cannot see because it is only reached through a vtable, which is why the
+/// decompilation has a hole from 0xab86f0 to 0xab9800.
+///
+/// A byte scan for the MOVZ encoding of the two status ids found it anyway, at 0xab9f74 and
+/// 0xab9fe4, and the branch between them is the whole answer:
+///
+///     0xab9f14  cmp w0, #0x1df                 FIGHTER_STATUS_KIND_SPECIAL_LW
+///     0xab9f1c  [x23+0x50] vtable[0x108](0x2100000d)
+///                                              WorkModule::is_flag(GAOGAEN_STATUS_SPECIAL_LW_
+///                                              FLAG_STANCE) -- the counter window itself
+///     0xab9f3c  ldr s0, [x20, #0x4]            damage_info["damage_add_"]
+///     0xab9f40  fcmp s0, #0.0 / b.le           ... > 0.0
+///     0xab9f50  ldr s8, [x20, #0x160]          damage_info["damage_lr_"]
+///     0xab9f58  [x23+0x38] vtable[0xb0]()      PostureModule::lr
+///     0xab9f60  fmul s0, s8, s0
+///     0xab9f70  b.pl -> 0xab9fe4               product >= 0  ->  0x1eb SPECIAL_LW_HIT
+///     0xab9f74  mov w1, #0x1ec                 product <  0  ->  0x1ec SPECIAL_LW_TURN
+///     0xab9fec  [x23+0x40] vtable[0x48](w1, 0) StatusModule::change_status_request(.., false)
+///
+/// Every name in that listing is resolved, not guessed: `[boma+0x38] vtable[0xb0]` is the literal
+/// body of `app::lua_bind::PostureModule__lr_impl`, `[boma+0x40] vtable[0x48]` is the literal body
+/// of `StatusModule__change_status_request_impl`, and the two `damage_info` offsets are keyed by
+/// `DamageInfo__store_l2c_table_impl`, which writes offset 0x4 under hash 0xb9ea8580a
+/// `damage_add_` and offset 0x160 under 0xa66ec16de `damage_lr_`.
+///
+/// So: the attack's own left/right against the fighter's own facing. Hit from the front, he swings
+/// forward; hit from behind, he turns and swings the other way, which is what the `REVERSE_LR` in
+/// `game_speciallwturn` is for. That script and its two animations have been shipping since the
+/// counter was ported, with nothing able to reach them.
+pub const RAT_STATUS_KIND_SPECIAL_LW_TURN: i32 = 0x206;
+
 /// One past the highest id above. Anything new goes here and this moves up.
-pub const RAT_STATUS_KIND_NUM: i32 = 0x206;
+pub const RAT_STATUS_KIND_NUM: i32 = 0x207;
 
 // Two things that must stay true, checked at compile time rather than trusted:
 //   * every id above Pikachu's own NUM, so none of them shadows one of his statuses;

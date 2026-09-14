@@ -279,6 +279,7 @@ pub unsafe fn open_window(boma: *mut BattleObjectModuleAccessor) {
     WINDOW_OPEN[e] = true;
     // Reset alongside the window, so the probe reports once per stance rather than once ever.
     CANCEL_LOGGED[e] = false;
+    FROM_BEHIND[e] = false;
     WINDOW_LEFT[e] = WINDOW_FRAMES;
     LAST_DAMAGE[e] = DamageModule::damage(boma, 0);
 
@@ -367,6 +368,14 @@ pub unsafe fn close_window(boma: *mut BattleObjectModuleAccessor) {
 ///
 /// So: the flag is the watcher's, the three calls are the status's, and only `close_window`
 /// touches both.
+///
+/// AND IT IS ONLY `SpecialLw_end` THAT DOES THIS. `SpecialLwHit_end` and `SpecialLwTurn_end` are
+/// both literally `return 0` -- by the time either retaliation starts, the stance's own end has
+/// already reverted all three. One function is registered on all three statuses here anyway, for
+/// two reasons: on the native path the extra call writes the values that are already set, so it is
+/// a no-op; and the port's PHASE and WINDOW_OPEN bookkeeping has to be cleared when the
+/// RETALIATION ends, which is a thing Incineroar has no equivalent of because his motion choice
+/// comes from the status rather than from a variable.
 unsafe fn revert_absorb(boma: *mut BattleObjectModuleAccessor) {
     ABSORB_ARMED[entry_of(boma)] = false;
     DamageModule::set_no_reaction_mode_status(
@@ -397,6 +406,8 @@ pub static mut TIMER: [i32; 8] = [0; 8];
 pub static mut COUNTERED: [f32; 8] = [0.0; 8];
 /// Damage taken since the boost was banked, weighed against CANCEL_PERCENT.
 static mut DAMAGE_SINCE_BOOST: [f32; 8] = [0.0; 8];
+/// Did the hit that opened the retaliation come from behind? Written by `revenge_check_damage`.
+static mut FROM_BEHIND: [bool; 8] = [false; 8];
 /// Whether the active-Revenge visual is up, so it is spawned and killed exactly once.
 /// Whether the three absorb calls are currently armed on this entry.
 ///
@@ -491,6 +502,22 @@ unsafe fn clear_boost(fighter: &mut L2CFighterCommon) {
 }
 
 unsafe extern "C" fn pikachu_speciallw_pre(fighter: &mut L2CFighterCommon) -> L2CValue {
+    revenge_pre(fighter, true)
+}
+
+/// THE THREE `pre`s DIFFER BY ONE FLAG, AND THIS PORT HAD ALL THREE PASSING THE STANCE'S.
+///
+/// `SpecialLwHit_pre` and `SpecialLwTurn_pre` are byte-for-byte the stance's except for the log
+/// mask: the stance passes ATTACK_KIND_SPECIAL_LW | ACTION_CATEGORY_ATTACK | ACTION_TRIGGER_ON and
+/// the two retaliations pass only the first two. `pikachu_speciallwhit_pre` was a straight call to
+/// the stance's, so the retaliation was being filed in the engine's action log as a
+/// player-triggered action, which it is not -- the engine triggered it.
+///
+///     grep -nE "LOG_MASK" .../status/SpecialLw{,Hit,Turn}/pre.c
+///     SpecialLw/pre.c:70      ... | ACTION_CATEGORY_ATTACK | FIGHTER_LOG_MASK_FLAG_ACTION_TRIGGER_ON
+///     SpecialLwHit/pre.c:70   ... | ACTION_CATEGORY_ATTACK)
+///     SpecialLwTurn/pre.c:70  ... | ACTION_CATEGORY_ATTACK)
+unsafe fn revenge_pre(fighter: &mut L2CFighterCommon, trigger_on: bool) -> L2CValue {
     StatusModule::init_settings(
         fighter.module_accessor,
         smash::app::SituationKind(*SITUATION_KIND_NONE),
@@ -521,7 +548,7 @@ unsafe extern "C" fn pikachu_speciallw_pre(fighter: &mut L2CFighterCommon) -> L2
         // decomp disagree the decomp is the source of truth; see vendor/hdr/README-rat.md.
         (*FIGHTER_LOG_MASK_FLAG_ATTACK_KIND_SPECIAL_LW
             | *FIGHTER_LOG_MASK_FLAG_ACTION_CATEGORY_ATTACK
-            | *FIGHTER_LOG_MASK_FLAG_ACTION_TRIGGER_ON) as u64,
+            | if trigger_on { *FIGHTER_LOG_MASK_FLAG_ACTION_TRIGGER_ON } else { 0 }) as u64,
         0,
         FIGHTER_POWER_UP_ATTACK_BIT_SPECIAL_LW.into(),
         0
@@ -643,7 +670,7 @@ unsafe fn revenge_kinetics(fighter: &mut L2CFighterCommon, air: bool) {
 /// Revenge's RETALIATION status. Incineroar's `SpecialLwHit`: identical shape to SpecialLw, same
 /// UNIQ kinetic and the same movement helper, differing only in the motion it plays.
 unsafe extern "C" fn pikachu_speciallwhit_pre(fighter: &mut L2CFighterCommon) -> L2CValue {
-    pikachu_speciallw_pre(fighter)
+    revenge_pre(fighter, false)
 }
 
 unsafe extern "C" fn pikachu_speciallwhit_main(fighter: &mut L2CFighterCommon) -> L2CValue {
@@ -658,6 +685,38 @@ unsafe extern "C" fn pikachu_speciallwhit_main(fighter: &mut L2CFighterCommon) -
     revenge_kinetics(fighter, air);
     crate::telemetry::probe::event(format!(
         "[rat] REVENGE retaliation status entered, motion '{motion}'; {}",
+        crate::telemetry::probe::ctx(boma)
+    ));
+    fighter.sub_shift_status_main(L2CValue::Ptr(pikachu_speciallw_main_loop as *const () as _))
+}
+
+/// Revenge's retaliation FACING THE OTHER WAY. Incineroar's `SpecialLwTurn`.
+///
+/// The same shape again -- `SpecialLwTurn/main.c` differs from `SpecialLwHit/main.c` only in the
+/// two motion hashes, which are the source's own literals resolved rather than assumed:
+///
+///     0x0fa4760a42  special_lw_turn
+///     0x13afef8796  special_air_lw_turn
+///
+/// The turn itself is not done here. `game_speciallwturn` carries a `REVERSE_LR` alongside its two
+/// hitboxes, so the flip is the script's, on the script's frame -- which is why this status has no
+/// `reverse_lr` call and why the ACMD has been shipping complete since the counter was ported.
+unsafe extern "C" fn pikachu_speciallwturn_pre(fighter: &mut L2CFighterCommon) -> L2CValue {
+    revenge_pre(fighter, false)
+}
+
+unsafe extern "C" fn pikachu_speciallwturn_main(fighter: &mut L2CFighterCommon) -> L2CValue {
+    let boma = fighter.module_accessor;
+    let air = fighter.global_table[0x16] != *SITUATION_KIND_GROUND;
+    let motion = if air { "special_air_lw_turn" } else { "special_lw_turn" };
+    MotionModule::change_motion(boma, Hash40::new(motion), 0.0, 1.0, false, 0.0, false, false);
+    GroundModule::correct(
+        boma,
+        GroundCorrectKind(if air { *GROUND_CORRECT_KIND_AIR } else { *GROUND_CORRECT_KIND_GROUND_CLIFF_STOP }),
+    );
+    revenge_kinetics(fighter, air);
+    crate::telemetry::probe::event(format!(
+        "[rat] REVENGE retaliation from BEHIND, motion '{motion}'; {}",
         crate::telemetry::probe::ctx(boma)
     ));
     fighter.sub_shift_status_main(L2CValue::Ptr(pikachu_speciallw_main_loop as *const () as _))
@@ -739,19 +798,22 @@ unsafe extern "C" fn pikachu_speciallw_main_loop(fighter: &mut L2CFighterCommon)
     //
     //     SpecialLw     0x10ef97f71f special_lw_start   0x146e22785f special_air_lw_start
     //     SpecialLwHit  0x0ab6928cf2 special_lw         0x0e46c0e666 special_air_lw
+    //     SpecialLwTurn 0x0fa4760a42 special_lw_turn    0x13afef8796 special_air_lw_turn
     //
-    // The first pair is what the stance plays and the second is the retaliation, which is
-    // exactly what this module's two mains already choose between on entry. Reading the hashes
-    // mattered: `special_lw` looked like the obvious answer for the stance and is the wrong one.
+    // The first pair is what the stance plays, the second is the retaliation and the third is the
+    // retaliation from behind, which is exactly what this module's three mains choose between on
+    // entry. Reading the hashes mattered: `special_lw` looked like the obvious answer for the
+    // stance and is the wrong one.
     let now_ground = fighter.global_table[0x16] == *SITUATION_KIND_GROUND;
     let was_ground = fighter.global_table[0x17] == *SITUATION_KIND_GROUND;
     if now_ground != was_ground {
-        let hit = StatusModule::status_kind(boma) == RAT_STATUS_KIND_SPECIAL_LW_HIT;
-        let motion = match (hit, now_ground) {
-            (true, true) => "special_lw",
-            (true, false) => "special_air_lw",
-            (false, true) => "special_lw_start",
-            (false, false) => "special_air_lw_start",
+        let motion = match (StatusModule::status_kind(boma), now_ground) {
+            (RAT_STATUS_KIND_SPECIAL_LW_HIT, true) => "special_lw",
+            (RAT_STATUS_KIND_SPECIAL_LW_HIT, false) => "special_air_lw",
+            (RAT_STATUS_KIND_SPECIAL_LW_TURN, true) => "special_lw_turn",
+            (RAT_STATUS_KIND_SPECIAL_LW_TURN, false) => "special_air_lw_turn",
+            (_, true) => "special_lw_start",
+            (_, false) => "special_air_lw_start",
         };
         GroundModule::correct(
             boma,
@@ -778,6 +840,54 @@ unsafe extern "C" fn pikachu_speciallw_main_loop(fighter: &mut L2CFighterCommon)
     }
     0.into()
 }
+
+/// WHICH SIDE THE HIT CAME FROM, READ WHERE THE ENGINE READS IT.
+///
+/// `damage_lr_` is a field of `app::DamageInfo` and the only way into it from a plugin is the L2C
+/// table the engine hands a CheckDamage line -- `DamageInfo__store_l2c_table_impl` writes offset
+/// 0x160 under hash 0xa66ec16de, and no `DamageModule` binding exposes it. So this line exists to
+/// read one number at the one moment it is available.
+///
+/// IT DECIDES NOTHING AND RETURNS `false`. The counter trigger is still the damage delta in
+/// `pikachu_revenge_frame`, which the last playtest confirmed; this only records the sign so that
+/// trigger can pick between the two retaliation statuses. `false` is what a status with no
+/// CheckDamage line effectively answers -- DK's carry line returns `false` on every path where it
+/// does not apply, and being hit during his carry in that state behaves like any other status.
+///
+/// INCINEROAR REGISTERS NO CheckDamage ON SpecialLw, and that is not a contradiction: his branch
+/// is in `main`, in compiled C++ that runs on Gaogaen and not on Pikachu. There is no native
+/// status line to transcribe here, so this is the port's own route to the same input -- the
+/// guards (`damage_add_ > 0`, the stance window) stay where they already work rather than being
+/// duplicated.
+unsafe extern "C" fn revenge_check_damage(
+    fighter: &mut L2CFighterCommon,
+    damage_info: &L2CValue,
+) -> L2CValue {
+    let boma = fighter.module_accessor;
+    let entry = entry_of(boma);
+    if WINDOW_OPEN[entry] {
+        // `damage_info["damage_add_"] > 0.0`, the engine's own guard at 0xab9f40 -- a zero-damage
+        // connection is not a counter.
+        let add = damage_info[DAMAGE_ADD].get_f32();
+        if add > 0.0 {
+            let lr = damage_info[DAMAGE_LR].get_f32() * PostureModule::lr(boma);
+            FROM_BEHIND[entry] = lr < 0.0;
+            crate::telemetry::sink::diag(format!(
+                "[rat] REVENGE p{entry} check_damage: damage_add_={add:.2} \
+                 damage_lr_*lr={lr:.2} -> from_behind={}",
+                FROM_BEHIND[entry]
+            ));
+        }
+    }
+    false.into()
+}
+
+/// `damage_info["damage_add_"]` and `["damage_lr_"]`, the two fields the engine's Revenge branch
+/// reads. Literals rather than `hash40(..)` because these are C++ member names exposed into L2C by
+/// `DamageInfo__store_l2c_table_impl` -- `tools/luaconst --hashdict` names them off main's own
+/// strings and no community label list has them.
+const DAMAGE_ADD: u64 = 0xb9ea8580a;
+const DAMAGE_LR: u64 = 0xa66ec16de;
 
 unsafe extern "C" fn pikachu_speciallw_end(fighter: &mut L2CFighterCommon) -> L2CValue {
     let boma = fighter.module_accessor;
@@ -807,9 +917,10 @@ unsafe extern "C" fn pikachu_speciallw_end(fighter: &mut L2CFighterCommon) -> L2
     //
     // NOT WHEN THE COUNTER IS WHAT WE ARE LEAVING FOR. `globalTable[0xb]` is the next status, the
     // same idiom the whip's release and DK's carry exit both use. The counter sets PHASE and then
-    // requests SPECIAL_LW_HIT; clearing it on that transition would undo the thing that just
-    // decided to happen.
-    if fighter.global_table[0xb] != RAT_STATUS_KIND_SPECIAL_LW_HIT {
+    // requests SPECIAL_LW_HIT -- or SPECIAL_LW_TURN when the hit came from behind -- and clearing
+    // it on either transition would undo the thing that just decided to happen.
+    let next = fighter.global_table[0xb].get_i32();
+    if next != RAT_STATUS_KIND_SPECIAL_LW_HIT && next != RAT_STATUS_KIND_SPECIAL_LW_TURN {
         PHASE[entry] = PHASE_STANCE;
         WINDOW_OPEN[entry] = false;
     }
@@ -841,7 +952,11 @@ unsafe extern "C" fn pikachu_speciallw_end(fighter: &mut L2CFighterCommon) -> L2
 /// This project has hit that shape repeatedly and named it: a parallel list. So there is no second
 /// list. Every "are we in Revenge" question goes through here.
 fn is_revenge_status(status: i32) -> bool {
-    unsafe { status == *FIGHTER_STATUS_KIND_SPECIAL_LW || status == RAT_STATUS_KIND_SPECIAL_LW_HIT }
+    unsafe {
+        status == *FIGHTER_STATUS_KIND_SPECIAL_LW
+            || status == RAT_STATUS_KIND_SPECIAL_LW_HIT
+            || status == RAT_STATUS_KIND_SPECIAL_LW_TURN
+    }
 }
 
 /// Catch the absorb calls being left armed outside the two statuses that may arm them.
@@ -934,8 +1049,18 @@ pub unsafe extern "C" fn pikachu_revenge_frame(fighter: &mut L2CFighterCommon) {
         // nothing to act on it.
         //
         // Incineroar has SpecialLwHit as a real status for exactly this. So do we now.
+        //
+        // AND SpecialLwTurn WHEN THE HIT CAME FROM BEHIND, which is the engine's own branch --
+        // `damage_info["damage_lr_"] * PostureModule::lr < 0` at 0xab9f70, quoted in full above
+        // RAT_STATUS_KIND_SPECIAL_LW_TURN. The sign was captured by `revenge_check_damage` at the
+        // moment the damage was applied rather than recomputed here, because `lr` can already have
+        // changed by the time the delta is noticed.
+        let behind = FROM_BEHIND[entry];
+        FROM_BEHIND[entry] = false;
         StatusModule::change_status_request_from_script(
-            boma, RAT_STATUS_KIND_SPECIAL_LW_HIT, false
+            boma,
+            if behind { RAT_STATUS_KIND_SPECIAL_LW_TURN } else { RAT_STATUS_KIND_SPECIAL_LW_HIT },
+            false,
         );
         return;
     }
@@ -1067,9 +1192,31 @@ pub fn install() {
         .status(Pre,  *FIGHTER_STATUS_KIND_SPECIAL_LW, pikachu_speciallw_pre)
         .status(Main, *FIGHTER_STATUS_KIND_SPECIAL_LW, pikachu_speciallw_main)
         .status(End,  *FIGHTER_STATUS_KIND_SPECIAL_LW, pikachu_speciallw_end)
+        // `Exit` AND NOT `End` ON THE TWO NEW ONES, WHICH WAS A DEAD REGISTRATION AND A LATENT BUG.
+        //
+        // `tools/check-statuslines.sh` knows why: smashline hooks End and Exit at two offsets that
+        // both land inside `L2CFighterBase::sub_end_status_msc`, and only the vanilla path reaches
+        // the End one -- so `End` on a brand-new status kind never runs. SPECIAL_LW_HIT had been
+        // registering End, and the check EXEMPTED it on the reasoning that gaogaen's own
+        // `SpecialLwHit_end` is a bare `return 0` so the body was redundant anyway.
+        //
+        // That reasoning is right about Incineroar and wrong about this port. `pikachu_speciallw_end`
+        // does not only revert the absorb; it also puts PHASE back to PHASE_STANCE, and the
+        // retaliation can be FAF-cancelled at frame 27 of a 67-frame motion, which returns from
+        // `main_loop` without reaching the `is_end` branch that is the only other place PHASE is
+        // cleared. A cancelled retaliation therefore left PHASE at COUNTER -- which is exactly the
+        // "activates the revenge counter fire damage on command" shape that has now been reported
+        // twice. The stance's own End covers entering the retaliation; nothing covered leaving it.
         .status(Pre,  RAT_STATUS_KIND_SPECIAL_LW_HIT, pikachu_speciallwhit_pre)
         .status(Main, RAT_STATUS_KIND_SPECIAL_LW_HIT, pikachu_speciallwhit_main)
-        .status(End,  RAT_STATUS_KIND_SPECIAL_LW_HIT, pikachu_speciallw_end)
+        .status(Exit, RAT_STATUS_KIND_SPECIAL_LW_HIT, pikachu_speciallw_end)
+        .status(Pre,  RAT_STATUS_KIND_SPECIAL_LW_TURN, pikachu_speciallwturn_pre)
+        .status(Main, RAT_STATUS_KIND_SPECIAL_LW_TURN, pikachu_speciallwturn_main)
+        .status(Exit, RAT_STATUS_KIND_SPECIAL_LW_TURN, pikachu_speciallw_end)
+        // Only on the STANCE. The two retaliation statuses cannot be countered out of, and the
+        // engine's branch is gated on `status == FIGHTER_STATUS_KIND_SPECIAL_LW` for the same
+        // reason.
+        .status(CheckDamage, *FIGHTER_STATUS_KIND_SPECIAL_LW, revenge_check_damage)
         .on_line(Main, pikachu_revenge_frame)
         .install();
 }

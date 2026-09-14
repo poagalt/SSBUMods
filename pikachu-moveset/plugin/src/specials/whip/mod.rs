@@ -52,6 +52,32 @@ mod catch;
 //   NOT MODELLED: special_air_s_catch_accel_y
 //   NOT MODELLED: special_air_s_catch_speed_y_max
 //
+// ==== AND THE THREE `check-callparity.sh` ENTRIES FOR THIS MODULE, EACH READ ====
+//
+// That report says "read, do not gate", so these are read. All three are the same two mechanisms
+// as the declines above, seen from the other side -- the tool matches on a CALL appearing
+// anywhere in the module, so a value we obtain differently counts as missing.
+//
+//   KineticModule::get_sum_speed_y   `0x710001d4b0`'s hoisted prologue reads sum_x AND sum_y; the
+//                                    only branch that could use sum_y is the air catch, through
+//                                    `special_air_s_catch_accel_y` and `_catch_speed_y_max`,
+//                                    which are declined right above on the same evidence. We read
+//                                    sum_x, which `special_s_catch_speed_x_mul` does use.
+//
+//   WorkModule::get_param_int        the same prologue's three `special_s_catch_clatter_*` reads.
+//                                    Those are the VICTIM's to ask for, and `src/params` answers
+//                                    them when the victim's status does -- so nothing on our side
+//                                    calls `get_param_int` at all.
+//
+//   WorkModule::set_float            `SpecialSThrow/main_loop.c:319` and `:386` store the victim's
+//                                    `PostureModule::pos_x` into
+//                                    FIGHTER_GAOGAEN_INSTANCE_WORK_ID_FLOAT_SPECIAL_S_LARIAT_
+//                                    AREA_HIT_POS_X. That id is Incineroar's namespace and means
+//                                    something else on Pikachu, which `tools/check-status.sh`
+//                                    refuses -- so the same value lives in
+//                                    `whip::state::LARIAT_AREA_HIT_POS_X` instead. The behaviour
+//                                    is present; the call cannot be.
+//
 // THE CAPSULE DIMENSIONS BEYOND x1. `whip_update_areas` reduces each area to the 1-D interval its
 // x offsets describe, because the victim is carried at our own height for the whole run, so the
 // y span and the radius cannot change the answer. `node` names the bone the capsule hangs off --

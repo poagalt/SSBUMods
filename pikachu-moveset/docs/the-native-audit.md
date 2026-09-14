@@ -165,3 +165,150 @@ status line, not a missing call.
 
 **`WorkModule::set_int` in `ThrowF*`** and **`MotionModule::change_motion_inherit_frame` /
 `WorkModule::is_flag` in SpecialLw** -- the last three, unread.
+
+## Third pass: the two that needed the binary rather than the decompilation
+
+Both of the last items turned out to be blocked on the same thing -- Ghidra's output is lossy in
+exactly the places that decide behaviour -- and both were settled by going to the instructions.
+
+### `CheckDamage` on the carry: the operator Ghidra will not name
+
+Ghidra collapses every `lib::L2CValue` comparison operator into a single `operator_`, so DK's
+shared carry `check_dmg` reads
+
+    lib::L2CValue::L2CValue(aLStack64,_DAMAGE_LEVEL_FLY);
+    uVar5 = lib::L2CValue::operator_(aLStack96,aLStack64);
+    if ((uVar5 & 1) == 0) { ...drop the item...; return false; } else { return true; }
+
+and `operator_` there is equally consistent with `==`, `!=`, `<` and `<=`. Each reading inverts
+the move: the item and the carry break on weak hits instead of launching ones. ADR 0005 forbids
+guessing, so the line stayed unimplemented until the PLT stub's MANGLED name settled it:
+
+    0x7100004508  ldr w1, [x22, #0x1274]        ; ~lua_const DAMAGE_LEVEL_FLY
+    0x710000451c  bl _ZNK3lib8L2CValueltERKS0_  ; operator<
+    0x710000452c  tbz w21, #0x0, $+0x14         ; NOT less -> the ItemModule path
+    0x7100004530  mov w1, #0x1                  ; less     -> return true
+
+`lt`, so the item drops when the damage level IS `DAMAGE_LEVEL_FLY`. The mangled suffixes worth
+keeping: `eqERKS0_` `==`, `neERKS0_` `!=`, `ltERKS0_` `<`, `leERKS0_` `<=`, `ixEN3phx6Hash40E`
+`operator[](Hash40)`, `cvbEv` `operator bool`.
+
+Two of the fields it reads are not in ParamLabels.csv and never will be -- they are C++ MEMBER
+names exposed into L2C, which is what `tools/luaconst --hashdict` is for:
+`0x10d723eebb owner_object_id_`, `0xdc56470f9 reaction_max_`. The trailing underscore is the
+convention, and recognising it is what makes the rest of the `DamageInfo` table readable.
+
+`DamageTransactorImpl::calc_reaction_frame` is CALLED, not retyped: it is exported from `main` at
+0x404ec0 and imported by `lua2cpp_donkey.nro` through a PLT stub, so both calls land on the same
+code. That matters more than convenience -- it multiplies by two global params (`0x10eb42a0a3`,
+`0x10e33b9cd2`) that are in no label list this project has, so a reimplementation could not have
+been checked.
+
+Shipped on all ten of DK's carry statuses. `check-callparity.sh` for shoulder: 0 missing on both
+groups, total 22 -> 20.
+
+### `SPECIAL_LW_TURN`: the transition is in a function the decompilation cannot see
+
+`lua2cpp_gaogaen.nro` never requests either retaliation status. `--scan 0xb574` and `0xb578` find
+each constant at its three registration sites and at one comparison inside the shared movement
+helper `FUN_7100013e50`, and nowhere else. Both transitions are engine-side -- and the function
+that makes them has no entry in `vendor/decomp/main` at all, because `--callees` collects `bl`
+targets and this one is only reached through a vtable. The corpus has a hole from 0xab86f0 to
+0xab9800 for exactly that reason.
+
+**A byte scan for the instruction found it anyway.** A status id in `main` is an immediate, and
+`mov wN, #imm16` is `MOVZ`: `0x52800000 | (imm16 << 5) | Rd`. Scanning the 60 MB `.text` for the
+two encodings gave 172 hits, two of them in the Gaogaen region, and the branch between them is
+the whole answer:
+
+    0xab9f14  cmp w0, #0x1df                  FIGHTER_STATUS_KIND_SPECIAL_LW
+    0xab9f1c  [x23+0x50] vtable[0x108](0x2100000d)
+                                              WorkModule::is_flag(FIGHTER_GAOGAEN_STATUS_
+                                              SPECIAL_LW_FLAG_STANCE) -- the counter window
+    0xab9f3c  ldr s0, [x20, #0x4]  fcmp / b.le  damage_info["damage_add_"] > 0.0
+    0xab9f50  ldr s8, [x20, #0x160]           damage_info["damage_lr_"]
+    0xab9f58  [x23+0x38] vtable[0xb0]()       PostureModule::lr
+    0xab9f60  fmul s0, s8, s0
+    0xab9f70  b.pl                            product >= 0 -> 0x1eb SPECIAL_LW_HIT
+    0xab9f74  mov w1, #0x1ec                  product <  0 -> 0x1ec SPECIAL_LW_TURN
+    0xab9fec  [x23+0x40] vtable[0x48](w1, 0)  StatusModule::change_status_request(.., false)
+
+Every name there is resolved rather than guessed, and the technique is the one worth reusing: a
+`lua_bind` wrapper is a one-line thunk, so its decompiled body IS the module offset and vtable
+index. `PostureModule__lr_impl` is literally `(**(code **)(**(long **)(param_1 + 0x38) + 0xb0))()`
+and `StatusModule__change_status_request_impl` is `[param_1 + 0x40] + 0x48`. The two `damage_info`
+offsets come from `DamageInfo__store_l2c_table_impl`, which writes offset 0x4 under
+`0xb9ea8580a damage_add_` and offset 0x160 under `0xa66ec16de damage_lr_`.
+
+So the criterion is the attack's own left/right against the fighter's facing: hit from the front
+he swings forward, hit from behind he turns and swings the other way, which is what the
+`REVERSE_LR` in `game_speciallwturn` is for. That script and its two animations had been shipping
+since the counter was ported with nothing able to reach them.
+
+**Also found on the way, and fixed:** the three `pre` handlers are identical except for one log
+flag. The stance passes `ACTION_TRIGGER_ON`; `SpecialLwHit_pre` and `SpecialLwTurn_pre` do not.
+This port called the stance's `pre` for the retaliation, so it was filing an engine-triggered
+action in the game's action log as a player-triggered one.
+
+**And a deviation now recorded rather than implied:** only `SpecialLw_end` reverts the three
+absorb calls. `SpecialLwHit_end` and `SpecialLwTurn_end` are literally `return 0`. The port
+registers one `end` on all three because its PHASE and WINDOW_OPEN bookkeeping has to be cleared
+when the retaliation ends -- a thing Incineroar has no equivalent of, because his motion choice
+comes from the status and not from a variable. On the native path the extra call writes values
+that are already set.
+
+### What the port still does its own way here, deliberately
+
+The engine's branch above is also the counter's TRIGGER, and the port's trigger is the damage
+delta in `pikachu_revenge_frame`. That is left alone: the delta was confirmed working by playtest,
+and moving the trigger into a `CheckDamage` line would mean deciding whether `damage_add_` is the
+raw figure or the 0.4x-scaled one, which nothing read so far answers. So the new `CheckDamage`
+line on SPECIAL_LW records the sign of `damage_lr_ * lr` and nothing else.
+
+## Found while doing that, and NOT yet fixed: `revenge_kinetics` is not the helper it says it is
+
+`FUN_7100013e50` is the movement setup all three of Incineroar's Revenge statuses call, and
+`speciallw::revenge_kinetics` claims to be a transcription of it. Reading it properly for the TURN
+status showed it is not. `disasm --trace 0x7100013e50` gives 50 calls; the port makes nine.
+
+Three divergences, in increasing order of how much they could matter:
+
+**1. The kinetic type is wrong, and this one is read off the instructions.** The port does
+`change_kinetic(FIGHTER_KINETIC_TYPE_UNIQ)` unconditionally. The helper branches on the situation:
+
+    0x7100014030  ldr w1, [x24, #0x58]    ; ~lua_const SITUATION_KIND_GROUND
+    0x7100014048  bl _ZNK3lib8L2CValueeqERKS0_          globalTable[0x16] == GROUND ?
+    0x710001405c  ldr w1, [x24, #0x410]   ; FIGHTER_KINETIC_TYPE_GROUND_STOP
+    0x7100014078  bl KineticModule__change_kinetic_impl
+    0x7100014080  ldr w1, [x24, #0x430]   ; FIGHTER_KINETIC_TYPE_FALL
+    0x710001409c  bl KineticModule__change_kinetic_impl
+
+`UNIQ` is what the three `pre` handlers pass to `init_settings`, which the port also does
+correctly -- so the constant is right in one place and was reused in the wrong one.
+
+**2. It is a THREE-WAY on the status, not one shape for all three.** The body is
+`if (status == SPECIAL_LW) { A } else if (status == SPECIAL_LW_HIT || status == SPECIAL_LW_TURN)
+{ B } else { return }`, each half then splitting again on ground/air. The status constants are the
+three at 0x71000140a8 (`#0xd0` SPECIAL_LW), 0x7100014148 (`#0xb574` SPECIAL_LW_HIT) and
+0x7100014174 (`#0xb578` SPECIAL_LW_TURN) -- the same two comparison sites that proved the
+transitions are engine-side. The port has one path parameterised only by `air`.
+
+**3. The stance hands the engine a MULTIPLIER where the port computes a speed.** The stance half
+ends in `sv_kinetic_energy::set_speed_mul` on MOTION, with a literal `0xbf800000` (-1.0) in one
+branch; the port always calls `set_speed`, with `sx * special_lw_start_x_mul` worked out in Rust.
+Those are different operations on a stateful energy, and a -1.0 multiplier is exactly the shape of
+"reverse what you came in with", which is what a status called TURN would want.
+
+Also unverified rather than wrong: the port's second `clear_unable_energy` passes
+FIGHTER_KINETIC_ENERGY_ID_CONTROL_NO_STOP on the stated reasoning that it is "CONTROL and its
+no-stop twin, which is the pair that survives a hitstop". That is inference. The helper calls
+`clear_unable_energy` three times and the trace's hints for them are GRAVITY, GRAVITY and CONTROL,
+and all three take their id from `globalTable[5]` rather than a constant, so none of them has been
+read yet.
+
+**Why this is a separate round and not part of the TURN change.** The same doc comment that is
+wrong about the kinetic type is right about the thing it was written for -- "allows the player to
+slide around rather than killing their momentum" was a real playtest report and the MOTION-instead
+-of-CONTROL fix is what cured it. Changing one constant inside a function whose other two thirds
+are unread is how that regression comes back. The helper gets transcribed whole, against the
+decompiled static in `vendor/decomp/statics/gaogaen.c:1`, or not at all.

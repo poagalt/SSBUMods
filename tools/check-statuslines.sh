@@ -121,11 +121,24 @@ fi
 # Exempt, with reasons, because the rule is about bodies that DO something:
 #   SPECIAL_S_END    gaogaen's end line only retires the ROPE article, which ADR 0004 excludes, so
 #                    the port's body is an empty `false.into()` and has nothing to reach.
-#   SPECIAL_LW_HIT   `pikachu_speciallw_end` is registered on this as well as on the VANILLA
-#                    SPECIAL_LW, whose End does fire. gaogaen's own `SpecialLwHit_end` is a bare
-#                    `return 0` -- he reverts the absorb on the way OUT of SpecialLw, before
-#                    SpecialLwHit is ever entered -- so this registration is redundant either way.
-EXIT_EXEMPT="RAT_STATUS_KIND_SPECIAL_S_END RAT_STATUS_KIND_SPECIAL_LW_HIT"
+#
+# SPECIAL_LW_HIT USED TO BE EXEMPT HERE AND THE EXEMPTION WAS WRONG. It read: "`pikachu_speciallw_end`
+# is registered on this as well as on the VANILLA SPECIAL_LW, whose End does fire. gaogaen's own
+# `SpecialLwHit_end` is a bare `return 0` -- he reverts the absorb on the way OUT of SpecialLw,
+# before SpecialLwHit is ever entered -- so this registration is redundant either way."
+#
+# Every sentence of that is true about Incineroar and none of it is true about this port. The
+# port's `end` body also resets PHASE, which is what its stance `main` reads to choose between the
+# stance animation and the retaliation animation -- a variable Incineroar does not have, because
+# his choice comes from the status. The retaliation is FAF-cancellable at frame 27 of 67, and a
+# cancel returns from `main_loop` without reaching the `is_end` branch that is the only other place
+# PHASE is cleared, so a cancelled retaliation left it at COUNTER and the next down-B played the
+# fire. That is the "activates the revenge counter fire damage on command" report, twice.
+#
+# So the exemption is gone and speciallw registers `Exit` on both retaliation statuses. The lesson
+# is the one this file exists for: an exemption has to be argued about the PORT's body, not about
+# the source's.
+EXIT_EXEMPT="RAT_STATUS_KIND_SPECIAL_S_END"
 
 end_missing=""; end_checked=0
 for kind in $(grep -rhoE "\.status\(End,[[:space:]]*RAT_STATUS_KIND_[A-Z_0-9]+," \
