@@ -581,92 +581,183 @@ unsafe extern "C" fn pikachu_speciallw_main(fighter: &mut L2CFighterCommon) -> L
         boma,
         GroundCorrectKind(if air { *GROUND_CORRECT_KIND_AIR } else { *GROUND_CORRECT_KIND_GROUND_CLIFF_STOP }),
     );
-    revenge_kinetics(fighter, air);
+    revenge_kinetics(fighter, true);
     fighter.sub_shift_status_main(L2CValue::Ptr(pikachu_speciallw_main_loop as *const () as _))
 }
 
-/// Incineroar's `FUN_7100013e50`, the movement setup both SpecialLw and SpecialLwHit call.
+/// Incineroar's `FUN_7100013e50`, transcribed WHOLE. All three Revenge statuses call it, on entry
+/// with `true` and on a mid-status situation change with `false`.
 ///
-/// THIS IS WHY HE DOES NOT SLIDE, AND WHY WE DID.
+/// WHAT IT WAS BEFORE, AND WHY THAT MATTERED. The previous version was a nine-call sketch built on
+/// one real finding and three guesses. The finding was right and is kept: the entering speed had
+/// been written to `FIGHTER_KINETIC_ENERGY_ID_CONTROL`, which is the PLAYER'S energy -- the thing
+/// the stick drives -- so it damped nothing and handed the stance straight back to the controller
+/// ("allows the player to slide around rather than killing their momentum and locking them in
+/// place until revenge is over"). Moving it off CONTROL cured that.
 ///
-/// The old code put the entering speed on `FIGHTER_KINETIC_ENERGY_ID_CONTROL`. Control energy is
-/// the PLAYER'S energy -- the thing the stick drives -- so writing a speed into it does not damp
-/// anything, it hands the stance straight back to the controller. Playtest, exactly:
-/// "allows the player to slide around rather than killing their momentum and locking them in
-/// place until revenge is over".
+/// The guesses were all three wrong, and `--trace` on the real helper -- 50 calls against the
+/// port's nine -- says so:
 ///
-/// `tools/disasm` on lua2cpp_gaogaen.nro resolves what the real helper does, in order:
+///   * `change_kinetic(UNIQ)` should be GROUND_STOP or FALL on the situation. `UNIQ` is what the
+///     three `pre`s hand `init_settings`, and it was reused here.
+///   * the entering horizontal speed belongs to the STOP energy, not MOTION. It arrives as the
+///     THIRD pushed argument of `reset_energy(STOP, type, sx, 0, 0, 0, 0)` -- the sx slot at
+///     0x71000146bc, 0x710001476c, 0x7100014ba8 and 0x7100014c58. MOTION is reset to five literal
+///     zeros at all four of its call sites and never given a speed at all.
+///   * the two `special_air_lw_*` params act on the GRAVITY energy, which this port did not touch.
+///   * `clear_unable_energy` is called with CONTROL, and with GRAVITY in the grounded branch.
+///     CONTROL_NO_STOP, which the old comment justified as "its no-stop twin, the pair that
+///     survives a hitstop", appears nowhere in the function.
 ///
-///   KineticModule::get_sum_speed_x / _y            the momentum he arrives with
-///   WorkModule::get_param_float x3                 the three multipliers, below
-///   KineticModule::change_kinetic(UNIQ)            ground and air variants
-///   KineticUtility::clear_unable_energy            TWICE -- this is the part that locks him
-///   sv_kinetic_energy::reset_energy(MOTION, ...)
-///   sv_kinetic_energy::set_speed / set_accel       on MOTION, not CONTROL
-///   KineticModule::enable_energy(MOTION)
+/// AND IT IS A THREE-WAY ON THE STATUS, not one shape parameterised by air. `status == SPECIAL_LW`
+/// and `status == SPECIAL_LW_HIT || SPECIAL_LW_TURN` take different paths, and anything else
+/// returns immediately -- the same two comparison sites (0x7100014148, 0x7100014174) that proved
+/// the HIT/TURN transitions are engine-side.
 ///
-/// and the three params, reverse-looked-up from their hash40s against ParamLabels and then read
-/// out of `gaogaen/param/vl.prc` so the values are the game's own rather than remembered:
+/// Every constant here is read off an `ldr wN, [x24, #off]` and named through
+/// `vendor/ssbu-status/lua_dict.txt`: 0x410 GROUND_STOP, 0x430 FALL, 0x3b4 GRAVITY, 0x498 STOP,
+/// 0x49c/0x4a4 ENERGY_STOP_RESET_TYPE_GROUND/_AIR, 0x274 MOTION, 0x280c/0x2810
+/// ENERGY_MOTION_RESET_TYPE_GROUND_TRANS/_AIR_TRANS, 0x4b0 ENERGY_GRAVITY_RESET_TYPE_GRAVITY,
+/// 0x4a8 CONTROL, 0x348 KINETIC_ENERGY_RESERVE_ATTRIBUTE_MAIN, 0xb608 the air-speed latch.
 ///
-///   special_lw_start_x_mul       0.6     fraction of entering horizontal speed kept
-///   special_air_lw_speed_y_mul   0.7     fraction of entering vertical speed kept
-///   special_air_lw_hit_accel_y   0.02    the airborne stance's own downward accel
+/// The three params keep their values, which were already right -- reverse-looked-up from their
+/// hash40s and read out of `gaogaen/param/vl.prc`:
 ///
-/// So the stance is a one-shot MOTION impulse that decays, with the control energy explicitly
-/// disabled. `clear_unable_energy` is what makes the stick inert; setting MOTION is what makes
-/// the 0.6 mean "keeps 60% of what he came in with" instead of "is handed 60% as a new walk
-/// speed".
-unsafe fn revenge_kinetics(fighter: &mut L2CFighterCommon, air: bool) {
+///   special_lw_start_x_mul       0.6     fraction of entering horizontal speed the STANCE keeps
+///   special_air_lw_speed_y_mul   0.7     fraction of entering vertical speed, ONCE per life
+///   special_air_lw_hit_accel_y   0.02    negated, and only on the RETALIATIONS
+///
+/// what changed is where each of them is applied.
+unsafe fn revenge_kinetics(fighter: &mut L2CFighterCommon, flag: bool) {
     let boma = fighter.module_accessor;
-    let sx = KineticModule::get_sum_speed_x(boma, *KINETIC_ENERGY_RESERVE_ATTRIBUTE_MAIN);
+    let entry = entry_of(boma);
+
+    // The five values the real helper hoists before its dispatch, in its order. Pikachu has no
+    // `param_special_lw`, so the three multipliers are the constants at the top of this file --
+    // read out of `gaogaen/param/vl.prc` -- rather than a `get_param_float` that returns 0.
+    let mut sx = KineticModule::get_sum_speed_x(boma, *KINETIC_ENERGY_RESERVE_ATTRIBUTE_MAIN);
     let sy = KineticModule::get_sum_speed_y(boma, *KINETIC_ENERGY_RESERVE_ATTRIBUTE_MAIN);
 
-    KineticModule::change_kinetic(boma, *FIGHTER_KINETIC_TYPE_UNIQ);
-    // The two energies the player would otherwise still be driving. Incineroar clears twice; the
-    // ids are CONTROL and its no-stop twin, which is the pair that survives a hitstop.
-    KineticUtility::clear_unable_energy(*FIGHTER_KINETIC_ENERGY_ID_CONTROL, boma);
-    KineticUtility::clear_unable_energy(*FIGHTER_KINETIC_ENERGY_ID_CONTROL_NO_STOP, boma);
+    let status = fighter.global_table[0x9].get_i32();
+    let ground = fighter.global_table[0x16] == *SITUATION_KIND_GROUND;
 
-    // RESET BEFORE SET, WHICH IS THE ORDER THE REAL HELPER USES AND THE STEP THAT MAKES IT TAKE.
-    //
-    // `set_speed` on its own writes a field on an energy that may still be carrying the previous
-    // status's reset type, angle and multiplier -- the MOTION energy is stateful. Incineroar's
-    // FUN_7100013e50 calls `reset_energy` first, and HewDraw Remix does the same thing in DK's
-    // `catch_pull_main` when arriving from a special: clear_speed, then reset_energy with an
-    // explicit type, and only then a speed.
-    //
-    // The reset TYPE is the ground/air distinction the engine itself draws --
-    // `EnergyMotionResetType::is_ground` / `is_air` in HDR's decoded struct -- so the grounded
-    // stance uses GROUND_TRANS and the airborne one AIR_TRANS.
-    let reset_type = if air {
-        *ENERGY_MOTION_RESET_TYPE_AIR_TRANS
-    } else {
-        *ENERGY_MOTION_RESET_TYPE_GROUND_TRANS
-    };
-    sv_kinetic_energy!(
-        reset_energy, fighter, *FIGHTER_KINETIC_ENERGY_ID_MOTION, reset_type,
-        0.0, 0.0, 0.0, 0.0, 0.0
+    // 0x7100014058. NOT `UNIQ` -- that is what the three `pre`s hand `init_settings`, and reusing
+    // it here was this function's oldest mistake.
+    KineticModule::change_kinetic(
+        boma,
+        if ground { *FIGHTER_KINETIC_TYPE_GROUND_STOP } else { *FIGHTER_KINETIC_TYPE_FALL },
     );
 
-    let vx = sx * START_X_MUL;
-    let vy = if air { sy * AIR_SPEED_Y_MUL } else { 0.0 };
-    sv_kinetic_energy!(set_speed, fighter, *FIGHTER_KINETIC_ENERGY_ID_MOTION, vx, vy);
-    if air {
-        // `special_air_lw_hit_accel_y` -- he keeps falling, slowly, rather than hanging.
+    let retaliation =
+        status == RAT_STATUS_KIND_SPECIAL_LW_HIT || status == RAT_STATUS_KIND_SPECIAL_LW_TURN;
+    if !(status == *FIGHTER_STATUS_KIND_SPECIAL_LW || retaliation) {
+        // 0x710001419c falls straight out. Nothing else in the function runs.
+        return;
+    }
+
+    // ---- THE GRAVITY ENERGY ----
+    //
+    // Grounded, both branches only re-enable whatever the previous status had disabled. Airborne,
+    // they reset it and write a vertical speed -- and this is the energy the two `special_air_lw_*`
+    // params act on, which is why applying them to MOTION never behaved.
+    if ground {
+        KineticUtility::clear_unable_energy(*FIGHTER_KINETIC_ENERGY_ID_GRAVITY, boma);
+    } else {
         sv_kinetic_energy!(
-            set_accel, fighter, *FIGHTER_KINETIC_ENERGY_ID_MOTION, 0.0, -AIR_HIT_ACCEL_Y
+            reset_energy, fighter, *FIGHTER_KINETIC_ENERGY_ID_GRAVITY,
+            *ENERGY_GRAVITY_RESET_TYPE_GRAVITY, 0.0, 0.0, 0.0, 0.0, 0.0
         );
+        if retaliation {
+            // 0x71000144f0: entering the retaliation kills the vertical speed outright; a
+            // situation change mid-retaliation keeps it.
+            let vy = if flag { 0.0 } else { sy };
+            sv_kinetic_energy!(set_speed, fighter, *FIGHTER_KINETIC_ENERGY_ID_GRAVITY, vy);
+            // `_ZNK3lib8L2CValuengEv` at 0x7100014558 and 0x7100014aa4 -- operator-, on the param.
+            sv_kinetic_energy!(
+                set_accel, fighter, *FIGHTER_KINETIC_ENERGY_ID_GRAVITY, -AIR_HIT_ACCEL_Y
+            );
+        } else if flag && !AIR_SPEED_Y_SPENT[entry] {
+            // 0x7100014394: `sy * special_air_lw_speed_y_mul`, ONCE, latched behind
+            // FIGHTER_GAOGAEN_INSTANCE_WORK_ID_FLAG_INVALID_SPECIAL_AIR_LW_SPPED_Y (0x200000E6).
+            sv_kinetic_energy!(
+                set_speed, fighter, *FIGHTER_KINETIC_ENERGY_ID_GRAVITY, sy * AIR_SPEED_Y_MUL
+            );
+            AIR_SPEED_Y_SPENT[entry] = true;
+        } else {
+            sv_kinetic_energy!(set_speed, fighter, *FIGHTER_KINETIC_ENERGY_ID_GRAVITY, sy);
+        }
+        KineticModule::enable_energy(boma, *FIGHTER_KINETIC_ENERGY_ID_GRAVITY);
+    }
+
+    // 0x71000145f4, and only in the stance: `sx = sx * special_lw_start_x_mul`, IN PLACE, so the
+    // value the STOP energy is about to be reset with is the scaled one.
+    if !retaliation && flag {
+        sx *= START_X_MUL;
+    }
+
+    // ---- THE STOP ENERGY, WHICH IS WHERE THE ENTERING HORIZONTAL SPEED GOES ----
+    //
+    // `reset_energy(STOP, type, sx, 0, 0, 0, 0)` -- the third pushed argument at 0x71000146bc,
+    // 0x710001476c, 0x7100014ba8 and 0x7100014c58 is the sx slot in all four places. This port put
+    // that speed on MOTION, which is a different energy with a different decay.
+    sv_kinetic_energy!(
+        reset_energy, fighter, *FIGHTER_KINETIC_ENERGY_ID_STOP,
+        if ground { *ENERGY_STOP_RESET_TYPE_GROUND } else { *ENERGY_STOP_RESET_TYPE_AIR },
+        sx, 0.0, 0.0, 0.0, 0.0
+    );
+    KineticModule::enable_energy(boma, *FIGHTER_KINETIC_ENERGY_ID_STOP);
+
+    // ---- THE MOTION ENERGY, RESET TO NOTHING ----
+    //
+    // All five pushed values are literal zeros in every one of the four call sites. The animation
+    // supplies the movement; this only clears whatever the previous status left in it.
+    sv_kinetic_energy!(
+        reset_energy, fighter, *FIGHTER_KINETIC_ENERGY_ID_MOTION,
+        if ground { *ENERGY_MOTION_RESET_TYPE_GROUND_TRANS } else { *ENERGY_MOTION_RESET_TYPE_AIR_TRANS },
+        0.0, 0.0, 0.0, 0.0, 0.0
+    );
+    // 0x7100014efc / 0x7100014f28: `!flag && status == SPECIAL_LW_TURN`. A situation change during
+    // the turn re-plays the animation with `change_motion_inherit_frame`, and its root motion runs
+    // the other way once the script's REVERSE_LR has fired -- so the motion energy is negated.
+    if !flag && status == RAT_STATUS_KIND_SPECIAL_LW_TURN {
+        sv_kinetic_energy!(set_speed_mul, fighter, *FIGHTER_KINETIC_ENERGY_ID_MOTION, -1.0);
     }
     KineticModule::enable_energy(boma, *FIGHTER_KINETIC_ENERGY_ID_MOTION);
 
+    // 0x7100014a4c / 0x7100014fdc, the last call on both paths. ONE id, not two: the port's second
+    // call passed FIGHTER_KINETIC_ENERGY_ID_CONTROL_NO_STOP on the reasoning that Incineroar
+    // "clears twice", and he does -- but the first of the two is the GRAVITY clear above, in the
+    // grounded branch. CONTROL_NO_STOP appears nowhere in the helper.
+    KineticUtility::clear_unable_energy(*FIGHTER_KINETIC_ENERGY_ID_CONTROL, boma);
+
     crate::telemetry::probe::event(format!(
-        "[rat] REVENGE kinetics air={air} entering ({sx:.2},{sy:.2}) -> MOTION ({vx:.2},{vy:.2}); \
-         control energy cleared (start_x_mul {START_X_MUL}, air_speed_y_mul {AIR_SPEED_Y_MUL}, \
-         air_hit_accel_y {AIR_HIT_ACCEL_Y}); {}",
+        "[rat] REVENGE kinetics st={status:#x} flag={flag} ground={ground} entering \
+         ({sx:.2},{sy:.2}) -> kinetic {} / STOP.x {sx:.2}; {}",
+        if ground { "GROUND_STOP" } else { "FALL" },
         crate::telemetry::probe::ctx(boma)
     ));
 }
 
+/// `FIGHTER_GAOGAEN_INSTANCE_WORK_ID_FLAG_INVALID_SPECIAL_AIR_LW_SPPED_Y` (0x200000E6, and the
+/// typo is Nintendo's).
+///
+/// A once-only latch on the airborne stance's `special_air_lw_speed_y_mul`, and it really is
+/// once-only: `--scan 0xb608` finds the constant at exactly two sites in the whole gaogaen NRO,
+/// the `is_flag` and the `on_flag` inside this one helper, and `revenge_off` clears 0x200000E8,
+/// E3 and E4 but not E6. So within one life the FIRST airborne Revenge keeps 70% of its vertical
+/// speed and every later one keeps all of it. That reads oddly and it is what the code says.
+///
+/// Cleared on `ObjectEvent::Start` because that is where the engine's own instance-work array is
+/// zeroed, and a `static mut` would otherwise carry a previous stock's latch into the next one --
+/// the trap `whip::state::reset` names.
+static mut AIR_SPEED_Y_SPENT: [bool; 8] = [false; 8];
+
+unsafe extern "C" fn revenge_object_start(fighter: &mut L2CFighterCommon) {
+    let entry = entry_of(fighter.module_accessor);
+    if entry < 8 {
+        AIR_SPEED_Y_SPENT[entry] = false;
+    }
+}
 /// Revenge's RETALIATION status. Incineroar's `SpecialLwHit`: identical shape to SpecialLw, same
 /// UNIQ kinetic and the same movement helper, differing only in the motion it plays.
 unsafe extern "C" fn pikachu_speciallwhit_pre(fighter: &mut L2CFighterCommon) -> L2CValue {
@@ -682,7 +773,7 @@ unsafe extern "C" fn pikachu_speciallwhit_main(fighter: &mut L2CFighterCommon) -
         boma,
         GroundCorrectKind(if air { *GROUND_CORRECT_KIND_AIR } else { *GROUND_CORRECT_KIND_GROUND_CLIFF_STOP }),
     );
-    revenge_kinetics(fighter, air);
+    revenge_kinetics(fighter, true);
     crate::telemetry::probe::event(format!(
         "[rat] REVENGE retaliation status entered, motion '{motion}'; {}",
         crate::telemetry::probe::ctx(boma)
@@ -714,7 +805,7 @@ unsafe extern "C" fn pikachu_speciallwturn_main(fighter: &mut L2CFighterCommon) 
         boma,
         GroundCorrectKind(if air { *GROUND_CORRECT_KIND_AIR } else { *GROUND_CORRECT_KIND_GROUND_CLIFF_STOP }),
     );
-    revenge_kinetics(fighter, air);
+    revenge_kinetics(fighter, true);
     crate::telemetry::probe::event(format!(
         "[rat] REVENGE retaliation from BEHIND, motion '{motion}'; {}",
         crate::telemetry::probe::ctx(boma)
@@ -1218,5 +1309,8 @@ pub fn install() {
         // reason.
         .status(CheckDamage, *FIGHTER_STATUS_KIND_SPECIAL_LW, revenge_check_damage)
         .on_line(Main, pikachu_revenge_frame)
+        // Zeroes the once-per-life air-speed latch where the engine zeroes its own instance work.
+        // See `AIR_SPEED_Y_SPENT`.
+        .on_start(revenge_object_start)
         .install();
 }
