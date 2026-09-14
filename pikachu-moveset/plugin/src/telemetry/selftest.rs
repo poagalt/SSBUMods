@@ -200,14 +200,30 @@ unsafe fn report_missing_statuses(fighter: &mut L2CFighterCommon, entry: usize) 
     ];
     let mut absent = Vec::new();
     let mut partial = Vec::new();
-    // CHECK_DAMAGE IS ASKED FOR SEPARATELY BECAUSE IT IS THE SUSPECT.
+    // CHECK_DAMAGE IS ASKED FOR SEPARATELY -- AND THE HYPOTHESIS THAT PUT IT HERE IS DISPROVEN.
     //
-    // `sv_set_status_func` indexes a per-status array by (status, line), and the ten carry
-    // statuses got their first CheckDamage registration in 8a62c76 -- line 0xB on ids 0x1F7
-    // through 0x205, all of them past Pikachu's own NUM of 0x1F0. Every line this plugin had used
-    // before is 0..7. If those ten writes land outside whatever the game allocated, the symptom
-    // would be exactly what pt36 shows, so the log has to be able to tell "the status is gone"
-    // from "the status is there and only its CheckDamage is not".
+    // It was asked because 8a62c76 gave the ten carry statuses their first CheckDamage
+    // registration, line 0xB on ids 0x1F7..0x205, all past Pikachu's own NUM of 0x1F0 and all
+    // higher than any line this plugin had used before (0..7). The guess was an out-of-bounds
+    // write. `sv_set_status_func` says otherwise --
+    // `vendor/decomp/common/_ZN7lua2cpp12L2CAgentBase18sv_set_status_func...c`:
+    //
+    //     begin = this+0x48, end = this+0x50, cap = this+0x58        a std::vector
+    //     stride 0xb0 = 22 pointers                                  LUA_SCRIPT_STATUS_FUNC_MAX
+    //     if (size <= index) { push_back a zeroed 0xb0 block until size == index+1 }
+    //     *(begin + index*0xb0 + line*8) = func
+    //
+    // It GROWS on demand and reallocates, so (0x205, 0xB) is in bounds by construction and no
+    // line index below 0x16 can be out of range. The question is kept anyway because it is now
+    // cheap and it distinguishes the remaining cases -- and because a NEGATIVE answer from the
+    // running game is worth more than a negative answer from reading a decompilation.
+    //
+    // THE LEAD THAT REPLACES IT, and it is an ordering one. `STATUS_SCRIPTS[pikachu]` is a Vec in
+    // push order, and `specials::install()` runs speciallw BEFORE shoulder, so speciallw's ids
+    // come first. 0x202 is exactly `SPECIAL_LW_HIT + 1` -- the last id speciallw registers before
+    // SPECIAL_LW_TURN. A list that stopped being walked at that point would report 0x202 and lose
+    // shoulder's 0x202..0x205 as collateral, which is precisely pt36. So the shape to look for is
+    // the registration list being truncated at the first SPECIAL_LW_TURN entry, not a bad write.
     let mut no_check = Vec::new();
     for (name, id) in DECLARED {
         let pre = has_line(fighter, *id, *LUA_SCRIPT_STATUS_FUNC_STATUS_PRE);
