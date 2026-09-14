@@ -4,7 +4,13 @@
 # GENERALISES tools/merge-sword.sh, which did Chrom's Falchion and nothing else. The technique is
 # unchanged -- LilyLavender Modding Workshop episode 39: give the mesh object a distinct name so
 # `ModelModule::set_mesh_visibility` can target it, single-bind it to a bone grafted under
-# Pikachu's own skeleton, and declare the textures via new-dir-files rather than shipping them.
+# Pikachu's own skeleton, and SHIP the textures, declared through new-dir-files.
+#
+# SHIP, not alias. `share-to-added` cannot read the vanilla arc -- it resolves only when a mod on
+# the SD card provides a real file at the source path, and when it cannot, ARCropolis HANGS the
+# fight load rather than erroring. Chrom's worked for weeks only because the test console carries
+# an "Alucard over Chrom" mod replacing those exact three textures. The mod tree is gitignored, so
+# shipping them redistributes nothing.
 #
 # WHY THIS WORKS AT ALL, AND WHY IT IS NOT `clone_weapon`. A real article needs the game's own
 # article initialisation, and `smashline::clone_weapon` crashes inside

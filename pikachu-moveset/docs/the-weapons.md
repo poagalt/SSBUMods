@@ -33,8 +33,26 @@ material from `model.numdlb`, bone and parent from `model.nusktb`, bounding sphe
 article's `model.numshexb` rather than a radius anybody guessed.
 
 Only `chrom/sword` was in the local extraction; the other 35 files came off the running console
-with `tools/arc-fetch.sh`. Textures are still not shipped: twelve aliases in `tools/gen-config.sh`
-point Pikachu's paths at each source fighter's vanilla bytes.
+with `tools/arc-fetch.sh`, and so did the twelve textures.
+
+**The textures ARE shipped now, and the alias that replaced them is why nothing loaded for a day.**
+This said "textures are still not shipped: twelve aliases in `tools/gen-config.sh` point Pikachu's
+paths at each source fighter's vanilla bytes", offered as the thing that kept the mod free of
+redistributed texture data.
+
+`share-to-added` cannot read the vanilla arc. It resolves only when a mod on the SD card provides a
+real file at the source path, and when it cannot, **ARCropolis hangs the fight load** rather than
+erroring — no crash report, filesystem work completed, loading animation still spinning, no fighter
+object ever created. Chrom's three aliases worked for weeks purely because the test console carries
+an "Alucard over Chrom" mod that replaces those exact three textures; Cloud's, Mythra's and
+Palutena's pointed at nothing. Episode 39's recipe ships the textures, which is precisely why it
+ships them.
+
+The value is intact regardless: `pikachu-moveset/mod/fighter/pikachu/model/` is gitignored, so the
+twelve `.nutexb` are a local artefact exactly like the merged model. `config.json` now declares 42
+shipped paths and **zero** aliases, and `tools/check-weapons.sh` asserts resolvability rather than
+a mechanism — a referenced texture must be a real file in the shipped model directory, and an
+aliased one earns a warning naming this failure.
 
 **It used to be one sword for four fighters.** `SWORD_MOTIONS` pointed seven motions at
 `chrom_sword`, so Cloud's back-air, Mythra's dash attack and her tilts all swung Chrom's Falchion.

@@ -150,10 +150,23 @@ else
     echo "  ok  every motion shows at most one weapon"
 fi
 
-echo; echo "== every material's textures are aliased in gen-config =="
+echo; echo "== every material's textures actually resolve =="
+# SHIPPED OR ALIASED, and the distinction cost most of a day.
+#
+# This used to assert "aliased", because the mod declared every weapon texture through
+# `share-to-added` rather than shipping it -- so no Nintendo texture data sat in the tree.
+#
+# `share-to-added` CANNOT READ THE VANILLA ARC. It only resolves when a mod on the SD card
+# provides a real file at the source path, and when it cannot, ARCropolis HANGS THE FIGHT LOAD
+# rather than erroring. Chrom's three worked for weeks purely because the test console happens to
+# carry an "Alucard over Chrom" mod that replaces those exact three textures; cloud's, mythra's and
+# palutena's aliased into nothing. Episode 39's recipe SHIPS them, which is why it ships them.
+#
+# So the invariant is resolvability, not a mechanism: a referenced texture must be a real file in
+# the mod tree or an alias whose source is one. `#replace_cubemap` is a built-in and needs neither.
+MODELDIR=pikachu-moveset/mod/fighter/pikachu/model/body/c00
 while IFS='|' read -r name dir mesh material bone parent sphere radius; do
     case "${name:-}" in '' | \#*) continue ;; esac
-    # `#replace_cubemap` is a built-in and needs no file; everything else must be aliased.
     src=""
     for root in extracted/fighter work/arc-weapons/fighter; do
         [ -f "$root/$dir/c00/model.numatb" ] && src="$root/$dir/c00" && break
@@ -164,14 +177,17 @@ while IFS='|' read -r name dir mesh material bone parent sphere radius; do
     fi
     "$T" "$src/model.numatb" "$W/src.json" >/dev/null 2>&1
     for tex in $(jq -r --arg m "$material" '.entries[]|select(.material_label==$m)|.textures[]?|.data' "$W/src.json" 2>/dev/null | grep -v '^#'); do
-        if grep -q "/${tex}\.nutexb|" tools/gen-config.sh; then
+        if [ -f "$MODELDIR/${tex}.nutexb" ]; then
             :
+        elif grep -q "/${tex}\.nutexb|" tools/gen-config.sh; then
+            echo "  !!  $name: ${tex}.nutexb is ALIASED, not shipped -- share-to-added only resolves"
+            echo "      if another mod happens to provide that source path. Ship it instead."
         else
-            echo "  FAIL $name material $material references $tex.nutexb with no alias in gen-config.sh"; rc=1
+            echo "  FAIL $name material $material references $tex.nutexb -- not shipped and not aliased"; rc=1
         fi
     done
 done < <(awk -F'|' '/^[a-z_]+\|/' tools/merge-weapons.sh)
-[ $rc -eq 0 ] && echo "  ok  every referenced texture is aliased"
+[ $rc -eq 0 ] && echo "  ok  every referenced texture is a real file in the shipped model directory"
 
 echo
 if [ $rc -ne 0 ]; then echo "WEAPON CHECK FAILED"; exit 1; fi

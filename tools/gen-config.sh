@@ -39,20 +39,7 @@ OUT="$MOD/config.json"
 # reference every one of them carries is `#replace_cubemap`, which is a built-in and needs no file.
 #
 # Keep this in step with merge-weapons.sh's TABLE; tools/check-weapons.sh fails if they disagree.
-ALIASES="
-fighter/pikachu/model/body/c00/met_chrom_001_col.nutexb|fighter/chrom/model/sword/c00/met_chrom_001_col.nutexb
-fighter/pikachu/model/body/c00/met_chrom_001_nor.nutexb|fighter/chrom/model/sword/c00/met_chrom_001_nor.nutexb
-fighter/pikachu/model/body/c00/met_chrom_001_prm.nutexb|fighter/chrom/model/sword/c00/met_chrom_001_prm.nutexb
-fighter/pikachu/model/body/c00/def_cloud_004_col.nutexb|fighter/cloud/model/fusionsword/c00/def_cloud_004_col.nutexb
-fighter/pikachu/model/body/c00/def_cloud_004_nor.nutexb|fighter/cloud/model/fusionsword/c00/def_cloud_004_nor.nutexb
-fighter/pikachu/model/body/c00/def_cloud_004_prm.nutexb|fighter/cloud/model/fusionsword/c00/def_cloud_004_prm.nutexb
-fighter/pikachu/model/body/c00/alp_light_002_col.nutexb|fighter/elight/model/esword/c00/alp_light_002_col.nutexb
-fighter/pikachu/model/body/c00/alp_light_002_nor.nutexb|fighter/elight/model/esword/c00/alp_light_002_nor.nutexb
-fighter/pikachu/model/body/c00/alp_light_002_prm.nutexb|fighter/elight/model/esword/c00/alp_light_002_prm.nutexb
-fighter/pikachu/model/body/c00/metal_palutena_002_col.nutexb|fighter/palutena/model/body/c00/metal_palutena_002_col.nutexb
-fighter/pikachu/model/body/c00/metal_palutena_002_nor.nutexb|fighter/palutena/model/body/c00/metal_palutena_002_nor.nutexb
-fighter/pikachu/model/body/c00/metal_palutena_002_prm.nutexb|fighter/palutena/model/body/c00/metal_palutena_002_prm.nutexb
-"
+ALIASES=""
 
 cd "$MOD"
 # Files shipped under fighter/pikachu that vanilla does not have at the same path.
@@ -88,7 +75,7 @@ done < <(find . -type f | sort)
     # parsers -- they silently keep the last -- so the second alias would vanish with no warning.
     # One vanilla file legitimately feeds several added paths, so this is reachable, not theoretical.
     first=1
-    srcs=$(printf '%s\n' "$ALIASES" | grep -v '^#' | grep '|' | awk -F'|' '{print $2}' | sed 's/^ *//;s/ *$//' | awk '!seen[$0]++')
+    srcs=$(printf '%s\n' "$ALIASES" | grep -v '^#' | grep '|' | awk -F'|' '{print $2}' | sed 's/^ *//;s/ *$//' | awk '!seen[$0]++' || true)
     while IFS= read -r s; do
         [ -z "$s" ] && continue
         [ "$first" = 1 ] && first=0 || echo ','
