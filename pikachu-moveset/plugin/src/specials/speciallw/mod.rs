@@ -673,6 +673,48 @@ unsafe extern "C" fn pikachu_speciallw_main_loop(fighter: &mut L2CFighterCommon)
         GroundModule::correct(boma, GroundCorrectKind(*GROUND_CORRECT_KIND_GROUND_CLIFF_STOP));
     }
 
+    // AND THE ANIMATION FOLLOWS THE SITUATION TOO, WHICH THIS LOOP WAS NOT DOING.
+    //
+    // The kinetics swap above is right and was only ever half of it. `SpecialLw/main_loop.c`
+    // pairs every `GroundModule::correct` with a `MotionModule::change_motion_inherit_frame`, in
+    // BOTH directions, so Incineroar landing mid-Revenge switches to the ground animation at the
+    // frame he was on -- and taking off switches to the air one. This port kept playing whichever
+    // animation the move started in. `check-callparity.sh` is what surfaced it:
+    // `change_motion_inherit_frame` is called by all three of his SpecialLw statuses and by
+    // nothing here.
+    //
+    // THE MOTION PAIR IS PER STATUS, and the hashes are the source's own, resolved rather than
+    // assumed -- `tools/motion-patch h40` against the literals in the decomp:
+    //
+    //     SpecialLw     0x10ef97f71f special_lw_start   0x146e22785f special_air_lw_start
+    //     SpecialLwHit  0x0ab6928cf2 special_lw         0x0e46c0e666 special_air_lw
+    //
+    // The first pair is what the stance plays and the second is the retaliation, which is
+    // exactly what this module's two mains already choose between on entry. Reading the hashes
+    // mattered: `special_lw` looked like the obvious answer for the stance and is the wrong one.
+    let now_ground = fighter.global_table[0x16] == *SITUATION_KIND_GROUND;
+    let was_ground = fighter.global_table[0x17] == *SITUATION_KIND_GROUND;
+    if now_ground != was_ground {
+        let hit = StatusModule::status_kind(boma) == RAT_STATUS_KIND_SPECIAL_LW_HIT;
+        let motion = match (hit, now_ground) {
+            (true, true) => "special_lw",
+            (true, false) => "special_air_lw",
+            (false, true) => "special_lw_start",
+            (false, false) => "special_air_lw_start",
+        };
+        GroundModule::correct(
+            boma,
+            GroundCorrectKind(if now_ground {
+                *GROUND_CORRECT_KIND_GROUND_CLIFF_STOP
+            } else {
+                *GROUND_CORRECT_KIND_AIR
+            }),
+        );
+        MotionModule::change_motion_inherit_frame(
+            boma, Hash40::new(motion), -1.0, 1.0, 0.0, false, false,
+        );
+    }
+
     if MotionModule::is_end(boma) {
         WINDOW_OPEN[entry] = false;
         PHASE[entry] = PHASE_STANCE;
