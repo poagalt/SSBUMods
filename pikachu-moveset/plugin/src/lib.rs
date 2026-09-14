@@ -23,6 +23,7 @@ mod specials_acmd;
 mod telemetry;
 mod specials;
 mod sword;
+mod cues;
 mod articles;
 mod victim;
 // Answers the engine when it asks our Pikachu for one of Incineroar's params -- see params/mod.rs.
@@ -41,6 +42,7 @@ pub fn main() {
     specials::install();
     specials_acmd::install();
     sword::install();
+    cues::install();
     articles::install();
     params::install();
 }

@@ -420,6 +420,16 @@ static mut CHECK_DMG_RAN: [bool; 8] = [false; 8];
 /// Pikachu armed is to track our own writes and check the invariant every frame. See
 /// `watch_absorb_leak`.
 static mut ABSORB_ARMED: [bool; 8] = [false; 8];
+
+/// Is the counter window's `DAMAGE_NO_REACTION_MODE_ALWAYS` currently armed?
+///
+/// `crate::cues` asks, because its armored-hit detector is "damage rose with no reaction status" --
+/// and that is exactly what Revenge's stance does on purpose for its whole window. Absorbing there
+/// is the move working, and it already has its own aura and its own counter cue, so it must not
+/// also fire the armor cue.
+pub unsafe fn absorb_armed(entry: usize) -> bool {
+    entry < 8 && ABSORB_ARMED[entry]
+}
 /// Last frame's `AttackModule::is_attack_occur`, so the consumption can be charged on the rising
 /// edge. The flag is sticky for the whole move, which is why reading it directly spent a boost on
 /// the counter's own fire -- see the consumption test.
@@ -1206,6 +1216,9 @@ pub unsafe extern "C" fn pikachu_revenge_frame(fighter: &mut L2CFighterCommon) {
             || status == *FIGHTER_STATUS_KIND_CAPTURE_PULLED
             || status == *FIGHTER_STATUS_KIND_CAPTURE_WAIT
         {
+            // The boosted hit landed. Cue before the boost is cleared, so the effect can scale
+            // with what it was worth.
+            crate::cues::revenge_impact(fighter, RATE[entry]);
             clear_boost(fighter);
             LAST_DAMAGE[entry] = damage;
             return;
