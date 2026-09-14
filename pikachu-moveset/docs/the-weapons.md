@@ -39,20 +39,43 @@ point Pikachu's paths at each source fighter's vanilla bytes.
 **It used to be one sword for four fighters.** `SWORD_MOTIONS` pointed seven motions at
 `chrom_sword`, so Cloud's back-air, Mythra's dash attack and her tilts all swung Chrom's Falchion.
 
-## What a one-bone graft cannot do
+## What the graft cannot do
 
-The graft carries ONE bone. That is exact for a weapon that is a stick — the bone is the handle and
-Pikachu's hand animation moves it correctly. It is wrong for an article whose own skeleton
-animates:
+**It is no longer a ONE-bone graft, and that sentence was a bug, not just a limitation.** The
+merge took the single bone its table named. Three of the four weapons are *rigid* — the mesh has no
+`bone_influences` and single-binds to one bone, which is exact for a stick and is why Chrom's
+Falchion worked for weeks. Mythra's `lightsword_VIS_O_OBJShape` is **skinned**, weighted to
+`Sword1`, `Sword_lightC` and `Sword_lightD`, and only `Sword1` was grafted.
+
+That model shipped with a mesh weighted to two bones that do not exist in the skeleton. Vanilla
+Pikachu has *zero* influence bones absent from his own `nusktb`, so it is a clean invariant, and
+breaking it **hung the training-mode load forever** — three boots, twenty-five minutes on the
+first. Not a crash: no crash report, ARCropolis finished its filesystem work and went quiet, the
+plugin installed all the way through `articles::install()`, the loading animation kept spinning,
+and no fighter object was ever created. A vanilla Mario loading fine in the same session is what
+finally localised it to our Pikachu's assets.
+
+`merge-weapons.sh` now derives the graft set from the mesh: the union of the table's bone and every
+bone the influences name, walked in source-skeleton order so a parent is appended before its
+children, each reparented to its source parent's merged index when present and to the table's
+anchor when not. 77 → 83 bones, with `Sword_lightC` and `Sword_lightD` under the grafted `Sword1`,
+exactly their source hierarchy. `check-weapons.sh` gates on the invariant.
+
+**What remains out of reach is animation, not bone count.**
 
     gaogaen/rope        RopeC RopeL1..3 RopeR1..3 Throw_TR    the cord bends
     gamewatch/parachute Parachutea1 a2 b1 b2                  the canopy opens
     kamui/dragonhand    Hand1..4 HandD HandU                  the hand morphs
 
 Those shapes come from each article's own `model.nuanmb`, and nothing in this port plays an
-article's animation. Grafting them shows rigid geometry frozen in one pose. For Corrin's up-air
-that is merely wrong, so it keeps no weapon rather than the wrong one. For the rope it is worse
-than nothing: a straight bar between Pikachu and wherever the victim happens to be.
+article's animation. The graft can now carry all of their bones, but a grafted bone has no
+animation track, so it sits at bind pose relative to its parent — which is why the weapons work
+(their parent `HaveR` is Pikachu's hand and carries the swing) and why these would not. For
+Corrin's up-air that is merely wrong, so it keeps no weapon rather than the wrong one. For the rope
+it is worse than nothing: a straight bar between Pikachu and wherever the victim happens to be.
+
+The answer for all three is a real article, and `clone_weapon` is now proven — see the last section
+of this file.
 
 ## The rope is not a policy choice, and ADR 0004 is not what I said it was
 
@@ -74,9 +97,11 @@ So the victim side of the Alolan Whip — the outbound leg, the bounce, the retu
 positioning that decides whether a lariat connects — is engine-common code this port cannot use,
 for one reason: there is no rope. A real rope would hand all of it back to the game.
 
-That is also the answer to "this problem may have its roots in the article issue". It does. But the
-route to a real article is `clone_weapon`, and `clone_weapon` crashes. The mesh graft cannot
-substitute, because the rope's whole job is to be a moving link between two objects.
+That is also the answer to "this problem may have its roots in the article issue". It does — and the
+route to a real article is `clone_weapon`, **which no longer crashes**: two boots logged
+`clone_weapon returned index 0` cleanly. The mesh graft still cannot substitute, because the rope's
+whole job is to be a moving link between two objects and a grafted bone has no animation track.
+What the rope needs now is the clone plus the victim side, not a mechanism that does not exist.
 
 ## Not implemented, with the numbers for whoever finishes it
 
@@ -185,9 +210,14 @@ the parity gap recorded above; whether it also restores the zoom is a playtest q
 
 ## The clone, and the three articles waiting behind it
 
-`src/articles/mod.rs` holds a two-step experiment. Step 1 — clone OFF, card repaired — has loaded
-on every deploy since it was written, so the open question is only whether the clone itself
-crashes. `CLONE_ENABLED = true` as of this round, which is step 2.
+`src/articles/mod.rs` held a two-step experiment, and STEP 2 HAS PASSED. Two separate boots logged
+
+    [rat] articles: clone_weapon returned index 0 -- article id should be 0x6
+
+with no crash and no fault. The clone was never the blocker it was recorded as; the
+`fighter_initialize_object_data` null deref that got blamed on it twice was the zero-byte
+`d03speciallwstart.nuanmb` the card was holding at the time, exactly as the note in
+`src/articles/mod.rs` suspected. Ptooie, the rope, the parachute and the dragon hand are unblocked.
 
 If Pikachu loads with the spikeball appended, all four constants exist and the remaining work is
 three rows in `tools/gen-article-assets.sh` and three `clone_weapon` calls:
