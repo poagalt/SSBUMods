@@ -41,7 +41,27 @@ use smash::phx::Hash40;
 use super::sink;
 
 /// Whether to record. A deliberate one-off, like `exedump`.
-pub const ENABLED: bool = true;
+///
+/// BACK TO FALSE, AND IT SHOULD NEVER HAVE SHIPPED TRUE. It was flipped on in `f57b006` to produce
+/// `docs/the-recording.md` -- "play the SOURCE fighter and read the log" -- and left on for every
+/// build since, which means seventeen of the engine's own functions have been REPLACED in every
+/// match this mod was loaded for: `CatchModule::set_catch` / `catch_cut`, five `CaptureModule`
+/// entries including `capture_cut` and `set_nodes`, `LinkModule::send_event_nodes` /
+/// `send_event_nodes_throw` / `unlink`, `DamageModule::add_damage`, `ControlModule::start_clatter`
+/// and four kinetic ones.
+///
+/// That list is not incidental -- it IS native Donkey Kong's cargo throw, and the playtest found
+/// it from the other side: "I went to play native dk and the game crashed when I tried to cargo
+/// throw a mario". A mod that changes Pikachu had replaced the functions DK's throw runs through,
+/// on every object in the match, and each hook called `who(boma)` -- `utility::get_kind`,
+/// `StatusModule::status_kind`, `MotionModule::motion_kind` -- on whatever accessor arrived,
+/// including victims mid-teardown and objects that are not fighters at all.
+///
+/// The exact faulting deref is not proven here and does not need to be: this is an INSTRUMENT, its
+/// recording session ended, and `docs/the-recording.md` is the output. Off is its documented
+/// default. `rec` is now lazy as well, so enabling it again costs one comparison per call until it
+/// actually records something -- but the thing that made this expensive was shipping it at all.
+pub const ENABLED: bool = false;
 
 /// Cap on recorded lines, so a forgotten `ENABLED` cannot fill the card.
 const MAX_LINES: u32 = 4000;
@@ -82,19 +102,27 @@ unsafe fn who(boma: *mut BattleObjectModuleAccessor) -> String {
     )
 }
 
-unsafe fn rec(line: String) {
+/// TAKES A CLOSURE, WHICH IS NOT A STYLE CHOICE.
+///
+/// This used to be `rec(line: String)` called as `rec(format!("{} ...", who(boma), ..))`, and Rust
+/// evaluates arguments before the call -- so `who(boma)` ran on EVERY invocation of all seventeen
+/// hooks even after `LINES` hit the cap, and `who` is three module calls (`utility::get_kind`,
+/// `StatusModule::status_kind`, `MotionModule::motion_kind`) plus a heap allocation on whatever
+/// accessor the engine happened to pass. Deferring the format means a disabled or capped tracer
+/// costs one comparison.
+unsafe fn rec(line: impl FnOnce() -> String) {
     if !ENABLED || LINES >= MAX_LINES {
         return;
     }
     LINES += 1;
-    sink::diag(format!("[rat] TRACE {line}"));
+    sink::diag(format!("[rat] TRACE {}", line()));
 }
 
 // ---- CatchModule ----------------------------------------------------------------------------
 
 #[skyline::hook(replace = CatchModule::set_catch)]
 unsafe fn set_catch_hook(boma: *mut BattleObjectModuleAccessor, id: u32) -> u64 {
-    rec(format!(
+    rec(|| format!(
         "{} CatchModule::set_catch({id:#x}){}",
         who(boma),
         if id == *BATTLE_OBJECT_ID_INVALID as u32 { "   <- clearing" } else { "   <- CLAIMING" }
@@ -104,7 +132,7 @@ unsafe fn set_catch_hook(boma: *mut BattleObjectModuleAccessor, id: u32) -> u64 
 
 #[skyline::hook(replace = CatchModule::catch_cut)]
 unsafe fn catch_cut_hook(boma: *mut BattleObjectModuleAccessor, a: bool, b: bool) -> u64 {
-    rec(format!("{} CatchModule::catch_cut({a}, {b})", who(boma)));
+    rec(|| format!("{} CatchModule::catch_cut({a}, {b})", who(boma)));
     original!()(boma, a, b)
 }
 
@@ -118,7 +146,7 @@ unsafe fn capture_hook(
     flag: bool,
     last: i32,
 ) -> u64 {
-    rec(format!(
+    rec(|| format!(
         "{} CaptureModule::capture(captor={id:#x}, arg3={node:#x}, {flag}, {last})",
         who(boma)
     ));
@@ -134,7 +162,7 @@ unsafe fn capture_2_hook(
     flag: bool,
     last: i32,
 ) -> u64 {
-    rec(format!(
+    rec(|| format!(
         "{} CaptureModule::capture_2(captor={id:#x}, {a:#x}, {b:#x}, {flag}, {last})",
         who(boma)
     ));
@@ -148,7 +176,7 @@ unsafe fn capture_cut_hook(
     b: bool,
     c: bool,
 ) -> u64 {
-    rec(format!("{} CaptureModule::capture_cut({a}, {b}, {c})", who(boma)));
+    rec(|| format!("{} CaptureModule::capture_cut({a}, {b}, {c})", who(boma)));
     original!()(boma, a, b, c)
 }
 
@@ -159,7 +187,7 @@ unsafe fn set_nodes_hook(
     b: Hash40,
     f: f32,
 ) -> u64 {
-    rec(format!(
+    rec(|| format!(
         "{} CaptureModule::set_nodes({:#x}, {:#x}, {f})",
         who(boma),
         a.hash,
@@ -174,13 +202,13 @@ unsafe fn capture_motion_hook(
     m: Hash40,
     i: i32,
 ) -> u64 {
-    rec(format!("{} CaptureModule::motion({:#x}, {i})", who(boma), m.hash));
+    rec(|| format!("{} CaptureModule::motion({:#x}, {i})", who(boma), m.hash));
     original!()(boma, m, i)
 }
 
 #[skyline::hook(replace = CaptureModule::set_ignore_catching)]
 unsafe fn set_ignore_catching_hook(boma: *mut BattleObjectModuleAccessor, on: bool) -> u64 {
-    rec(format!("{} CaptureModule::set_ignore_catching({on})", who(boma)));
+    rec(|| format!("{} CaptureModule::set_ignore_catching({on})", who(boma)));
     original!()(boma, on)
 }
 
@@ -193,7 +221,7 @@ unsafe fn send_event_nodes_hook(
     event: Hash40,
     arg: u32,
 ) -> u64 {
-    rec(format!(
+    rec(|| format!(
         "{} LinkModule::send_event_nodes(link={link_no}, event={:#x}, {arg})",
         who(boma),
         event.hash
@@ -211,7 +239,7 @@ unsafe fn send_event_nodes_throw_hook(
     b: i32,
     c: i32,
 ) -> u64 {
-    rec(format!(
+    rec(|| format!(
         "{} LinkModule::send_event_nodes_throw(event={:#x}, motion={:#x}, {flag}, {a:#x}, {b:#x}, {c:#x})",
         who(boma),
         event.hash,
@@ -222,7 +250,7 @@ unsafe fn send_event_nodes_throw_hook(
 
 #[skyline::hook(replace = LinkModule::unlink)]
 unsafe fn unlink_hook(boma: *mut BattleObjectModuleAccessor, link_no: i32) -> u64 {
-    rec(format!("{} LinkModule::unlink(link={link_no})", who(boma)));
+    rec(|| format!("{} LinkModule::unlink(link={link_no})", who(boma)));
     original!()(boma, link_no)
 }
 
@@ -241,7 +269,7 @@ unsafe fn unlink_hook(boma: *mut BattleObjectModuleAccessor, link_no: i32) -> u6
 // two it is saves running both.
 #[skyline::hook(replace = DamageModule::add_damage)]
 unsafe fn add_damage_hook(boma: *mut BattleObjectModuleAccessor, damage: f32, arg: i32) {
-    rec(format!(
+    rec(|| format!(
         "{} DamageModule::add_damage({damage}, {arg})",
         who(boma)
     ));
@@ -261,7 +289,7 @@ unsafe fn start_clatter_hook(
     c: bool,
     d: bool,
 ) -> u64 {
-    rec(format!(
+    rec(|| format!(
         "{} ControlModule::start_clatter({frame}, {dec}, {mul}, {a}, {b}, {c}, {d})",
         who(boma)
     ));
@@ -318,19 +346,19 @@ pub fn install() {
 
 #[skyline::hook(replace = KineticModule::change_kinetic)]
 unsafe fn change_kinetic_hook(boma: *mut BattleObjectModuleAccessor, kind: i32) -> u64 {
-    rec(format!("{} KineticModule::change_kinetic({kind:#x})", who(boma)));
+    rec(|| format!("{} KineticModule::change_kinetic({kind:#x})", who(boma)));
     original!()(boma, kind)
 }
 
 #[skyline::hook(replace = KineticModule::enable_energy)]
 unsafe fn enable_energy_hook(boma: *mut BattleObjectModuleAccessor, id: i32) -> u64 {
-    rec(format!("{} KineticModule::enable_energy({id:#x})", who(boma)));
+    rec(|| format!("{} KineticModule::enable_energy({id:#x})", who(boma)));
     original!()(boma, id)
 }
 
 #[skyline::hook(replace = KineticModule::unable_energy)]
 unsafe fn unable_energy_hook(boma: *mut BattleObjectModuleAccessor, id: i32) -> u64 {
-    rec(format!("{} KineticModule::unable_energy({id:#x})", who(boma)));
+    rec(|| format!("{} KineticModule::unable_energy({id:#x})", who(boma)));
     original!()(boma, id)
 }
 
@@ -355,6 +383,6 @@ unsafe fn unable_energy_hook(boma: *mut BattleObjectModuleAccessor, id: i32) -> 
 /// opposite of every other call in this file.
 #[skyline::hook(replace = KineticUtility::clear_unable_energy)]
 unsafe fn clear_unable_energy_hook(id: i32, boma: *mut BattleObjectModuleAccessor) {
-    rec(format!("{} KineticUtility::clear_unable_energy({id:#x})", who(boma)));
+    rec(|| format!("{} KineticUtility::clear_unable_energy({id:#x})", who(boma)));
     original!()(id, boma)
 }

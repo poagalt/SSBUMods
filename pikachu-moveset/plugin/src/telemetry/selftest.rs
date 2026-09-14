@@ -17,7 +17,7 @@
 // reads; "75/75 resolved" followed by nothing is a result, and any line at all after it is a bug
 // with a name attached.
 use {
-    smash::{app::{lua_bind::*, BattleObjectModuleAccessor}, lib::lua_const::*, phx::Hash40},
+    smash::{app::{lua_bind::*, BattleObjectModuleAccessor}, lib::{lua_const::*, L2CValue}, lua2cpp::L2CFighterCommon, phx::Hash40},
     super::motions::PORTED_MOTIONS,
     super::sink,
 };
@@ -84,7 +84,7 @@ pub unsafe fn tick(boma: *mut BattleObjectModuleAccessor, entry: usize) {
     }
 }
 
-pub unsafe fn run(boma: *mut BattleObjectModuleAccessor, entry: usize, status_count: i32) {
+pub unsafe fn run(fighter: &mut L2CFighterCommon, boma: *mut BattleObjectModuleAccessor, entry: usize, status_count: i32) {
     if entry >= 8 || DONE[entry] {
         return;
     }
@@ -128,6 +128,7 @@ pub unsafe fn run(boma: *mut BattleObjectModuleAccessor, entry: usize, status_co
     // into nothing: Pikachu in free fall or frozen, with no other symptom.
     let want = crate::specials::status::RAT_STATUS_KIND_NUM;
     if status_count < want {
+        report_missing_statuses(fighter, entry);
         sink::diag(format!(
             "[rat] SELFTEST p{entry} STATUS TABLE SHORT: the game reports {status_count:#x} kinds \
              and this build declares up to {want:#x}. Every status at or past {status_count:#x} \
@@ -151,4 +152,89 @@ pub unsafe fn run(boma: *mut BattleObjectModuleAccessor, entry: usize, status_co
     for chunk in broken.chunks(6) {
         sink::diag(format!("[rat] SELFTEST p{entry} UNRESOLVED {}", chunk.join(" ")));
     }
+}
+
+/// WHICH OF THE DECLARED STATUSES THE GAME ACTUALLY HAS, ASKED RATHER THAN DEDUCED.
+///
+/// `global_table[0xC]` went from 0x206 to 0x202 between two builds -- pt30 through pt35 all say
+/// `status table ok: 0x206 kinds, need 0x206` and pt36 says `0x202 ... declares up to 0x207` --
+/// so adding ONE status at 0x206 lowered the reported maximum by four. That is not what
+/// smashline's arithmetic can do: `install_status_scripts` only ever does
+/// `max_new = max_new.max(status.id + 1)` over a Vec that every registration `push`es onto, the
+/// costume filter is inert here (no `.costume(` anywhere in this plugin, `Costume::default()` is
+/// empty and `has_costume` is therefore false), and `StatusLine::CheckDamage as i32` is 0xB which
+/// is exactly the game's `LUA_SCRIPT_STATUS_FUNC_CHECK_DAMAGE`.
+///
+/// Three readings of that code produced three wrong answers, which is where this project's own
+/// rule applies: ship a probe that prints the real state at the real moment instead of a fourth
+/// guess. `L2CAgentBase::sv_get_status_func` is the game's own accessor for the table smashline
+/// writes with `sv_set_status_func`, so asking it per id says which registrations survived --
+/// and a status whose Pre is present but whose Main is not is a different bug from one that is
+/// absent entirely.
+unsafe fn report_missing_statuses(fighter: &mut L2CFighterCommon, entry: usize) {
+    use crate::specials::status::*;
+    const DECLARED: &[(&str, i32)] = &[
+        ("SPECIAL_HI_CLOSE", RAT_STATUS_KIND_SPECIAL_HI_CLOSE),
+        ("SPECIAL_HI_OPEN", RAT_STATUS_KIND_SPECIAL_HI_OPEN),
+        ("SPECIAL_S_SHOULDER", RAT_STATUS_KIND_SPECIAL_S_SHOULDER),
+        ("SPECIAL_S_LARIAT", RAT_STATUS_KIND_SPECIAL_S_LARIAT),
+        ("SPECIAL_S_THROW", RAT_STATUS_KIND_SPECIAL_S_THROW),
+        ("SPECIAL_S_END", RAT_STATUS_KIND_SPECIAL_S_END),
+        ("SPECIAL_S_FAILURE", RAT_STATUS_KIND_SPECIAL_S_FAILURE),
+        ("SHOULDER_START", RAT_STATUS_KIND_SHOULDER_START),
+        ("SHOULDER_WAIT", RAT_STATUS_KIND_SHOULDER_WAIT),
+        ("SHOULDER_WALK", RAT_STATUS_KIND_SHOULDER_WALK),
+        ("SHOULDER_TURN", RAT_STATUS_KIND_SHOULDER_TURN),
+        ("SHOULDER_FALL", RAT_STATUS_KIND_SHOULDER_FALL),
+        ("SHOULDER_LANDING", RAT_STATUS_KIND_SHOULDER_LANDING),
+        ("THROW_F_F", RAT_STATUS_KIND_THROW_F_F),
+        ("THROW_F_B", RAT_STATUS_KIND_THROW_F_B),
+        ("THROW_F_HI", RAT_STATUS_KIND_THROW_F_HI),
+        ("THROW_F_LW", RAT_STATUS_KIND_THROW_F_LW),
+        ("SPECIAL_LW_HIT", RAT_STATUS_KIND_SPECIAL_LW_HIT),
+        ("SHOULDER_JUMP_SQUAT", RAT_STATUS_KIND_SHOULDER_JUMP_SQUAT),
+        ("SHOULDER_JUMP_SQUAT_B", RAT_STATUS_KIND_SHOULDER_JUMP_SQUAT_B),
+        ("SHOULDER_JUMP", RAT_STATUS_KIND_SHOULDER_JUMP),
+        ("SHOULDER_PASS", RAT_STATUS_KIND_SHOULDER_PASS),
+        ("SPECIAL_LW_TURN", RAT_STATUS_KIND_SPECIAL_LW_TURN),
+    ];
+    let mut absent = Vec::new();
+    let mut partial = Vec::new();
+    for (name, id) in DECLARED {
+        let pre = has_line(fighter, *id, *LUA_SCRIPT_STATUS_FUNC_STATUS_PRE);
+        let main = has_line(fighter, *id, *LUA_SCRIPT_STATUS_FUNC_STATUS_MAIN);
+        match (pre, main) {
+            (true, true) => {}
+            (false, false) => absent.push(format!("{name}({id:#x})")),
+            _ => partial.push(format!("{name}({id:#x}) pre={pre} main={main}")),
+        }
+    }
+    if absent.is_empty() && partial.is_empty() {
+        sink::diag(format!(
+            "[rat] SELFTEST p{entry} STATUS PROBE: every declared status has a Pre AND a Main in \
+             the game's own table, so the short count is NOT a missing registration"
+        ));
+        return;
+    }
+    if !absent.is_empty() {
+        sink::diag(format!(
+            "[rat] SELFTEST p{entry} STATUS PROBE ABSENT (no Pre, no Main): {}",
+            absent.join(" ")
+        ));
+    }
+    if !partial.is_empty() {
+        sink::diag(format!(
+            "[rat] SELFTEST p{entry} STATUS PROBE PARTIAL: {}",
+            partial.join(" ")
+        ));
+    }
+}
+
+/// `sv_get_status_func` returns a pointer L2CValue, or something that is not a pointer when the
+/// slot is empty -- `try_pointer` is the same test smashline's own `set_status_scripts` uses to
+/// decide whether an original exists.
+unsafe fn has_line(fighter: &mut L2CFighterCommon, id: i32, line: i32) -> bool {
+    let id = L2CValue::new_int(id as u64);
+    let cond = L2CValue::new_int(line as u64);
+    fighter.sv_get_status_func(&id, &cond).try_get_ptr::<()>().map_or(false, |p| !p.is_null())
 }

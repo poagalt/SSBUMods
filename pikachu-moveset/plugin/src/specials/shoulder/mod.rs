@@ -2427,8 +2427,33 @@ unsafe fn linked_victim(boma: *mut BattleObjectModuleAccessor, entry: usize, who
 /// SET EVERY FRAME rather than once. The table is the fighter's own and
 /// `sub_set_fighter_common_table` repopulates it, so a single write at boot is a write that
 /// something else may undo at a moment nothing observes. One assignment per frame cannot drift.
+/// ON A PIKACHU ONLY, AND LEAVING THAT OUT CRASHED SOMEBODY ELSE'S GAME.
+///
+/// This runs from `telemetry::pikachu_telemetry`, which is a `Main` LINE callback -- and that
+/// callback is installed on `SOURCE_AGENTS` as well as on Pikachu, so the real Donkey Kong,
+/// Incineroar, Game & Watch and Piranha Plant all run it. With no guard, every frame of a native
+/// DK match wrote `RAT_STATUS_KIND_SHOULDER_START` -- 0x1F7, a status kind that exists only on
+/// THIS Pikachu -- into HIS `globalTable[0x45]`. His own SHOULDER_START is 0x1EA.
+///
+/// So native DK's forward cargo throw sent him to a status he has no scripts for. Playtest:
+/// "I went to play native dk and the game crashed when I tried to cargo throw a mario", and the
+/// log says it outright, two lines apart:
+///
+///     [rat] CARGO globalTable[0x45] now points the forward throw at SHOULDER_START (0x1f7)
+///     [rat] TRACE DONKEY0 st=0x1f7 mot=0xa02480224 LinkModule::send_event_nodes_throw(...)
+///
+/// `DONKEY0 st=0x1f7`. The line that was meant to prove the mechanism works is the line that
+/// proves it fired on the wrong fighter.
+///
+/// THE GENERAL RULE THIS BREAKS, worth stating because the per-frame hook has fifteen other calls
+/// in it: everything else there is keyed by ENTRY and reads or writes only this plugin's own
+/// statics, which are per-entry and therefore private to whoever is at that entry. This one wrote
+/// into the ENGINE'S table. A shared callback may only touch shared state through a guard.
 pub unsafe fn retarget_forward_throw(fighter: &mut L2CFighterCommon) {
     const CONT_THROW_F: i32 = 0x45;
+    if smash::app::utility::get_kind(&mut *fighter.module_accessor) != *FIGHTER_KIND_PIKACHU {
+        return;
+    }
     if fighter.global_table[CONT_THROW_F].get_i32() != RAT_STATUS_KIND_SHOULDER_START {
         fighter.global_table[CONT_THROW_F] = L2CValue::new_int(RAT_STATUS_KIND_SHOULDER_START as u64);
         crate::telemetry::sink::diag(format!(
