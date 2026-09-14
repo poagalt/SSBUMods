@@ -81,10 +81,17 @@ which is a report nobody reads twice.
 **Correct absences.** Every `ArticleModule::*` is G&W's parachute, which ADR 0004 excludes -- 12
 of the 36. They are the decision working, not a defect.
 
-**The one clear behavioural gap: `ItemModule::is_have_item` / `drop_item`.** Donkey Kong drops
-whatever he is holding when he starts the cargo carry. This port does not, so a Pikachu holding
-an item can start a carry and keep it. That is a real divergence, it is cheap to transcribe, and
-nothing in the playtests would have surfaced it without an item on stage.
+**`ItemModule::is_have_item` / `drop_item` -- and my first reading of it was wrong.** I wrote that
+DK drops his item when he STARTS the carry. He does not: both calls are in `check_dmg.c`, the
+CheckDamage line, on all ten carry statuses. He drops it when he TAKES A HIT at DAMAGE_LEVEL_FLY
+while carrying.
+
+That makes it part of a bigger absence than a one-line transcription: **this port registers no
+CheckDamage line at all.** DK's is substantial -- it asks whether the damage came from the fighter
+he is carrying (`get_node_object_id` against the attacker id), runs the reaction frame through
+`DamageTransactorImpl::calc_reaction_frame`, compares it to a param, and only then decides. Being
+hit during a carry is governed by code this port does not have, and the item drop is one visible
+consequence of that.
 
 **Worth reading next**, in rough order of how likely they are to be visible:
 

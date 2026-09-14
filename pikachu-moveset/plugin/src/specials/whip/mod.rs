@@ -1713,6 +1713,43 @@ unsafe fn whip_followup_loop(fighter: &mut L2CFighterCommon) -> L2CValue {
     let boma = fighter.module_accessor;
     let status = StatusModule::status_kind(boma);
 
+    // THE LARIAT'S SLOW WIND-UP HAS A SECOND HALF, AND THE PORT ONLY HAD THE FIRST.
+    //
+    // `lariat_main` interpolates the animation rate by how late in the window the button came --
+    // `lo + (hi - lo) * t` between `special_s_lariat_motion_rate_min` and `_max` -- and then
+    // nothing ever put it back. So a late press slowed the ENTIRE lariat, hit included, instead
+    // of only its wind-up.
+    //
+    // `SpecialSLariat_main_loop` is where it comes back, and `check-callparity.sh` is what
+    // pointed here: `MotionModule::rate` and `set_frame` are called by the source and by nothing
+    // in this port.
+    //
+    //     if MotionModule::rate() != 1.0 {
+    //         target = WorkModule::get_float(SPECIAL_S_FLOAT_LARIAT_HIT_FRAME)
+    //         if target <= MotionModule::frame() {
+    //             MotionModule::set_frame(target, true)
+    //             MotionModule::set_rate(1.0)
+    //         }
+    //     }
+    //
+    // So the animation crawls until it reaches the hit frame, then SNAPS to exactly that frame
+    // and runs at full speed from there. The hit itself always lands at the same point of the
+    // animation however late the input was; only the approach stretches. `LARIAT_HIT_FRAME` is
+    // already set to 9.0 by this moveset's own ACMD, so the value was there the whole time.
+    if status == RAT_STATUS_KIND_SPECIAL_S_LARIAT {
+        let rate = MotionModule::rate(boma);
+        if rate != 1.0 {
+            let target = WorkModule::get_float(
+                boma,
+                *FIGHTER_GAOGAEN_STATUS_SPECIAL_S_FLOAT_LARIAT_HIT_FRAME,
+            );
+            if target <= MotionModule::frame(boma) {
+                MotionModule::set_frame(boma, target, true);
+                MotionModule::set_rate(boma, 1.0);
+            }
+        }
+    }
+
     // SPECIAL_S's OWN main_loop IS THIS SAME SKELETON -- `0x71000239d0` is instruction-for-
     // instruction the follow-ups' loop with the start motions, no victim watchdog, and no gravity
     // restore. Five of the six loops are one function.
