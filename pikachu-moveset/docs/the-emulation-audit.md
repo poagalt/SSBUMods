@@ -58,9 +58,19 @@ one JVM on all 24 cores, and `work/emu/new-entrypoints.txt` is exactly the input
 this and nothing else.
 
 **2. Merge `indirect-targets.txt` first -- it is free and it is disjoint.** 2,063 addresses found
-by sweeping all 100,508 functions for indirect calls, and `comm` says **all 2,063 are absent from
-`all-entrypoints.txt`**. Nobody folded the second round back in. That is 102,571 before a single
-extra second of emulation.
+by sweeping all 100,508 functions for indirect calls, and **all 2,063 are absent from
+`all-entrypoints.txt`**. Nobody folded the second round back in. That is 102,571 entry points
+before a single extra second of emulation.
+
+Compare the FIRST COLUMN ONLY. `indirect-targets.txt` rows are `0x... blr from 0x...` and
+`all-entrypoints.txt` rows are bare addresses, so a whole-line `comm` between them cannot match
+and reports every row as new whatever the truth is. That is how this number was first obtained,
+and it was right by luck:
+
+    awk '{print $1}' work/emu/indirect-targets.txt | sort -u > /tmp/ind
+    sort -u work/emu/all-entrypoints.txt > /tmp/all
+    comm -12 /tmp/all /tmp/ind | wc -l    # 0 already present
+    comm -13 /tmp/all /tmp/ind | wc -l    # 2063 new
 
 **3. Point `disasm` at the new table.** `lua_const_note` currently reads
 `vendor/ssbu-status/lua_dict.txt`, which is names only, and its own doc comment calls the result
