@@ -340,7 +340,7 @@ unsafe fn unlink_if_linked(boma: *mut BattleObjectModuleAccessor) {
     }
 }
 
-pub unsafe fn drop_capture(entry: usize, why: &str) {
+pub unsafe fn drop_capture(entry: usize, why: &str, ours_by_hand: bool) {
     let Some(ours) = boma(id_of_entry(entry as u32)) else { return };
     if CatchModule::is_catch(ours) {
         CatchModule::catch_cut(ours, false, false);
@@ -368,6 +368,38 @@ pub unsafe fn drop_capture(entry: usize, why: &str) {
     // GATED ON THE ENGINE STILL NAMING US, which is what makes this safe to call from the end of a
     // throw: a real throw releases them itself, so `catch_object_id` no longer points at us and
     // this does nothing. It only fires when the record is stale by definition.
+    // ONLY IF THIS PORT MADE THE CAPTURE ITSELF, AND THE CARGO DOES NOT.
+    //
+    // Everything below is the port's own invention: the engine has no `capture_cut` in either
+    // source fighter and neither of them forces CAPTURE_CUT on anybody. It is right for the WHIP,
+    // where `whip::catch::take_captive` calls `CaptureModule::capture` by hand and so owns the
+    // record it made. It is wrong for the CARGO, which reaches the carry out of an ORDINARY GRAB
+    // the engine established -- and DK's own `ThrowFF_exit` is one line, `catch_cut(false,false)`,
+    // with no capture surgery at all.
+    //
+    // AND ON THE CARGO IT WAS BREAKING THE THROW. pt24, with the victim mid-flight:
+    //
+    //   SHOULDER p0 throw init: ... victim plays thrown_f_donkey_hi, target=0x10000
+    //   about to force status 0x44 on victim from stale capture record (they are in 0x49)
+    //   HOLD p0 dropped the capture (throw over): MY_is_capture=true their_capture=true
+    //                                             their_st=CAPTURE_CUT(0x44)
+    //
+    // 0x49 is the victim being thrown, one frame after the port told them to play
+    // `thrown_f_donkey_hi`. The test above -- the engine still names us as their captor -- is
+    // true during a LEGITIMATE throw exactly as it is for a leaked record, so this yanked them
+    // out of the throw into CAPTURE_CUT, and CAPTURE_CUT from there completes nothing: both sides
+    // stayed flagged and no grab could start. Same shape of mistake as `whip_release`'s old
+    // `is_capture` guard and `find_caught_victim`'s adopt test -- a predicate that cannot tell a
+    // live capture from a dead one being asked to decide.
+    if !ours_by_hand {
+        crate::telemetry::sink::diag(format!(
+            "[rat] HOLD p{entry} dropped the capture ({why}): engine-made, so the engine's own \n             teardown is the whole of it -- ours_linked={} ignore_catching={} MY_is_capture={}",
+            LinkModule::is_linked(ours, *LINK_NO_CAPTURE),
+            CaptureModule::is_ignore_catching(ours),
+            CaptureModule::is_capture(ours),
+        ));
+        return;
+    }
     if let Some(vboma) = boma(HELD_ID[entry]) {
         // NOT IF THEY ARE ALREADY IN IT, and this guard is a crash class rather than tidiness.
         //

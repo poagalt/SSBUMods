@@ -568,7 +568,9 @@ unsafe fn whip_release_teardown(fighter: &mut L2CFighterCommon) {
     // playtest: "not after a lariat still". `drop_capture` is the same call the carry's exits make,
     // for the same reason: Incineroar reaches his follow-ups out of a catch the engine established,
     // so his teardown is the engine's. Ours is not.
-    crate::victim::drop_capture(entry, "whip over");
+    // `true`: `whip::catch::take_captive` calls `CaptureModule::capture` by hand, so this port
+    // owns the record and has to undo it.
+    crate::victim::drop_capture(entry, "whip over", true);
     // Stop tracing and forget the victim, so a stale id cannot make the next whip's
     // `whip_victim_held` watchdog answer about the previous one's victim.
     crate::victim::untrace(entry);
@@ -1985,8 +1987,31 @@ unsafe fn whip_flight(fighter: &mut L2CFighterCommon, entry: usize, off: f32) {
         //
         // Native's THROWN ends AT the line, off -40.69, and ours reaches exactly that on the
         // fourth step. So that is where this attaches now, and the give is paid out below.
+        // TO THE NEAREST STEP, BECAUSE THE FLIGHT IS QUANTISED AND `<= 0.0` LOSES BY A HAIR.
+        //
+        // pt24 attached at off -51.89 on all 50 whips even though the line was right:
+        //
+        //     reached the ropes after 4f at off=-51.89 (rope_x=-51.58 their_x=-62.78)
+        //
+        // `their_x` is one full `_speed` step past `rope_x`, so the frame before it the victim
+        // was at -51.58 -- rope_x to every digit printed. `(pos - rope_x) * lr <= 0.0` is an
+        // exact-equality test between two floats reached by different arithmetic (the engine
+        // integrating `start + 3 * 11.2`, and `captor_x + ROPE_OFFSET_X` latched at the throw),
+        // and it came out a hair positive every single time. Consistently, because the same
+        // arithmetic produces the same residue.
+        //
+        // The victim moves in whole `_speed` steps, so "has reached the line" cannot be resolved
+        // finer than one step anyway: the honest test is which step lands NEAREST the line, and
+        // half a step is the midpoint between the two candidates -- 0.0 away versus 11.2 away.
+        // No tolerance constant, just the game's own speed.
         let lr = PostureModule::lr(boma);
-        let reached = (PostureModule::pos_x(vboma) - state::rope_x(entry)) * lr <= 0.0;
+        let speed = WorkModule::get_param_float(
+            boma,
+            hash40("param_special_s"),
+            hash40("special_s_through_target_speed"),
+        );
+        let reached =
+            (PostureModule::pos_x(vboma) - state::rope_x(entry)) * lr <= speed * 0.5;
         let bound = WorkModule::get_param_float(
             boma,
             hash40("param_special_s"),

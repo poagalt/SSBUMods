@@ -319,3 +319,93 @@ the absence of a log line instead of measuring the mechanism. "No release logged
 Exit does log, therefore End is dead" was a plausible story that fit every fact available and was
 still wrong. What settled it was a probe that printed the actual engine state at the actual
 moment -- and the honest read of that is that the probe should have come first, before the theory.
+
+---
+
+# Round three (pt24): the whip is fixed, and the cargo was breaking its own throw
+
+The `is_capture` guard was the whip's whole problem. pt24:
+
+```
+dropped the capture (whip over)   94   MY_is_capture=false their_capture=false
+```
+
+Ninety-four releases where there had been zero, all clean on both sides, and the playtest
+confirms it: *"now I can grab the opponent after an alolan whip lands."*
+
+## The cargo is a different bug with the same shape
+
+The cargo's releases did NOT come out clean:
+
+```
+dropped the capture (throw over)  MY_is_capture=true their_capture=true their_st=CAPTURE_CUT(0x44)
+```
+
+and the probe agrees about the consequence -- clean state grabs, dirty state does not:
+
+```
+PROBE mine_cap=false mario cap=false by=0x50000000   ->  CATCH 7f -> CATCH_PULL     works
+PROBE mine_cap=true  mario cap=true  by=0x0          ->  CATCH 13f -> WAIT          blocked
+```
+
+The cause is three lines apart in the log:
+
+```
+SHOULDER p0 throw init: ... victim plays thrown_f_donkey_hi, target=0x10000
+about to force status 0x44 on victim from stale capture record (they are in 0x49)
+HOLD p0 dropped the capture (throw over): MY_is_capture=true their_capture=true their_st=CAPTURE_CUT
+```
+
+The victim is in `0x49` -- **being thrown**, one frame after the port told them to play
+`thrown_f_donkey_hi` -- and `drop_capture` yanks them into CAPTURE_CUT. Its test is "the engine
+still names us as their captor", which is true of a live throw exactly as it is of a leaked
+record, so it cut a throw that was working. CAPTURE_CUT from mid-throw completes nothing and both
+sides stay flagged.
+
+**This is the third instance of one mistake**, and it is worth naming as a class:
+
+| predicate | true for | also true for |
+|---|---|---|
+| `whip_release`'s `is_capture(boma)` | a Pikachu who got grabbed | a Pikachu who is holding someone |
+| `find_caught_victim`'s adopt test | a catch the engine just made | a record an unreleased whip leaked |
+| `drop_capture`'s victim block | a stale capture | **a throw in progress** |
+
+Each one is a state predicate being asked a question about *history* that it cannot answer.
+
+## What the source does instead
+
+`ThrowFF_exit` in DK's decomp is one line:
+
+```c
+app::lua_bind::CatchModule__catch_cut_impl(this->moduleAccessor, false, false);
+```
+
+No `capture_cut`, no forced CAPTURE_CUT, no unlink. Neither source fighter calls `capture_cut`
+anywhere -- the engine capture tracer recorded zero across a whole session of real DK and real
+Incineroar -- because their captures are the ENGINE's and its release path does this internally.
+
+So `drop_capture` now takes `ours_by_hand`. The whip passes `true`: `take_captive` calls
+`CaptureModule::capture` itself, so the port owns that record and has to undo it. The cargo passes
+`false`: it reaches the carry out of an ordinary grab, the capture is the engine's, and the
+engine's own teardown is the whole of it.
+
+## Distance, third pass
+
+The stretch drive worked exactly -- 7.84 paid out, -51.89 to -59.73. The attach did not move to
+the rope line as intended, so the give went on top of an already-late attach. That is the 6 tiles.
+
+```
+reached the ropes after 4f at off=-51.89 (rope_x=-51.58 their_x=-62.78 by_place=true)
+```
+
+`their_x` is one full `_speed` step past `rope_x`, so the frame before it the victim stood at
+-51.58 -- `rope_x` to every digit printed. `(pos - rope_x) * lr <= 0.0` is an exact-equality test
+between two floats reached by different arithmetic: the engine integrating `start + 3 * 11.2`,
+against `captor_x + ROPE_OFFSET_X` latched at the throw. It came out a hair positive on all fifty
+whips, consistently, because the same arithmetic gives the same residue.
+
+The victim moves in whole `_speed` steps, so "has reached the line" cannot be resolved finer than
+one step. The test is now which step lands *nearest* the line, with half a step as the midpoint
+between the two candidates -- 0.0 away against 11.2 away. No tolerance constant; the game's own
+speed is the whole of it. That puts the attach at off -40.69 and the extreme at -48.53, which is
+native.
