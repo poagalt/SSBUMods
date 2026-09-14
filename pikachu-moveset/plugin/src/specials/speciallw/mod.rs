@@ -695,40 +695,33 @@ unsafe extern "C" fn pikachu_speciallw_main_loop(fighter: &mut L2CFighterCommon)
         ));
     }
 
-    // THE CANCEL CHECK IS REVERTED, AND WHY IS THE POINT.
+    // RESTORED, ON THE MEASUREMENT RATHER THAN ON A STORY. Two of my explanations for this were
+    // wrong; the probe that replaced them answered it in one playtest:
     //
-    // `SpecialLw/main_loop.c` opens with `if is_enable_cancel() { sub_wait_ground_check_common;
-    // sub_air_check_fall_common }`, `check-callparity.sh` found it missing, and transcribing it
-    // broke Revenge two ways in one playtest:
+    //   REVENGE p0 is_enable_cancel went TRUE on status frame 49 (motion 58.0/94.0,
+    //                                                             window_open=false, phase=0)
+    //   REVENGE p0 is_enable_cancel went TRUE on status frame 26 (motion 26.0/67.0,
+    //                                                             window_open=false, phase=1)
     //
-    //   "using revenge repeatedly seems to allow it to be used too quickly -- some kind of
-    //    autocancel just for revenge"
-    //   "pikachu can now sometimes activate the revenge counter fire damage on command while
-    //    having a stored revenge boost"
+    // The stance's FAF lands on frame 49 of a NINETY-FOUR frame motion, and without this check
+    // the only way out is `is_end` -- so Pikachu was committed for 45 frames past the point
+    // Incineroar is free. The playtest confirms it from the other side: "rat of doom's FAF for
+    // revenge is clearly later than native incineroar; even visually I can confirm this 100%".
     //
-    // A TRANSCRIBED CALL IS ONLY RIGHT IF THE DATA IT READS IS THE SOURCE'S. `is_enable_cancel`
-    // reports that the motion's FAF has passed -- and the motion here is PIKACHU'S OWN
-    // `special_lw`, which is Thunder. Nothing patches its FAF to Incineroar's. So the check went
-    // true at Thunder's frame, not Revenge's, and the stance became cancellable almost at once.
+    // AND `window_open=false` IN BOTH CASES, which retires the reason I reverted it. I claimed
+    // cancelling before the ACMD's frame-28 `close_window` would leave the counter armed. The FAF
+    // arrives long after the window has shut, and `WINDOW_FRAMES` expires it in 26 frames
+    // regardless, so that state is not reachable from here.
     //
-    // The second symptom follows from the first and is worse: the ACMD calls `close_window` on
-    // frame 28. Cancel out at frame 25 and that line never runs, so WINDOW_OPEN stays true after
-    // the move has ended and the counter is left armed -- to fire on the next damage, or on the
-    // next down-B, which is exactly "on command".
-    //
-    // RESTORING IT NEEDS THE FAF FIRST. Patch `special_lw`/`special_air_lw` in
-    // fighter_param_motion to Incineroar's frame, confirm with the `faf` field the telemetry
-    // already logs, and only then put these four lines back. Reverted rather than left in with a
-    // guard, because a guard would be me inventing the frame.
-    // Landing out of an airborne Revenge used to slide across the ground: the status runs on
-    // FIGHTER_KINETIC_TYPE_UNIQ, which keeps whatever horizontal momentum the jump had and never
-    // brakes. Switching to the grounded kinetic on touchdown hands the momentum back to normal
-    // ground friction.
-    if StatusModule::situation_kind(boma) == *SITUATION_KIND_GROUND
-        && KineticModule::get_kinetic_type(boma) == *FIGHTER_KINETIC_TYPE_AIR_STOP
-    {
-        KineticModule::change_kinetic(boma, *FIGHTER_KINETIC_TYPE_GROUND_STOP);
-        GroundModule::correct(boma, GroundCorrectKind(*GROUND_CORRECT_KIND_GROUND_CLIFF_STOP));
+    // The earlier "too quickly" report is this check working: frame 49 instead of frame 94 IS
+    // faster, and against a move that had been 45 frames too long it read as an autocancel.
+    if CancelModule::is_enable_cancel(boma) {
+        if fighter.sub_wait_ground_check_common(false.into()).get_bool() {
+            return 1.into();
+        }
+        if fighter.sub_air_check_fall_common().get_bool() {
+            return 1.into();
+        }
     }
 
     // AND THE ANIMATION FOLLOWS THE SITUATION TOO, WHICH THIS LOOP WAS NOT DOING.
