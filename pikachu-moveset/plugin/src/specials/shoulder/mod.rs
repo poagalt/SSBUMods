@@ -1839,7 +1839,42 @@ fn throw_motion(status: i32) -> Option<&'static str> {
 /// this port gets to choose.
 unsafe extern "C" fn shoulder_start_init(fighter: &mut L2CFighterCommon) -> L2CValue {
     let boma = fighter.module_accessor;
-    enter_carry(boma, entry_of(boma));
+    let entry = entry_of(boma);
+    // ADOPT THE ENGINE'S OWN GRAB, BECAUSE NOTHING OF OURS PUT US HERE ANY MORE.
+    //
+    // `retarget_forward_throw` points `globalTable[0x45]` at this status, so `CatchCont` brings
+    // Pikachu straight in from the catch -- and then `VICTIM`, the hold and the lift param, all
+    // of which the old outside-the-engine interception used to set on the way past, have nobody
+    // to set them. The engine still knows who is being held, which is the point of arriving this
+    // way, so this asks it.
+    //
+    // `capture_object_id` first and `LAST_CAPTURED` second: the live answer when there is one,
+    // and the id latched every frame of the grab when the engine has already moved on.
+    if !crate::victim::plausible(VICTIM[entry]) {
+        let live = CatchModule::capture_object_id(boma, false) as u32;
+        let them = if crate::victim::plausible(live) {
+            live
+        } else {
+            super::cargo::last_captured(entry)
+        };
+        if crate::victim::boma(them).is_some() {
+            VICTIM[entry] = them;
+            CARRY_FRAMES[entry] = 0;
+            crate::victim::hold(entry, them);
+            crate::victim::untrace(entry);
+            apply_lift_param(boma, entry, true);
+            crate::telemetry::sink::diag(format!(
+                "[rat] SHOULDER p{entry} adopted the engine's grab on {them:#x} -- CatchCont \
+                 brought us here, so the capture was never cut and none of it is ours to rebuild"
+            ));
+        } else {
+            crate::telemetry::sink::diag(format!(
+                "[rat] SHOULDER p{entry} entered with NO victim the engine will name \
+                 (live={live:#x}) -- the carry is about to run empty"
+            ));
+        }
+    }
+    enter_carry(boma, entry);
     0.into()
 }
 
@@ -2134,4 +2169,47 @@ unsafe fn linked_victim(boma: *mut BattleObjectModuleAccessor, entry: usize, who
         ));
     }
     linked
+}
+
+/// Point the engine's own forward throw at the carry, the way Donkey Kong's points at his.
+///
+/// THIS IS THE EXACT MECHANISM, READ OUT OF THE GAME RATHER THAN INFERRED, and it is the reason
+/// `lua2cpp_common.nro` was decompiled in full. `L2CFighterCommon::CatchCont` (common
+/// `0x71000ca4d0`) is what a fighter in a catch status runs every frame to decide whether a throw
+/// was input, and its four branches end like this:
+///
+///     globalTable[0x21] & FIGHTER_PAD_CMD_CAT2_FLAG_THROW_B   -> change_status(globalTable[0x46])
+///     globalTable[0x21] & FIGHTER_PAD_CMD_CAT2_FLAG_THROW_HI  -> change_status(globalTable[0x47])
+///     globalTable[0x21] & FIGHTER_PAD_CMD_CAT2_FLAG_THROW_LW  -> change_status(globalTable[0x48])
+///     globalTable[0x21] & FIGHTER_PAD_CMD_CAT2_FLAG_THROW_F   -> change_status(globalTable[0x45])
+///
+/// **The destination is not a constant. It is a slot.** `0x45` through `0x48` are the four throw
+/// statuses, per fighter, and Donkey Kong's `0x45` holds `SHOULDER_START`. That is the whole of
+/// how he reaches the carry without passing through `THROW`, and why he never has to re-establish
+/// anything: the engine's grab is untouched because nothing tore it down.
+///
+/// WHAT THIS REPLACES. Five rounds of intercepting the throw from the outside:
+///
+///   * `motion == throw_f && is_end` -- fired after Pikachu's throw had completed
+///   * `pikachu_throw_main`, on THROW's Main -- `catch_cut` runs on the way IN, before Main
+///   * `pikachu_catch_wait_main`, on CATCH_WAIT's Main -- and MAIN RUNS ONCE, AT STATUS ENTRY,
+///     before the player has pressed anything. `CatchCont` is reached from the status's main
+///     LOOP, every frame. That is why pt29 has zero interceptions and two throws.
+///
+/// Each of those was a way of racing the engine to a decision the engine was always going to
+/// make. This does not race it: it tells the engine the answer.
+///
+/// SET EVERY FRAME rather than once. The table is the fighter's own and
+/// `sub_set_fighter_common_table` repopulates it, so a single write at boot is a write that
+/// something else may undo at a moment nothing observes. One assignment per frame cannot drift.
+pub unsafe fn retarget_forward_throw(fighter: &mut L2CFighterCommon) {
+    const CONT_THROW_F: i32 = 0x45;
+    if fighter.global_table[CONT_THROW_F].get_i32() != RAT_STATUS_KIND_SHOULDER_START {
+        fighter.global_table[CONT_THROW_F] = L2CValue::new_int(RAT_STATUS_KIND_SHOULDER_START as u64);
+        crate::telemetry::sink::diag(format!(
+            "[rat] CARGO globalTable[0x45] now points the forward throw at SHOULDER_START \
+             ({RAT_STATUS_KIND_SHOULDER_START:#x}) -- the engine's own CatchCont will make the \
+             transition, so THROW is never entered and the grab is never cut"
+        ));
+    }
 }

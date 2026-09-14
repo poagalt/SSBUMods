@@ -22,3 +22,12 @@ disabled-mods/
 # committing it would make every commit carry an unrelated one-line diff. The value is in the
 # LOG saying which commit ran, not in the file being versioned.
 pikachu-moveset/plugin/src/telemetry/buildstamp.rs
+
+# Decompiled C for the game's own modules, produced by tools/decomp-all.sh.
+#
+# DERIVED AND REPRODUCIBLE, and large: `common` alone is 44 MB across 8792 files and the full
+# sweep of all twenty NROs is several hundred. It is also Nintendo's code, which the eight tracked
+# asset files already make awkward enough. The script regenerates any module in about ten minutes
+# from the NROs in vendor/nro, so the recipe is versioned and the output is not.
+vendor/decomp/
+work/decomp/

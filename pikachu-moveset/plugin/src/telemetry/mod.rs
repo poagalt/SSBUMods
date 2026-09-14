@@ -157,6 +157,9 @@ unsafe extern "C" fn pikachu_telemetry(fighter: &mut L2CFighterCommon) {
     crate::victim::new_frame(entry);
     crate::victim::tick_hold(entry);
     crate::victim::tick_deferred_cut(entry);
+    // THE FORWARD THROW'S DESTINATION IS A SLOT IN THE GLOBAL TABLE, AND DK'S HOLDS THE CARRY.
+    // This is the one assignment that makes the cargo native. See `specials::shoulder::retarget`.
+    crate::specials::shoulder::retarget_forward_throw(fighter);
 
     let motion = MotionModule::motion_kind(boma);
     let frame = MotionModule::frame(boma);

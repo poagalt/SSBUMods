@@ -81,3 +81,37 @@ explicit state shim is the faithful version that is also safe.
 - The recording. Run the port, read its `[rat] TRACE` lines, diff against
   `docs/the-recording.md`. `start_clatter(85, 0, 5, ...)` against `(0, 0, 0, ...)` is the shape of
   the answer.
+
+## Addendum, 2026-09-14: this ADR does not cover how the source ENTERS the tree
+
+Five rounds of the cargo regrab bug came from a status transition this ADR has nothing to say
+about, and the gap is worth naming because every ported move that is reached from something other
+than a special input has the same one.
+
+Donkey Kong's decomp directory contains `ShoulderStart`, `ShoulderWait`, ..., `ThrowFF` and the
+rest of the carry. **It does not contain `CatchWait`.** He does not own that status -- the common
+module does -- and this repository has no `lua2cpp_common` decomp, only `donkey`, `gamewatch`,
+`gaogaen`, `packun` and `pikachu`. So `CATCH_WAIT -> SHOULDER_START`, the one transition that
+decides whether the engine's grab survives into the carry, was never readable.
+
+His tree, as this ADR defines it, STARTS at `ShoulderStart`. The port therefore had to invent the
+way in, and nothing in the process marked that as invented. It was inferred from Pikachu's side
+instead -- "the forward throw is the lift, so intercept the forward throw" -- and intercepted on
+`THROW`'s Main, one frame after the engine's `catch_cut` had already destroyed the grab. Every
+cargo symptom for five rounds was downstream of that frame, and the workaround for it
+(`enter_carry` rebuilding the capture by hand) produced a record that pt28 proved nothing can
+undo.
+
+What settled it was not the decomp. It was the user playing Donkey Kong for one minute while the
+capture tracer was armed:
+
+    DONKEY0 status CATCH_DASH(0x39) -> 0x3a -> 490(0x1ea)  SHOULDER_START
+
+He never enters `THROW`.
+
+**So: when a move's first status is reached from a status the source fighter does not own, the
+entry is not a transcription and must be written down as an assumption.** The check for it is a
+native recording of the source fighter making that transition, not a reading of anything --
+because there is nothing to read. `tools/check-statuslines.sh` verifies the lines a status has; it
+cannot verify that the port arrives at the first one the way the source does, and no static check
+can.
