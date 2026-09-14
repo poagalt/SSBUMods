@@ -79,6 +79,42 @@ else
     done < <(awk -F'|' '/^[a-z_]+\|/' tools/merge-weapons.sh)
 fi
 
+echo; echo "== no skinned mesh names a bone the skeleton does not have =="
+# THE CHECK THAT WOULD HAVE SAVED AN AFTERNOON OF PLAYTESTS.
+#
+# A graft carries the table's bone. Three of these weapons are RIGID -- `bone_influences` empty,
+# mesh single-bound to one bone -- so one bone is exact, and Chrom's sword worked for weeks.
+# Mythra's `lightsword_VIS_O_OBJShape` is SKINNED, weighted to Sword1, Sword_lightC and
+# Sword_lightD, and the merge grafted only Sword1. The shipped model had two influences naming
+# bones that do not exist.
+#
+# Vanilla Pikachu has ZERO such references, so this is a clean invariant and not a tolerance.
+# What it cost: the training-mode load hung FOREVER on loading him. Not a crash -- no crash report,
+# ARCropolis finished its filesystem work and went quiet, the plugin installed in full, the loading
+# animation kept spinning, and no fighter object was ever created. Three boots, twenty-five minutes
+# on the first. It was localised only when a vanilla Mario loaded fine in the same session.
+#
+# Every bone name, not just the grafted meshes': if a merge ever disturbs Pikachu's own skeleton
+# this catches that too.
+if [ -f "$MODEL/model.numshb" ]; then
+    jq -r '.bones[].name' "$W/bone.json" > "$W/bonenames.txt"
+    absent=$(jq -r '.objects[] | select(.bone_influences | length > 0)
+                    | "\(.name)\t\(.bone_influences | map(.bone_name) | join(","))"' "$W/mesh.json" \
+      | while IFS=$'\t' read -r mo bones; do
+            for b in $(echo "$bones" | tr ',' ' '); do
+                grep -qxF "$b" "$W/bonenames.txt" || echo "$mo needs $b"
+            done
+        done)
+    if [ -n "$absent" ]; then
+        echo "  FAIL a skinned mesh is weighted to a bone that is not in the skeleton:"
+        printf '       %s\n' "$absent"
+        echo "       rerun tools/merge-weapons.sh -- it grafts every bone a mesh's influences name"
+        rc=1
+    else
+        echo "  ok  every influence bone of every skinned mesh is in the skeleton"
+    fi
+fi
+
 echo; echo "== no motion shows two weapons at once =="
 # Only what is INSIDE the motion arrays, which is the inverse of the extraction above.
 dupes=$(printf '%s' "$WEAPONS_BLOCK" | tr '\n' ' ' | grep -oE '&\[[^]]*\]' \

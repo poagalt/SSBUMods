@@ -82,18 +82,57 @@ while IFS='|' read -r name dir mesh material bone parent sphere radius; do
     pidx=$(jq --arg p "$parent" '[.bones | to_entries[] | select(.value.name == $p)][0].key' cur_nusktb.json)
     [ "$pidx" != "null" ] || { echo "$parent not found in Pikachu's skeleton" >&2; exit 1; }
 
-    # A NAME COLLISION WOULD SILENTLY REBIND SOMETHING OF PIKACHU'S. Checked, not hoped for.
-    for probe in "$bone:.bones" "$name:.objects"; do
-        n="${probe%%:*}"; where="${probe##*:}"
-        if jq -e --arg n "$n" "[$where[] | .name] | index(\$n)" "cur_$(case $where in .bones) echo nusktb;; *) echo numshb;; esac).json" >/dev/null 2>&1; then
-            echo "name collision: $n already exists in Pikachu's $where" >&2; exit 1
-        fi
-    done
+    # A MESH NAME COLLISION WOULD SILENTLY REBIND SOMETHING OF PIKACHU'S. Checked, not hoped for.
+    # Bones are handled in the graft loop below, which skips one Pikachu already has by name
+    # rather than refusing -- a source mesh weighted to `HaveR` names a bone that is legitimately
+    # the same bone on both skeletons.
+    if jq -e --arg n "$name" '[.objects[] | .name] | index($n)' cur_numshb.json >/dev/null 2>&1; then
+        echo "name collision: $name already exists in Pikachu's .objects" >&2; exit 1
+    fi
 
-    jq --argjson p "$pidx" --arg b "$bone" --slurpfile s src_nusktb.json '
-      .bones += [ ( $s[0].bones[] | select(.name == $b) | .parent_index = $p ) ]
+    # WHICH BONES THE MESH ACTUALLY NEEDS, READ OUT OF THE MESH RATHER THAN NAMED IN THE TABLE.
+    #
+    # THIS COST A WHOLE AFTERNOON OF PLAYTESTS. Three of these weapons are RIGID: `bone_influences`
+    # is empty and the mesh hangs off a single bone, so one graft is exact and Chrom's sword worked
+    # for weeks. Mythra's is SKINNED -- `lightsword_VIS_O_OBJShape` is weighted to Sword1,
+    # Sword_lightC and Sword_lightD -- and grafting only the table's bone left two of its three
+    # influences naming bones that do not exist in Pikachu's skeleton.
+    #
+    # Vanilla Pikachu has ZERO influence bones absent from his own nusktb; the shipped merged model
+    # had exactly those two. The training-mode load then hung FOREVER on loading him -- not a
+    # crash: no crash report, ARCropolis finished its filesystem work and went quiet, the plugin
+    # installed in full, the loading animation kept spinning, and no fighter object was ever
+    # created. Mario loaded fine in the same session, which is what finally localised it.
+    #
+    # So the graft set is the union of the table's bone and every bone the mesh's influences name,
+    # walked in SOURCE SKELETON ORDER so a parent is always grafted before its children. Each one
+    # reparents to its source parent's merged index when that parent is present, and to the
+    # table's anchor when it is not -- which for Mythra puts Sword1 under HaveR and Sword_lightC
+    # and Sword_lightD under the grafted Sword1, exactly their source hierarchy.
+    # ONE jq PASS, DELIBERATELY. The first version of this did the same work as a bash `for` loop
+    # around three jq calls -- extract the bone names, look up each parent's name, look up that
+    # name's index, append -- and it silently appended NOTHING for the skinned weapon while
+    # reporting the right bone names. Same expression, same file, correct in isolation, wrong in
+    # the loop. Rather than keep bisecting quoting layers, the whole graft is one expression with
+    # no shell in the middle of it: `reduce` walks the graft set in source-skeleton order, so a
+    # parent is always already appended when its children are resolved.
+    jq --argjson anchor "$pidx" --arg m "$mesh" --arg b "$bone" \
+       --slurpfile sm src_numshb.json --slurpfile sk src_nusktb.json '
+      . as $doc
+      | ( ( [ $sm[0].objects[] | select(.name == $m) ][0].bone_influences // [] )
+        | map(.bone_name) ) + [$b]
+      | unique as $want
+      | [ $sk[0].bones[] | select(.name | IN($want[])) ] as $graft
+      | reduce $graft[] as $g ($doc;
+          if ([.bones[].name] | index($g.name)) != null then .
+          else
+            ( if ($g.parent_index == null or $g.parent_index < 0) then ""
+              else ($sk[0].bones[$g.parent_index].name // "") end ) as $pname
+            | ( [.bones[].name] | index($pname) ) as $found
+            | .bones += [ $g | .parent_index = (if $found == null then $anchor else $found end) ]
+          end
+        )
     ' cur_nusktb.json > next_nusktb.json
-
     # SUBINDEX 0 ONLY. Several of these meshes appear more than once under one name -- Mythra's
     # `lightsword_VIS_O_OBJShape` has four and Palutena's staff two, which are the game's own LOD
     # and variant slots. Taking the first is what `set_mesh_visibility` can address by name and is

@@ -55,6 +55,33 @@ else
     echo "  ok  every named agent is pikachu"
 fi
 
+# AND A LINE CALLBACK IS NOT ENOUGH TO MAKE IT SAFE, WHICH IS WHAT THE SECTION ABOVE ASSUMED.
+#
+# The check above was written believing `on_line` on a foreign agent was the harmless case -- our
+# code never runs as their move, so the only risk was the callback body, which section 1 gates.
+# That premise was wrong. REGISTERING the agent happens at fight-load time and makes smashline
+# create an agent for a fighter this mod does not own, which reaches an unbounded wait
+# (vendor/sl_create_agent.rs:582 and :1079):
+#
+#     load_fighter_module(fighter_id);
+#     while !is_fighter_module_loaded(fighter_id) { sleep(1ms) }
+#
+# No timeout, no bail, entered once per foreign agent at load.
+#
+# THIS IS A COST, NOT A DIAGNOSIS, and the difference cost a wrong conclusion. When the
+# training-mode load hung for three boots I blamed this, on the strength of one pre-tracing build
+# that loaded fine -- and `work/pt2.log` through `work/pt39.log` are about forty playtests that arm
+# tracing and then go on to load a fighter. It has never been shown to hang anything. The gate is
+# checked because the sharp edge is real and the mod has no standing need to pay for it.
+#
+# So the gate itself is the thing to check, not just what the agents receive.
+if grep -qE '^const SOURCE_TRACING: bool = true;' $SRC/telemetry/mod.rs; then
+    echo "  FAIL SOURCE_TRACING is on -- this HANGS the fight load. It is a measurement session's"
+    echo "       switch, not a shippable state; see the note above the const."; fail=1
+else
+    echo "  ok  SOURCE_TRACING is off, so no foreign agent is registered at load"
+fi
+
 echo; echo "== 3. the global param hooks still gate on the object before the fighter kind =="
 # `is_pikachu` is not the first test on purpose -- an id/object compare that is false for almost
 # every call in the game comes first, and `&&` short-circuits so a foreign fighter is never even

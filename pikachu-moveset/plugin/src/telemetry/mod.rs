@@ -327,8 +327,44 @@ unsafe extern "C" fn pikachu_telemetry(fighter: &mut L2CFighterCommon) {
 /// That turns "implement it faithfully" from a reading exercise into a comparison. It is also
 /// free: no extra console work, no dumping, no disassembly -- just play Incineroar for a minute.
 ///
-/// Costs nothing when they are not in the match, since the callback only runs for fighters that
-/// exist.
+/// OFF BY DEFAULT, AND THE REASON IS A COST, NOT A PROVEN BUG. READ THE WHOLE NOTE.
+///
+/// I CLAIMED THIS HUNG THE FIGHT LOAD AND THAT WAS WRONG. The claim rested on one control: build
+/// 2e8065d (2026-09-10), which loaded fine and has no "source tracing armed" line. It genuinely
+/// predates `SOURCE_AGENTS` -- but it is 139 commits back, and `work/pt2.log` through
+/// `work/pt39.log` are about forty playtests that print the tracing line AND go on to print
+/// `object is alive`. Source tracing has shipped through every one of them. It is not sufficient
+/// to hang anything, and the real regression was in the asset delta that landed after pt39.
+///
+/// WHAT IS STILL TRUE is the cost, which is why the gate stays. This comment used to end "costs
+/// nothing when they are not in the match, since the callback only runs for fighters that exist".
+/// The callback, yes. REGISTERING THE AGENT IS NOT FREE: it happens at fight-load time and makes
+/// smashline create an agent for a fighter this mod does not own, which reaches
+/// `vendor/sl_create_agent.rs:582` and `:1079`:
+///
+///     crate::utils::load_fighter_module(fighter_id);
+///     while !crate::utils::is_fighter_module_loaded(fighter_id) {
+///         std::thread::sleep(Duration::from_millis(1));
+///     }
+///
+/// An unbounded wait with no timeout and no bail, entered once per foreign agent at load. The
+/// skyline log of a hung boot does show a foreign module moving inside that window --
+///
+///     [NRO hook] Loaded pikachu. BindFlag: Lazy
+///     [NRO hook] Unloaded gaogaen.
+///     [NRO hook] Loaded mario. BindFlag: Lazy
+///
+/// -- with no Incineroar in the match, so the load/unload is ours. That is a real hazard and worth
+/// not paying for by default. It is NOT evidence that it hung: the same lines would appear in the
+/// forty sessions that worked, and no full skyline stream from a successful post-tracing boot
+/// exists to compare against. Do not promote the hazard to a diagnosis again without one.
+///
+/// So it is OFF because a foreign-agent registration is a cost with a known sharp edge and this
+/// mod has no standing need for it, and it goes on only for a session deliberately measuring a
+/// source fighter -- one variable, with a playtest that expects to be thrown away.
+/// `enginetrace::ENABLED` is off for the same class of reason.
+const SOURCE_TRACING: bool = false;
+
 const SOURCE_AGENTS: &[&str] = &["gaogaen", "donkey", "gamewatch", "packun"];
 
 pub fn install() {
@@ -344,16 +380,19 @@ pub fn install() {
         .on_line(Main, pikachu_telemetry)
         .install();
 
-    for name in SOURCE_AGENTS {
-        Agent::new(*name)
-            .on_line(Main, pikachu_telemetry)
-            .install();
+    if SOURCE_TRACING {
+        for name in SOURCE_AGENTS {
+            Agent::new(*name)
+                .on_line(Main, pikachu_telemetry)
+                .install();
+        }
+        sink::diag(format!(
+            "[rat] source tracing armed on {} -- play one of them and the log records what the \
+             REAL move does, frame by frame, to diff against ours. THIS HANGS THE FIGHT LOAD; see \
+             the note on SOURCE_TRACING and expect to throw the session away",
+            SOURCE_AGENTS.join(", ")
+        ));
     }
-    sink::diag(format!(
-        "[rat] source tracing armed on {} -- play one of them and the log records what the \
-         REAL move does, frame by frame, to diff against ours",
-        SOURCE_AGENTS.join(", ")
-    ));
 }
 
 /// THE ONE MEASUREMENT THE WHIP'S TIMING CANNOT BE DERIVED WITHOUT, and it needs one minute of
