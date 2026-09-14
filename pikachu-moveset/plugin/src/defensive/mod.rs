@@ -13,6 +13,13 @@ use {
     smash_script::*,
     smashline::{*, Priority::*}
 };
+// SHADOWS the `macros` brought in by `smash_script::*` above, and must stay AFTER it: an explicit
+// `use` beats a glob, so `macros::NAME` in a verbatim-copied script resolves through
+// src/acmd_ext, which re-exports all 112 of smash-script's and adds the ones it is missing.
+// Without this line, tools/reach/src/bin/deforeign.rs deletes any call to a macro the crate does
+// not export -- which is how the Alolan Whip shoulder lost its CHECK_FINISH_CAMERA_IF_NOT_HP_MODE
+// while keeping the two lines that configure the camera it was asking for.
+use crate::acmd_ext as macros;
 
 // ---- get-up attack, face up (Bowser) : game_downattacku ----
 unsafe extern "C" fn pikachu_game_downattacku(agent: &mut L2CAgentBase) {

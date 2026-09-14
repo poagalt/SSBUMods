@@ -89,7 +89,13 @@ echo "  ok  every ported fighter's namespace is known to deforeign"
 # actually being compiled against.
 SS=$(ls -d /c/Users/poaga/.cargo/git/checkouts/smash-script-*/*/src 2>/dev/null | head -1)
 if [ -n "$SS" ]; then
-  grep -rhoE "pub (unsafe )?fn [A-Z][A-Z_0-9]+" "$SS" | sed 's/.*fn //' | sort -u > "$ROOT/work/smash-script-macros.txt"
+  # ...plus the ones src/acmd_ext supplies itself, read from that file the same way, so the list
+  # still cannot be kept in step by hand. A macro the crate lacks is only callable at all because
+  # gen-moves.sh shadows `macros` with `crate::acmd_ext`; if this line went missing, deforeign
+  # would silently delete those calls again.
+  { grep -rhoE "pub (unsafe )?fn [A-Z][A-Z_0-9]+" "$SS"
+    grep -rhoE "pub (unsafe )?fn [A-Z][A-Z_0-9]+" "$ROOT/pikachu-moveset/plugin/src/acmd_ext"
+  } | sed 's/.*fn //' | sort -u > "$ROOT/work/smash-script-macros.txt"
 fi
 "$ROOT/tools/reach/target/release/deforeign.exe" \
   "$ROOT/pikachu-moveset/plugin/src" \

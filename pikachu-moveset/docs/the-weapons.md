@@ -104,7 +104,56 @@ hit. That needs a detector — damage rising while the no-reaction mode is on �
 transcription, because the source has no such script either; whatever vanilla shows comes from the
 engine's own armor path.
 
-**Also found and not fixed:** the native Revenge boost is applied through
+**Also found, and since fixed:** the native Revenge boost is applied through
 `AttackModule::set_power_mul_5th` and `set_reaction_mul_3rd`, both of which `revenge_off` resets to
-1.0 at `[boma+0xa0]` vtable 0x270 and 0x2b8. This port uses neither — `grep` finds no call — so the
-boost reaches the damage some other way. Worth an audit of its own.
+1.0 at `[boma+0xa0]` vtable 0x270 and 0x2b8. This port used neither. See the finish-camera section
+below, which is where that audit ended up.
+
+## The blue zoomed screen is the game's finish camera
+
+> "the visual that happens for mac super armor and incin revenge lariat is a zoomed in blue
+> screen, like the red kill screen but blue"
+
+**What it is not**, so this is not searched a third time:
+
+| Mechanism | What it actually is |
+|---|---|
+| `EffectModule::req_screen` | the Final Smash background. All 597 calls in the dumped scripts request a `bg_*_final` name and nothing else. |
+| `FILL_SCREEN_MODEL_COLOR` / `CANCEL_FILL_SCREEN` | the Final Smash desaturate. All 160 calls pass `EFFECT_SCREEN_PRIO_FINAL` and a near-grey colour. |
+| `FighterCutInManager` + `FighterUtil::request_critical_hit_cut_in_force` | the Kazuya / Joker cinematic cut-ins, keyed on a `CutInType` and a `CutInData`. |
+| a `sys_*` armor effect | does not exist. Nothing matching "armor" is in either hash list or the 47,858-name hash40 table. |
+
+**What it is.** The engine's *finish camera*: `sv_animcmd::CHECK_FINISH_CAMERA` (0x22af6c0),
+`CHECK_FINISH_CAMERA_IF_NOT_HP_MODE` (0x22af920), `AttackModule::set_no_finish_camera`, and eleven
+`FINISH_CAMERA` work ids — including `FIGHTER_INSTANCE_WORK_ID_FLAG_FINISH_CAMERA_DOLLY_STAGE`,
+which pairs with `FighterUtil::request_critical_hit_cut_in_dolly_stage` (0x69b800). A dolly zoom on
+the stage. That `set_no_finish_camera` exists at all says the engine offers the camera BY DEFAULT
+and a fighter opts out, which is why Little Mac's f-smash script contains no camera call and still
+gets the effect in vanilla.
+
+**And half of it was missing here.** Both of Incineroar's side-B finishers ask for the camera:
+
+```
+gaogaen/SpecialSLariat.txt:11     macros::CHECK_FINISH_CAMERA(agent, 0, 0);
+gaogaen/SpecialSShoulder.txt:16   macros::CHECK_FINISH_CAMERA_IF_NOT_HP_MODE(agent, 0, 0);
+```
+
+The lariat's survived into `specials_acmd/mod.rs`. The shoulder's did not: smash-script exports
+`CHECK_FINISH_CAMERA` and not the stamina-mode variant, and `tools/reach/src/bin/deforeign.rs`
+deletes calls to macros the crate cannot resolve rather than failing the build. The two lines AFTER
+it survived, because `FighterCutInManager::set_throw_finish_zoom_rate` and
+`set_throw_finish_offset` are plain `lua_bind` calls — so the port was setting that camera's zoom
+rate to 1.5 and its offset to the origin and then never asking for the camera.
+
+Closed three ways: `src/acmd_ext/mod.rs` supplies the missing wrapper (skyline-smash binds the
+`sv_animcmd` entry point; only smash-script's four-line thunk was absent), `gen-moves.sh` emits
+`use crate::acmd_ext as macros;` so a verbatim script reaches it, and `acmdparity.rs` now lists the
+call so a future deletion is a failed check rather than a silent one. `build.sh` reads the
+allowlist from both crates' sources, so it still cannot drift.
+
+**The Revenge boost now uses Incineroar's own slots.** `revenge_off` resets
+`AttackModule::set_power_mul_5th` and `set_reaction_mul_3rd` to 1.0 (`[boma+0xa0]` vtable 0x270 and
+0x2b8, `work/ghidra/main-ab86f.annotated.c`). This port was writing `set_power_up` and
+`set_reaction_mul` — the *generic* multiplier slots that rage, items and handicap also write, so
+whichever ran last won. All four call sites in `speciallw` now write slot 5 and slot 3. That closes
+the parity gap recorded above; whether it also restores the zoom is a playtest question.

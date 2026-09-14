@@ -1,24 +1,44 @@
-// The two impact cues the playtest asked for, and an honest note about where they come from.
+// The armored-absorb cue, and an honest account of the screen effect that was asked for.
 //
 // "make sure things like the screen effects for a little mac fsmash landing when super armor
-// triggered and landing an alolan whip lariat while revenge is active are implemented".
+// triggered and landing an alolan whip lariat while revenge is active are implemented", then:
+// "the visual that happens for mac super armor and incin revenge lariat is a zoomed in blue
+// screen, like the red kill screen but blue".
 //
-// NEITHER IS A TRANSCRIPTION, AND THAT IS NOT A SHORTCUT -- THERE IS NOTHING TO TRANSCRIBE.
+// THAT IS THE GAME'S FINISH CAMERA, AND IT IS NOT AN EFFECT. The investigation, so the next round
+// does not repeat it:
 //
-//   * Little Mac's armor is already ported and works: `damage!(MA_MSC_DAMAGE_DAMAGE_NO_REACTION,
-//     DAMAGE_NO_REACTION_MODE_ALWAYS, 0)` on frame 8 of his f-smash, back to `_MODE_NORMAL` on 14,
-//     copied verbatim from his script. His script contains NO cue for the absorb -- whatever
-//     vanilla shows comes from the engine's own no-reaction path, which is not a call this port
-//     can make.
+//   * `EffectModule::req_screen` is the FINAL SMASH background system. All 597 calls across the
+//     dumped scripts request a `bg_*_final` name; there is nothing else in it.
+//   * `FILL_SCREEN_MODEL_COLOR` / `CANCEL_FILL_SCREEN` are the Final Smash DESATURATE. Every one
+//     of the 160 calls passes `EFFECT_SCREEN_PRIO_FINAL` and a near-grey colour.
+//   * `FighterCutInManager` + `FighterUtil::request_critical_hit_cut_in_force` are the Kazuya and
+//     Joker style cinematic cut-ins, keyed on a `CutInType` and a `CutInData`.
+//   * No `sys_*` effect for armor exists. Nothing matching "armor" appears in either hash
+//     dictionary or in the 47,858-name hash40 table.
 //
-//   * Incineroar's boosted hit has no script cue either. `lua2cpp_gaogaen.nro` reads
-//     FIGHTER_GAOGAEN_INSTANCE_WORK_ID_FLAG_IS_ATTACK_HIT_REVENGE_CONTINUE at 0x710000a1f0 and
-//     what it does with it is `FighterSpecializer_Gaogaen::revenge_off` -- that is the boost being
-//     SPENT, which `speciallw` already models. Not a visual.
+//   * What DOES exist is `sv_animcmd::CHECK_FINISH_CAMERA`, `CHECK_FINISH_CAMERA_IF_NOT_HP_MODE`,
+//     `AttackModule::set_no_finish_camera` and eleven `FINISH_CAMERA` work ids including
+//     `FIGHTER_INSTANCE_WORK_ID_FLAG_FINISH_CAMERA_DOLLY_STAGE`, which pairs with
+//     `FighterUtil::request_critical_hit_cut_in_dolly_stage`. A dolly zoom on the stage: the
+//     zoomed screen. `set_no_finish_camera` means the engine offers it BY DEFAULT and a fighter
+//     opts out, which is why Little Mac's f-smash script contains no camera call and still gets
+//     the effect in vanilla.
 //
-// So the effects below are chosen, not copied, and they are `sys_` ones under ADR 0002 -- the same
-// standing as `sys_final_aura` substituting for `gaogaen_revenge_aura`. Every one is already used
-// elsewhere in this moveset, so none of them is a guess about what exists.
+// SO THE LARIAT'S HALF WAS ALREADY RIGHT and the shoulder's was not. Both of Incineroar's side-B
+// finishers ask for the camera; the lariat's `CHECK_FINISH_CAMERA` survived into
+// `specials_acmd/mod.rs` and the shoulder's `CHECK_FINISH_CAMERA_IF_NOT_HP_MODE` did not, because
+// smash-script does not export it and `deforeign` deletes what it cannot resolve. `src/acmd_ext`
+// now supplies it. That is a transcription fix in the generated script, not something this file
+// can do.
+//
+// WHICH LEAVES THIS FILE WITH ONE JOB. There is no cue to transcribe for the armored absorb --
+// Little Mac's f-smash script has `damage!(MA_MSC_DAMAGE_DAMAGE_NO_REACTION,
+// DAMAGE_NO_REACTION_MODE_ALWAYS, 0)` on frame 8 and `_MODE_NORMAL` on 14, and nothing else. The
+// four `sys_` effects that used to be here were CHOSEN, not copied, and the playtest says they are
+// not the visual; a second guess is worth less than the probe line, so they are gone and the
+// detector stays. If the finish camera turns out not to cover the armor case either, the thing to
+// find is the engine path, not another effect.
 use {
     smash::{
         lua2cpp::*,
@@ -63,39 +83,20 @@ fn is_reaction_status(status: i32) -> bool {
     }
 }
 
-/// The armored-hit cue. One flash and one impact burst, at the point the hit was shrugged off.
+/// The armored-hit cue. NO EFFECT -- the probe line is the whole of it, deliberately.
+///
+/// This is the one place a guess would be invisible: an absorb is a non-event on screen, so a
+/// wrong effect here reads as "the mod does something odd when Mac's f-smash is hit" rather than
+/// as a missing feature. Keeping the detector means the moment is identified and logged, so the
+/// next playtest can say whether vanilla's finish camera already covers it.
 unsafe fn armor_absorbed(fighter: &mut L2CFighterCommon, entry: usize, took: f32) {
     ARMOR_COOLDOWN[entry] = COOLDOWN;
-    macros::EFFECT(
-        &mut **fighter, Hash40::new("sys_attack_impact"), Hash40::new("top"),
-        0, 8, 0, 0, 0, 0, 1.3, 0, 0, 0, 0, 0, 0, true,
-    );
-    macros::EFFECT(
-        &mut **fighter, Hash40::new("sys_flash"), Hash40::new("top"),
-        0, 8, 0, 0, 0, 0, 1.0, 0, 0, 0, 0, 0, 0, true,
-    );
     crate::telemetry::probe::event(format!(
         "[rat] CUE p{entry} armor absorbed {took:.1}% without a reaction status; {}",
         crate::telemetry::probe::ctx(fighter.module_accessor)
     ));
 }
 
-/// A boosted attack of ours connected. Called from `speciallw` at the point the boost is spent,
-/// which is exactly the native condition -- Incineroar calls `revenge_off` there too.
-///
-/// Scaled by the boost, because a 3.0 rate and a 1.1 rate should not look the same. `rate` is the
-/// multiplier `speciallw` has banked, 1.0 to `RATE_MAX` = 3.0.
-pub unsafe fn revenge_impact(fighter: &mut L2CFighterCommon, rate: f32) {
-    let t = ((rate - 1.0) / 2.0).clamp(0.0, 1.0);
-    macros::EFFECT(
-        &mut **fighter, Hash40::new("sys_smash_flash"), Hash40::new("top"),
-        0, 8, 0, 0, 0, 0, 1.0 + t, 0, 0, 0, 0, 0, 0, true,
-    );
-    macros::EFFECT(
-        &mut **fighter, Hash40::new("sys_attack_speedline"), Hash40::new("top"),
-        0, 8, 0, 0, 0, 0, 1.0 + t, 0, 0, 0, 0, 0, 0, true,
-    );
-}
 
 unsafe extern "C" fn pikachu_cue_frame(fighter: &mut L2CFighterCommon) {
     let boma = fighter.module_accessor;

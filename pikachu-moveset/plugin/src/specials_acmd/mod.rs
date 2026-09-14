@@ -13,6 +13,13 @@ use {
     smash_script::*,
     smashline::{*, Priority::*}
 };
+// SHADOWS the `macros` brought in by `smash_script::*` above, and must stay AFTER it: an explicit
+// `use` beats a glob, so `macros::NAME` in a verbatim-copied script resolves through
+// src/acmd_ext, which re-exports all 112 of smash-script's and adds the ones it is missing.
+// Without this line, tools/reach/src/bin/deforeign.rs deletes any call to a macro the crate does
+// not export -- which is how the Alolan Whip shoulder lost its CHECK_FINISH_CAMERA_IF_NOT_HP_MODE
+// while keeping the two lines that configure the camera it was asking for.
+use crate::acmd_ext as macros;
 
 // ---- Revenge counter (Incineroar) : game_speciallw ----
 unsafe extern "C" fn pikachu_game_speciallw(agent: &mut L2CAgentBase) {
@@ -309,6 +316,7 @@ unsafe extern "C" fn pikachu_game_specialsshoulder(agent: &mut L2CAgentBase) {
     }
     frame(agent.lua_state_agent, 17.0);
     if macros::is_excute(agent) {
+        macros::CHECK_FINISH_CAMERA_IF_NOT_HP_MODE(agent, 0, 0);
         lua_bind::FighterCutInManager::set_throw_finish_zoom_rate(singletons::FighterCutInManager(), 1.5);
         lua_bind::FighterCutInManager::set_throw_finish_offset(singletons::FighterCutInManager(), Vector3f{x: 0.0, y: 0.0, z: 0.0});
     }
@@ -569,6 +577,7 @@ unsafe extern "C" fn pikachu_game_specialairsshoulder(agent: &mut L2CAgentBase) 
     }
     frame(agent.lua_state_agent, 17.0);
     if macros::is_excute(agent) {
+        macros::CHECK_FINISH_CAMERA_IF_NOT_HP_MODE(agent, 0, 0);
         lua_bind::FighterCutInManager::set_throw_finish_zoom_rate(singletons::FighterCutInManager(), 1.5);
         lua_bind::FighterCutInManager::set_throw_finish_offset(singletons::FighterCutInManager(), Vector3f{x: 0.0, y: 0.0, z: 0.0});
     }

@@ -509,8 +509,8 @@ unsafe fn clear_boost(fighter: &mut L2CFighterCommon) {
     RATE[e] = 1.0;
     COUNTERED[e] = 0.0;
     DAMAGE_SINCE_BOOST[e] = 0.0;
-    AttackModule::set_power_up(boma, 1.0);
-    AttackModule::set_reaction_mul(boma, 1.0);
+    AttackModule::set_power_mul_5th(boma, 1.0);
+    AttackModule::set_reaction_mul_3rd(boma, 1.0);
     aura_off(fighter);
 }
 
@@ -1216,9 +1216,11 @@ pub unsafe extern "C" fn pikachu_revenge_frame(fighter: &mut L2CFighterCommon) {
             || status == *FIGHTER_STATUS_KIND_CAPTURE_PULLED
             || status == *FIGHTER_STATUS_KIND_CAPTURE_WAIT
         {
-            // The boosted hit landed. Cue before the boost is cleared, so the effect can scale
-            // with what it was worth.
-            crate::cues::revenge_impact(fighter, RATE[entry]);
+            // A `crate::cues::revenge_impact(fighter, RATE[entry])` used to sit here, commented
+            // "the boosted hit landed" -- INSIDE THE LOSS BRANCH, so it fired when the boost was
+            // destroyed by damage or a throw, which is the opposite moment. It is gone with the
+            // rest of that file's invented effects; see src/cues/mod.rs for what the visual
+            // actually is.
             clear_boost(fighter);
             LAST_DAMAGE[entry] = damage;
             return;
@@ -1235,9 +1237,26 @@ pub unsafe extern "C" fn pikachu_revenge_frame(fighter: &mut L2CFighterCommon) {
         // `retaliation_damage_mul` was invented to explain `special_lw_hit_damage_mul`, and that
         // param turns out to mean something else entirely -- the 0.4x damage INCINEROAR TAKES.
         // So the function is gone and the retaliation gets no multiplier of any kind.
+        // THE SLOTS ARE INCINEROAR'S OWN, AND THEY WERE NOT BEFORE. This wrote `set_power_up` and
+        // `set_reaction_mul`, which are the GENERIC multiplier slots -- the ones rage, items,
+        // handicap and every other system also write. Decompiling the native teardown settles it:
+        //
+        //     app::FighterSpecializer_Gaogaen::revenge_off   main 0xab86f0
+        //         [boma+0xa0] vtable[0x270] (1.0f)    = AttackModule::set_power_mul_5th
+        //         [boma+0xa0] vtable[0x2b8] (1.0f)    = AttackModule::set_reaction_mul_3rd
+        //
+        // Revenge lives in power slot 5 and reaction slot 3, and resets both to 1.0 -- so those
+        // are the slots, and 1.0 is the identity. Writing the generic slot instead meant this
+        // moveset's Revenge and anything else that touched the same slot would overwrite each
+        // other in whichever order they ran, with the loser silently losing its multiplier.
+        //
+        // See also `work/ghidra/main-ab86f.annotated.c`, which is also where the rest of the
+        // native teardown is legible: three instance flags cleared, two instance ints and two
+        // unexported instance floats reset, one `VisibilityModule::set` model-variant swap (the
+        // red colouring, recorded in docs/the-weapons.md as unported), and one effect killed.
         if in_counter_attack {
-            AttackModule::set_power_up(boma, 1.0);
-            AttackModule::set_reaction_mul(boma, 1.0);
+            AttackModule::set_power_mul_5th(boma, 1.0);
+            AttackModule::set_reaction_mul_3rd(boma, 1.0);
         } else {
             // AND KNOCKBACK IS NOT THE DAMAGE MULTIPLIER. This set both to the stored rate, so a
             // 3x boost meant 3x knockback -- roughly fifteen times too strong.
@@ -1247,8 +1266,8 @@ pub unsafe extern "C" fn pikachu_revenge_frame(fighter: &mut L2CFighterCommon) {
             // from 1x to the specified amount, proportionally to how close the damage multiplier
             // is to the maximum of 3x." The per-category ceilings are in the article's table and
             // in KB_* below; 1.2x is the most any move gets.
-            AttackModule::set_power_up(boma, RATE[entry]);
-            AttackModule::set_reaction_mul(boma, knockback_mul(RATE[entry], category_kb_ceiling(boma)));
+            AttackModule::set_power_mul_5th(boma, RATE[entry]);
+            AttackModule::set_reaction_mul_3rd(boma, knockback_mul(RATE[entry], category_kb_ceiling(boma)));
         }
         aura_on(fighter);
         aura_tick(fighter);

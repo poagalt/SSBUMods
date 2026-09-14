@@ -51,6 +51,11 @@ const CALLS: &[(&str, &[usize])] = &[
     ("macros::LANDING_EFFECT_FLIP(", &[]),
     ("macros::FOOT_EFFECT(", &[]),
     ("macros::CHECK_FINISH_CAMERA(", &[]),
+    // The shoulder half of the Alolan Whip uses the stamina-mode-aware variant, which
+    // smash-script does not export and src/acmd_ext therefore supplies. It was being deleted by
+    // deforeign and nothing noticed, because a macro absent from this table is invisible to the
+    // parity check -- so listing it here is half the fix.
+    ("macros::CHECK_FINISH_CAMERA_IF_NOT_HP_MODE(", &[]),
     ("macros::REVERSE_LR(", &[]),
     ("macros::ATK_HIT_ABS(", &[]),
     ("macros::SET_SPEED_EX(", &[]),

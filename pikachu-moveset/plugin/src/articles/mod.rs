@@ -28,8 +28,8 @@
 //
 // THE EXPERIMENT, in this order, one variable each:
 //
-//   1. clone OFF, card repaired.  Does Pikachu load?   <-- where we are now
-//   2. clone ON,  card repaired.  Does Pikachu load?
+//   1. clone OFF, card repaired.  Does Pikachu load?   YES -- every deploy since has loaded.
+//   2. clone ON,  card repaired.  Does Pikachu load?   <-- where we are now
 //
 // If 1 and 2 both load, the clone was always fine and Ptooie is unblocked. If 1 loads and 2
 // crashes, the clone is genuinely at fault and the next thing to read is `update_weapon_count`.
@@ -65,7 +65,7 @@ use smashline::*;
 // manual part of enabling this is porting Piranha Plant's neutral-B ACMD, which is deliberately
 // still absent: without a working article it would spawn nothing, making neutral-B strictly worse
 // than the Thunder Jolt it replaces.
-pub const CLONE_ENABLED: bool = false;
+pub const CLONE_ENABLED: bool = true;
 
 pub const FIGHTER_PIKACHU_GENERATE_ARTICLE_SPIKEBALL: i32 = 0x6;
 

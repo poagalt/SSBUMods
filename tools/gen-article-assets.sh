@@ -12,6 +12,13 @@
 # article's assets across under the host's paths. The note in src/articles/mod.rs claimed those
 # files "are shipped" -- the third wrong claim in that file, and the one that cost a crash.
 #
+# ONLY c00 IS SHIPPED, AND THAT IS A KNOWN HOLE. A cloned article resolves under the OWNER's
+# costume slot -- `fighter/pikachu/model/spikeball/c0N` for whichever Pikachu is selected -- and
+# vanilla has no `fighter/pikachu/spikeball` at any slot, so there is nothing to fall back to. On
+# a non-c00 Pikachu the model path resolves to nothing. Deliberately left until the clone is
+# proven on c00, because shipping eight costumes is 192 extra declared paths per article and this
+# is one variable at a time; the fix is a `for c in c00..c07` around the copy below.
+#
 # GATED ON CLONE_ENABLED, and removal matters as much as copying: a declared-but-absent path
 # injects a bogus entry into the search filesystem, and shipped-but-undeclared files never load.
 # tools/gen-config.sh derives the declarations from whatever this leaves in the tree, so the two
