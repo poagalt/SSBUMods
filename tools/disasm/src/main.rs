@@ -521,7 +521,12 @@ fn main() {
                 page[rd] = adrp_page(&text).unwrap_or(0);
             } else if text.starts_with("ldr w") {
                 if let Some(note) = lua_const_note(&text) {
-                    pending.push(note.trim_start_matches("   ; ~lua_const ").to_string());
+                    // NAME ONLY HERE. `lua_const_note` now appends `= 0x..`, which is what makes a
+                    // wrong name visible when reading one instruction -- but `--trace` prints a
+                    // bracketed list per call and is read by scanning, so the values would double
+                    // its width for no gain. Disassemble the site if the value is the question.
+                    let name = note.trim_start_matches("   ; ~lua_const ");
+                    pending.push(name.split(" = ").next().unwrap_or(name).to_string());
                 }
             }
 
@@ -902,21 +907,67 @@ fn lua_const_note(text: &str) -> Option<String> {
         return None;
     }
     let off = lo[0].1;
-    let name = lua_dict().get(&off)?;
-    Some(format!("   ; ~lua_const {name}"))
+    let (name, value) = lua_dict().get(&off)?;
+    match value {
+        Some(v) => Some(format!("   ; ~lua_const {name} = {v:#x}")),
+        None => Some(format!("   ; ~lua_const {name}")),
+    }
 }
 
-fn lua_dict() -> &'static HashMap<u64, String> {
-    static CELL: std::sync::OnceLock<HashMap<u64, String>> = std::sync::OnceLock::new();
+/// THE OFFSET -> NAME -> **VALUE** MAP, AND THE VALUE IS THE NEW PART.
+///
+/// This read `vendor/ssbu-status/lua_dict.txt` -- 19,310 `offset:NAME` lines and nothing else --
+/// which is why `lua_const_note` above is documented as a HINT: any `ldr wN, [xM, #off]` picks up
+/// a name, including a struct field read that has nothing to do with the const table, and there
+/// was no second fact to check it against.
+///
+/// `vendor/main/lua-const-table.tsv` is the same 19,310 slots WITH the values the game itself
+/// loads into them, recovered by emulating 13.0.5's `construct_bind_const_value_table` rather
+/// than by matching names (see `pikachu-moveset/docs/the-emulation-audit.md`). Two things follow:
+///
+///   * A wrong name becomes visible instead of plausible. `~lua_const FIGHTER_KINETIC_TYPE_FALL`
+///     alone is a guess; `= 0x0` next to a `change_kinetic` call is a guess that can be checked
+///     against what the port passes.
+///   * It settles VALUES without going through skyline-smash. Every `*DAMAGE_LEVEL_FLY` in this
+///     project takes its number from a third-party crate table; this is the game's own.
+///
+/// All twenty-one constants resolved by hand in the session that added this -- from two fighters'
+/// helpers, by three different methods -- agree with it exactly, which is the only reason it is
+/// trusted here.
+///
+/// The old file is still the fallback, so `RAT_LUA_DICT=vendor/ssbu-status/lua_dict.txt` reproduces
+/// the previous output. Both formats are accepted: `off:NAME` and `off<TAB>NAME<TAB>VALUE`.
+fn lua_dict() -> &'static HashMap<u64, (String, Option<u64>)> {
+    static CELL: std::sync::OnceLock<HashMap<u64, (String, Option<u64>)>> =
+        std::sync::OnceLock::new();
     CELL.get_or_init(|| {
-        let path = std::env::var("RAT_LUA_DICT")
-            .unwrap_or_else(|_| "vendor/ssbu-status/lua_dict.txt".into());
+        let path = std::env::var("RAT_LUA_DICT").unwrap_or_else(|_| {
+            for p in ["vendor/main/lua-const-table.tsv", "vendor/ssbu-status/lua_dict.txt"] {
+                if std::path::Path::new(p).exists() {
+                    return p.into();
+                }
+            }
+            "vendor/ssbu-status/lua_dict.txt".into()
+        });
+        let hex = |s: &str| u64::from_str_radix(s.trim().trim_start_matches("0x"), 16).ok();
         let mut m = HashMap::new();
         if let Ok(s) = std::fs::read_to_string(&path) {
             for line in s.lines() {
-                if let Some((off, name)) = line.trim().split_once(':') {
-                    if let Ok(v) = u64::from_str_radix(off.trim_start_matches("0x"), 16) {
-                        m.insert(v, name.to_string());
+                let line = line.trim();
+                if line.starts_with('#') || line.is_empty() {
+                    continue;
+                }
+                // The TSV first, because its NAME column may itself contain a colon.
+                let mut f = line.split('\t');
+                if let (Some(off), Some(name)) = (f.next(), f.next()) {
+                    if let Some(v) = hex(off) {
+                        m.insert(v, (name.trim().to_string(), f.next().and_then(hex)));
+                        continue;
+                    }
+                }
+                if let Some((off, name)) = line.split_once(':') {
+                    if let Some(v) = hex(off) {
+                        m.insert(v, (name.trim().to_string(), None));
                     }
                 }
             }
@@ -1113,9 +1164,10 @@ fn status_map(nro: &Nro, start: usize, span: usize) {
             let name = target.and_then(|t| nro.name_of(t - GHIDRA_BASE()));
             let is_reg = name.as_deref().map_or(false, |n| n.contains("sv_set_status_func"));
             if is_reg && consts.len() == 2 {
-                let unknown = "?".to_string();
-                let status = dict.get(&consts[0]).unwrap_or(&unknown);
-                let line = dict.get(&consts[1]).unwrap_or(&unknown);
+                // NAMES ONLY. `lua_dict` now carries the value alongside the name; the status map
+                // is a wide fixed-column table read by grep, and the id is already in column 1.
+                let status = dict.get(&consts[0]).map_or("?", |(n, _)| n.as_str());
+                let line = dict.get(&consts[1]).map_or("?", |(n, _)| n.as_str());
                 // THE CALL SITE IS PRINTED TOO, because a resolved-to-zero address is not a dead
                 // end. `lua2cpp_common` registers its 2,374 status functions from many separate
                 // functions rather than one `create_agent` -- its
