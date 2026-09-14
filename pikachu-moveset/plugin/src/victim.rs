@@ -826,6 +826,10 @@ pub unsafe fn engine_holds(entry: usize, vboma: *mut BattleObjectModuleAccessor)
 static mut CUT_ID: [u32; 8] = [NOBODY; 8];
 static mut CUT_ST: [i32; 8] = [-1; 8];
 static mut CUT_AGE: [i32; 8] = [0; 8];
+static mut CUT_STEP: [u8; 8] = [0; 8];
+
+/// How many candidate releases the ladder has. See `try_release`.
+const CUT_STEPS: u8 = 4;
 
 /// Longest a deferred cut may wait before firing anyway, in frames.
 ///
@@ -849,11 +853,84 @@ pub unsafe fn arm_deferred_cut(entry: usize, id: u32, why: &str) {
     CUT_ID[entry] = id;
     CUT_ST[entry] = StatusModule::status_kind(vboma);
     CUT_AGE[entry] = 0;
+    CUT_STEP[entry] = 0;
     crate::telemetry::sink::diag(format!(
         "[rat] HOLD p{entry} armed a deferred capture cut on {id:#x} ({why}): they are in {} and \
          it fires when that changes",
         crate::telemetry::probe::st(CUT_ST[entry])
     ));
+}
+
+/// ONE CANDIDATE RELEASE PER FRAME, UNTIL THE FLAG ACTUALLY CLEARS.
+///
+/// `CaptureModule::capture_cut(vboma, true, false, false)` DOES NOT CLEAR `is_capture`. That is
+/// measured, not suspected -- pt26 fired the deferred cut eight times, correctly, on the frame
+/// the victim's status changed, and every one reported:
+///
+///     deferred cut fired on 0x10000 after 16f (status changed): they are in 34(=0x22) now;
+///     after it their_capture=true MY_is_capture=true
+///
+/// So the comment this project has carried for three rounds -- that `p2` TRUE is "the one call
+/// that actually clears `is_capture`" -- is wrong, and the Ghidra reading it rested on was read
+/// too generously.
+///
+/// AND THE ENGINE CANNOT BE ASKED DIRECTLY. The capture tracer has recorded 435
+/// `CaptureModule::capture` calls across every session and all 435 are OURS: neither source
+/// fighter routes a capture through a hookable module function, exactly as
+/// `docs/the-recording.md` says. There is no native call to copy.
+///
+/// So this stops guessing one per playtest round. Each frame the ladder tries the next candidate
+/// and prints whether the flag moved, and the log names the one that works instead of another
+/// round naming one that does not:
+///
+///   0  `capture_cut(v, true, false, false)`   what the port has been calling
+///   1  `CatchModule::set_catch(ours, INVALID)` THE ENGINE'S OWN IDIOM, captor side. The native
+///                                              DK trace is unambiguous about it, at the exact
+///                                              moment he hands the victim to the carry:
+///                                                DONKEY0 st=0x3a CatchModule::set_catch(0x50000000)
+///                                              and `0x50000000` is the same value `catch_object_id`
+///                                              reads on a victim nobody holds -- it is what
+///                                              `captured_by=` prints in every CLEAN grab probe.
+///   2  `capture_cut(v, true, true, true)`      the other two flags, in case one of them is the
+///                                              teardown and `p2` only gates the event
+///   3  `capture(v, INVALID, ..)`               the inverse of how the record was made: the same
+///                                              call that set the master, with no master
+///
+/// Returns whether the victim came out clear.
+unsafe fn try_release(
+    entry: usize,
+    step: u8,
+    ours: *mut BattleObjectModuleAccessor,
+    vboma: *mut BattleObjectModuleAccessor,
+) -> bool {
+    let invalid = *BATTLE_OBJECT_ID_INVALID as u32;
+    let what = match step {
+        0 => {
+            CaptureModule::capture_cut(vboma, true, false, false);
+            "capture_cut(v, true, false, false)"
+        }
+        1 => {
+            CatchModule::set_catch(ours, invalid);
+            "CatchModule::set_catch(ours, INVALID)"
+        }
+        2 => {
+            CaptureModule::capture_cut(vboma, true, true, true);
+            "capture_cut(v, true, true, true)"
+        }
+        _ => {
+            CaptureModule::capture(vboma, invalid, *STATUS_KIND_NONE, false, 0);
+            "capture(v, INVALID, ..)"
+        }
+    };
+    let cleared = !CaptureModule::is_capture(vboma);
+    crate::telemetry::sink::diag(format!(
+        "[rat] HOLD p{entry} release candidate {step} {what}: cleared={cleared} \
+         their_capture={} their_captured_by={:#x} MY_is_capture={} (INVALID is {invalid:#x})",
+        CaptureModule::is_capture(vboma),
+        CaptureModule::catch_object_id(vboma) as u32,
+        CaptureModule::is_capture(ours),
+    ));
+    cleared
 }
 
 /// Fire it when the victim has moved on. Called once per frame per entry.
@@ -875,8 +952,9 @@ pub unsafe fn tick_deferred_cut(entry: usize) {
         return;
     }
     let st = StatusModule::status_kind(vboma);
+    // Once the ladder has started, keep going every frame rather than re-testing the status.
     let moved_on = st != CUT_ST[entry];
-    if !moved_on && CUT_AGE[entry] < CUT_DEADLINE {
+    if !moved_on && CUT_AGE[entry] < CUT_DEADLINE && CUT_STEP[entry] == 0 {
         return;
     }
     let Some(ours) = boma(id_of_entry(entry as u32)) else {
@@ -886,15 +964,27 @@ pub unsafe fn tick_deferred_cut(entry: usize) {
     // `p2` TRUE is the only argument that actually undoes the capture -- Ghidra on
     // `CaptureCut(this, p2, p3, p4)` gates the two vtable calls at 0x3b8 and 0x3c0 on it, and
     // those are the ones that clear `is_capture` and drop the model constraint.
-    CaptureModule::capture_cut(vboma, true, false, false);
+    let step = CUT_STEP[entry];
     crate::telemetry::sink::diag(format!(
-        "[rat] HOLD p{entry} deferred cut fired on {id:#x} after {}f ({}): they are in {} now; \
-         after it their_capture={} MY_is_capture={}",
+        "[rat] HOLD p{entry} deferred cut step {step} on {id:#x} after {}f ({}): they are in {}",
         CUT_AGE[entry],
         if moved_on { "status changed" } else { "DEADLINE -- nothing ever changed" },
         crate::telemetry::probe::st(st),
-        CaptureModule::is_capture(vboma),
-        CaptureModule::is_capture(ours),
     ));
-    CUT_ID[entry] = NOBODY;
+    if try_release(entry, step, ours, vboma) {
+        CUT_ID[entry] = NOBODY;
+        return;
+    }
+    // The next candidate NEXT frame, not all four in this one. Some of these may need the engine
+    // to run an update before their effect shows, and firing them together would hide which one
+    // did the work -- which is the entire point of the ladder.
+    CUT_STEP[entry] = step + 1;
+    if CUT_STEP[entry] >= CUT_STEPS {
+        crate::telemetry::sink::diag(format!(
+            "[rat] HOLD p{entry} EVERY release candidate failed on {id:#x} -- the capture this \
+             port made by hand cannot be undone by any call it knows of, and THAT is the finding: \
+             the fix is upstream, in not making it. See the THROW note in shoulder::enter_carry."
+        ));
+        CUT_ID[entry] = NOBODY;
+    }
 }

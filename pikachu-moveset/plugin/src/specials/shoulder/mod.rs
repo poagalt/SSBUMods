@@ -1843,6 +1843,37 @@ unsafe extern "C" fn shoulder_start_init(fighter: &mut L2CFighterCommon) -> L2CV
     0.into()
 }
 
+/// THE REASON THIS FUNCTION HAS TO REBUILD ANYTHING IS ONE FRAME OF `THROW`, AND DK NEVER
+/// SPENDS IT.
+///
+/// Native DK, traced (pt27), going from the grab into the carry:
+///
+///     DONKEY0 status CATCH_WAIT(0x39) -> 58(0x3a) -> 490(0x1ea)  SHOULDER_START
+///     DONKEY0 st=0x3a  CatchModule::set_catch(0x50000000)        <- clearing
+///     DONKEY0 st=0x1ea LinkModule::send_event_nodes(link=0, event=0x8af9b3d1d, 0)
+///     mario1  st=0xc5  ControlModule::start_clatter(139, 0, 10, ...)
+///
+/// He NEVER ENTERS `THROW`, and he never calls `CaptureModule::capture`. The "shoulder" link
+/// event alone carries the victim from the grab into SHOULDERED_DONKEY.
+///
+/// This port, three times in the same log:
+///
+///     pika0  status 60(0x3c) -> THROW(0x40)
+///     pika0  st=0x40  CatchModule::catch_cut(false, false)        <- the engine tears the grab down
+///     mario1 st=0x44  CaptureModule::capture(captor=0x0, ...)     <- and we rebuild it by hand
+///     pika0  status THROW(0x40) -> 503(0x1f7)
+///
+/// `pikachu_throw_main`'s comment says "Pikachu's own throw never runs, so nothing is released".
+/// It runs. The interception is on THROW's MAIN and `catch_cut` happens on the way IN, before
+/// Main is reached -- so the engine's grab is already gone, the victim is already in
+/// CAPTURE_CUT(0x44), and the block below has to build a replacement capture that (measured, in
+/// pt26) nothing this port can call will undo. Every symptom after that point is downstream:
+/// the leaked record, the blocked regrab, and the deferred-cut ladder in `crate::victim`.
+///
+/// THE REAL FIX IS TO NOT SPEND THAT FRAME -- to leave the grab for SHOULDER_START the way DK
+/// does, out of the catch status, so the engine's own capture survives into the carry and the
+/// engine's own teardown ends it. That is a change to WHERE the handoff happens, not to what it
+/// does, and it wants its own round with the crash budget that a status-entry change deserves.
 unsafe fn enter_carry(boma: *mut BattleObjectModuleAccessor, entry: usize) {
     // ESTABLISH THE CAPTURE BEFORE SENDING THE EVENT, because the log said there was nothing to
     // send it to:
