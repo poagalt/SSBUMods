@@ -35,3 +35,6 @@ work/decomp/
 # Every fighter's status scripts, 124 MB, one `tools/fetch-status-scripts.sh` away.
 vendor/ssbu-status-all/
 work/acquire/
+
+# Reference clones (param-labels, motion lists, prc-rs), 58 MB, see tools/fetch-refs.sh.
+vendor/refs/
