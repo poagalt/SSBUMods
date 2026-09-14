@@ -277,6 +277,8 @@ fn knockback_mul(m: f32, ceiling: f32) -> f32 {
 pub unsafe fn open_window(boma: *mut BattleObjectModuleAccessor) {
     let e = entry_of(boma);
     WINDOW_OPEN[e] = true;
+    // Reset alongside the window, so the probe reports once per stance rather than once ever.
+    CANCEL_LOGGED[e] = false;
     WINDOW_LEFT[e] = WINDOW_FRAMES;
     LAST_DAMAGE[e] = DamageModule::damage(boma, 0);
 
@@ -385,6 +387,8 @@ pub const PHASE_STANCE: i32 = 0;
 pub const PHASE_COUNTER: i32 = 1;
 
 pub static mut PHASE: [i32; 8] = [PHASE_STANCE; 8];
+/// One `is_enable_cancel` line per stance, not one per frame. See the probe in the main loop.
+static mut CANCEL_LOGGED: [bool; 8] = [false; 8];
 pub static mut WINDOW_OPEN: [bool; 8] = [false; 8];
 static mut WINDOW_LEFT: [i32; 8] = [0; 8];
 pub static mut LAST_DAMAGE: [f32; 8] = [0.0; 8];
@@ -662,6 +666,34 @@ unsafe extern "C" fn pikachu_speciallwhit_main(fighter: &mut L2CFighterCommon) -
 unsafe extern "C" fn pikachu_speciallw_main_loop(fighter: &mut L2CFighterCommon) -> L2CValue {
     let boma = fighter.module_accessor;
     let entry = entry_of(boma);
+
+    // MEASURED BEFORE IT IS RESTORED, because the last two explanations for this were both wrong.
+    //
+    // I said the autocancel came from `is_enable_cancel` reading Pikachu's own FAF instead of
+    // Incineroar's. It does not: `mlshow` on the shipped motion_list and on gaogaen's give the
+    // SAME numbers -- `special_lw` faf 27, `special_lw_start` faf 59 -- because
+    // `tools/motion-patch` already copies both. There was nothing to patch and the story was
+    // invented.
+    //
+    // So this logs what the cancel WOULD have done, once per stance, and changes nothing. The
+    // question it answers is the one that actually matters: on which frame does the engine say
+    // the FAF has passed, and is that BEFORE the ACMD's frame-28 `close_window`? If it is, the
+    // armed-counter bug is real and restoring the check needs the window closed on exit too. If
+    // it is not, the autocancel had some other cause and this says so before another round is
+    // spent on it.
+    if !CANCEL_LOGGED[entry] && CancelModule::is_enable_cancel(boma) {
+        CANCEL_LOGGED[entry] = true;
+        crate::telemetry::sink::diag(format!(
+            "[rat] REVENGE p{entry} is_enable_cancel went TRUE on status frame {} \
+             (motion {:.1}/{:.1}, window_open={}, phase={}) -- the cancel is NOT wired up; this \
+             is the measurement for whether it can be",
+            fighter.global_table[0xe].get_i32(),
+            MotionModule::frame(boma),
+            MotionModule::end_frame(boma),
+            WINDOW_OPEN[entry],
+            PHASE[entry],
+        ));
+    }
 
     // THE CANCEL CHECK IS REVERTED, AND WHY IS THE POINT.
     //
