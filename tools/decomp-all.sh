@@ -29,8 +29,18 @@ ROOT="$(cd "$(dirname "$0")/.." && pwd)"; cd "$ROOT"
 MOD="${1:?usage: decomp-all.sh <common|donkey|gaogaen|gamewatch|packun|pikachu|...> [batch]}"
 BATCH="${2:-150}"
 
-BIN="$ROOT/vendor/nro/prebuilt/nro/release/lua2cpp_$MOD.nro"
-SYMS="$ROOT/vendor/main/$MOD-nro-symbols.txt"
+if [ "$MOD" = "main" ]; then
+    # THE ENGINE ITSELF. `main`'s symbol dump is `addr size name` with no kind column -- it is not
+    # an NRO and `decomp.sh` already special-cases it -- so the todo is built differently. Only
+    # SYMBOLISED functions can be reached: without a full Ghidra auto-analysis, which takes hours
+    # over 60 MB of AArch64, nothing knows where an unnamed function begins. 8905 named ones is
+    # what there is, and it includes the capture and catch machinery this project keeps hitting.
+    BIN="$ROOT/vendor/main/rat-main-text.bin"
+    SYMS="$ROOT/vendor/main/symbols-merged.txt"
+else
+    BIN="$ROOT/vendor/nro/prebuilt/nro/release/lua2cpp_$MOD.nro"
+    SYMS="$ROOT/vendor/main/$MOD-nro-symbols.txt"
+fi
 [ -f "$BIN" ] || { echo "no such binary: $BIN" >&2; exit 1; }
 
 OUTDIR="$ROOT/vendor/decomp/$MOD"
@@ -46,7 +56,12 @@ fi
 
 # EVERY DEFINED FUNCTION, and only defined ones: a `plt` entry is a call stub into another module
 # and decompiling it yields a jump.
-awk '$4=="def" { print "0x"$1" "$3 }' "$SYMS" | sort -u > "$WORK/$MOD.todo.all"
+if [ "$MOD" = "main" ]; then
+    awk '!/^#/ && NF>=3 && $1 ~ /^[0-9a-f]+$/ { print "0x"$1" "$3 }' "$SYMS" \
+      | sort -u > "$WORK/$MOD.todo.all"
+else
+    awk '$4=="def" { print "0x"$1" "$3 }' "$SYMS" | sort -u > "$WORK/$MOD.todo.all"
+fi
 total=$(wc -l < "$WORK/$MOD.todo.all")
 
 # Skip what is already on disk. The filename is the SYMBOL, so this is an exact resume rather
@@ -150,3 +165,25 @@ while [ -s "$WORK/$MOD.todo" ]; do
 done
 
 say "[$(stamp)] $MOD: DONE -- $(ls "$OUTDIR" | wc -l) file(s) in vendor/decomp/$MOD, $fail_n batch failure(s)"
+
+# ---------------------------------------------------------------------------------------------
+# WHAT THIS CANNOT REACH, WRITTEN DOWN SO THE GAP IS KNOWN RATHER THAN DISCOVERED
+#
+# A FIGHTER NRO EXPORTS ELEVEN SYMBOLS. `lua2cpp_donkey.nro` is 1.5 MB of code and its dynamic
+# symbol table names exactly eleven functions, all of them `create_agent_fighter_*_donkey`
+# entry points. Every status function in it is STATIC: reachable only by following the
+# registration calls those eleven make. So `decomp-all.sh donkey` writes eleven files and is
+# telling the truth -- there is nothing else it can name.
+#
+# `vendor/ssbu-status/ghidra_scripts/` holds the recovered per-status trees for five fighters,
+# produced by walking those registrations (commit 3a885a4). That recovery is the missing step
+# for the other fifteen, and it is a different job from this script: find the addresses first,
+# then decompile them. This script will decompile any address list it is given, so the two
+# compose once the recovery runs.
+#
+# `common` is the opposite case and that is why it went first: it is the shared library every
+# fighter calls into, so all 8792 of its functions are exported and all 8792 are now on disk.
+# The victim side of every grab lives there, which is what five rounds of the cargo bug needed.
+#
+# `main` exposes 8905 symbols out of 60 MB of AArch64. Everything past those needs a full Ghidra
+# auto-analysis to find function boundaries at all -- hours, and a different mode of this tool.
