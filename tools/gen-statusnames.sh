@@ -57,4 +57,34 @@ pub fn of(kind: i32) -> &'static str {
 }
 FOOTER
 } > "$OUT"
-echo "  wrote $OUT with $(grep -c '^    (' "$OUT") status kind(s)"
+
+# AND THIS MOVESET'S OWN KINDS, FROM src/specials/status.rs, FOR THE SAME REASON.
+#
+# The generated table above covers the GAME's statuses and the port's own were left hand-written
+# in `probe::status_name`. They were wrong too, and worse: 0x201 was labelled RAT_THROW_F_HI when
+# it is RAT_SPECIAL_LW_HIT, so a log line reading `SPECIAL_LW -> SPECIAL_LW_HIT` -- Revenge's
+# retaliation firing when it should not -- printed as a cargo up-throw and was read as nonsense.
+# Fourth time a remembered status number has misled a diagnosis in this project. There is now no
+# status number anywhere in the telemetry that is not generated from its declaration.
+{
+echo
+echo "/// This moveset's own kinds, generated from src/specials/status.rs."
+echo "static OWN: &[(i32, &str)] = &["
+grep -oE "pub const RAT_STATUS_KIND_[A-Z_0-9]+: i32 = 0x[0-9A-Fa-f]+;" \
+    pikachu-moveset/plugin/src/specials/status.rs \
+  | sed 's/pub const RAT_STATUS_KIND_//; s/: i32 = /,/; s/;//' \
+  | awk -F, '$1 != "NUM" { printf "    (%d, \"RAT_%s\"),\n", strtonum($2), $1 }' \
+  | sort -t'(' -k2 -n
+echo "];"
+echo
+echo "/// The name for one of this moveset's own kinds, or \"\"."
+echo "pub fn of_own(kind: i32) -> &'static str {"
+echo "    for (k, n) in OWN {"
+echo "        if *k == kind {"
+echo "            return n;"
+echo "        }"
+echo "    }"
+echo "    \"\""
+echo "}"
+} >> "$OUT"
+echo "  plus $(grep -c '^    (' <(grep -A 999 'static OWN' "$OUT")) of this moveset's own"

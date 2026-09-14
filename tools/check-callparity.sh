@@ -29,9 +29,9 @@ specials/whip|gaogaen|SpecialS
 specials/shoulder|donkey|Shoulder
 specials/shoulder|donkey|ThrowF
 specials/speciallw|gaogaen|SpecialLw
-specials/specialhi|gamewatch|SpecialHi
-specials/specialhiclose|gamewatch|SpecialHiClose
-specials/specialhifall|gamewatch|SpecialHiFall
+specials/specialhi|gamewatch|SpecialHi=
+specials/specialhiclose|gamewatch|SpecialHiClose=
+specials/specialhifall|gamewatch|SpecialHiFall=
 "
 
 total_missing=0
@@ -47,7 +47,16 @@ while IFS='|' read -r mod fighter glob; do
     # in gaogaen. A static belongs to the status that reaches it, so the addresses are collected
     # from these directories and the statics file is filtered to them.
     src=$(mktemp)
-    for d in "$A/lua2cpp_$fighter.nro/$fighter/$fighter/status/$glob"*; do
+    # A TRAILING `=` MEANS EXACT, and it is not a nicety. The port splits G&W's up-B across
+    # three modules -- specialhi, specialhiclose, specialhifall -- while the glob `SpecialHi*`
+    # matches all three SOURCE directories, so every call made by Close or Fall was reported
+    # missing from `specials/specialhi`, which does not implement them. Nine false positives from
+    # one asterisk.
+    case "$glob" in
+        *=) dirs="$A/lua2cpp_$fighter.nro/$fighter/$fighter/status/${glob%=}" ;;
+        *)  dirs=$(echo "$A/lua2cpp_$fighter.nro/$fighter/$fighter/status/$glob"*) ;;
+    esac
+    for d in $dirs; do
         [ -d "$d" ] && cat "$d"/*.c 2>/dev/null
     done > "$src"
     if [ -s "vendor/decomp/statics/$fighter.c" ]; then

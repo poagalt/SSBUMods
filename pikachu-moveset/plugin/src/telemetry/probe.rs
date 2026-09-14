@@ -47,44 +47,11 @@ pub const VERBOSE: bool = true;
 /// like one story. Only the moveset's OWN kinds are listed by hand below, because they are ours
 /// and the game's table has never heard of them.
 pub fn status_name(k: i32) -> &'static str {
-    let own = match k {
-        // The moveset's own kinds, from src/specials/status.rs.
-        0x1F0 => "RAT_SPECIAL_HI_CLOSE",
-        0x1F1 => "RAT_SPECIAL_HI_OPEN",
-        0x1F2 => "RAT_SPECIAL_S_SHOULDER",
-        0x1F3 => "RAT_SPECIAL_S_LARIAT",
-        0x1F4 => "RAT_SPECIAL_S_THROW",
-        0x1F5 => "RAT_SPECIAL_S_END",
-        0x1F6 => "RAT_SPECIAL_S_FAILURE",
-        0x1F7 => "RAT_SHOULDER_START",
-        0x1F8 => "RAT_SHOULDER_WAIT",
-        0x1F9 => "RAT_SHOULDER_WALK",
-        0x1FA => "RAT_SHOULDER_TURN",
-        0x1FB => "RAT_SHOULDER_FALL",
-        0x1FC => "RAT_SHOULDER_LANDING",
-        0x1FD => "RAT_SPECIAL_LW_HIT",
-        0x1FF => "RAT_THROW_F_F",
-        0x200 => "RAT_THROW_F_B",
-        0x201 => "RAT_THROW_F_HI",
-        0x202 => "RAT_THROW_F_LW",
-        0x203 => "RAT_SHOULDER_JUMP_SQUAT",
-        0x204 => "RAT_SHOULDER_JUMP_SQUAT_B",
-        0x205 => "RAT_SHOULDER_JUMP",
-        // Pikachu's own extras, which ../lockout bounces out of. Seeing one of these in the log
-        // means something reached a retired move.
-        0x1E1 => "pika_SPECIAL_HI_WARP",
-        0x1E2 => "pika_SPECIAL_HI_END",
-        0x1E3 => "pika_SPECIAL_S_HOLD",
-        0x1E4 => "pika_SPECIAL_S_WEAK",
-        0x1E5 => "pika_SPECIAL_S_ATTACK",
-        0x1E6 => "pika_SPECIAL_S_END",
-        0x1E7 => "pika_SPECIAL_LW_HIT",
-        _ => "",
-    };
+    let own = super::statusnames::of_own(k);
     if !own.is_empty() {
         return own;
     }
-    unsafe { super::statusnames::of(k) }
+    super::statusnames::of(k)
 }
 
 /// Format a status as `name(0x1f2)`, or just the number when unnamed.

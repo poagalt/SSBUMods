@@ -106,3 +106,60 @@ consequence of that.
 
 None of these are being fixed blind. Each one gets the same treatment the slide got: read the
 source function, check what the port does at that point, and only then change something.
+
+## Second pass: reading all of them
+
+Every entry now has a reason. The headline is that **most of them were my tool's fault, not the
+port's** -- two separate false-positive sources, each worth more than the gaps they hid.
+
+**The `_impl` suffix.** `lua_bind::MotionModule__frame_impl` is the decompiler's name for the
+thunk; the port calls the wrapper, `MotionModule::frame`. Unfiltered, all 253 calls looked
+missing.
+
+**Statics belong to the status that reaches them.** Concatenating a whole fighter's statics into
+every status group made Revenge look like it was missing the whip's release.
+
+**A glob that over-matched.** `SpecialHi*` matches SpecialHi, SpecialHiClose and SpecialHiFall,
+but the port splits G&W's up-B across three modules -- so every call made by Close or Fall was
+reported missing from `specials/specialhi`, which does not implement them. Nine false positives
+from one asterisk. The map takes a trailing `=` for an exact directory now.
+
+253 -> 36 -> 23.
+
+### Fixed
+
+| what | where it was |
+|---|---|
+| cargo throw kept air momentum on landing | `FUN_7100021af0`, a static: swap to `GROUND_STOP` |
+| ...and the swap is a TRANSITION behind `is_changing` | same function, read further |
+| lariat stayed slow for its whole length | `SpecialSLariat_main_loop` restores rate at the hit frame |
+| Revenge kept the air animation after landing | `SpecialLw/main_loop` pairs `correct` with `change_motion_inherit_frame`, both ways |
+| Revenge could not be cancelled at its FAF | first statement of `SpecialLw/main_loop` |
+
+### Correct absences, each checked rather than assumed
+
+| what | why |
+|---|---|
+| 19 x `ArticleModule::*` | ADR 0004 -- G&W's parachute and rescue, gaogaen's rope |
+| `StopModule::is_stop` (specialhi) | gates `FUN_710002cab0`, which is *entirely* parachute |
+| `WorkModule::on_flag` (specialhi) | `FLAG_SPECIAL_HI` is a G&W INSTANCE work id; on Pikachu it aliases his own block, so setting it is a hazard, not fidelity. Read only by G&W's own end line and a stage gimmick |
+| Revenge's 3 STANCE flag calls | `FLAG_STANCE` is touched only in `SpecialLw/main_loop.c` and read nowhere else in the module or its statics. The ACMD calls `open_window`/`close_window` at the same frames |
+| whip `KineticModule::get_sum_speed_y` | **dead in the source** -- read into `auStack_90` at line 51 of `FUN_710001d4b0`, destroyed at 742, never used |
+| whip `WorkModule::get_param_int` | the clatter trio. Gaogaen's helper reads them; here the ENGINE reads them through `src/params` and the traced result is identical, `start_clatter(85, 0, 5)` |
+| whip `WorkModule::set_float` | `LARIAT_AREA_HIT_POS_X` / `_BUTTON_PUSH_POS_X`, gaogaen INSTANCE ids that alias Pikachu's float block. `state.rs` stores both |
+
+### Still open, and now specific
+
+**`param_special_hi`: `stick_min`, `stick_mul`, `landing_frame`.** `src/params` provides Incineroar's
+`param_special_s` and `param_special_lw` and **nothing for gamewatch at all**, so G&W's up-B reads
+Pikachu's own `param_special_hi` -- Quick Attack's -- or zero. Resolved through
+`vendor/refs/param-labels/ParamLabels.csv`, which is what that clone is for. Bounded work:
+extend the provider the way it was extended for gaogaen.
+
+**The `CheckDamage` line (3 calls, both `ItemModule` among them).** This port registers none. DK
+decides whether the carry survives a hit by asking whether the damage came from the fighter he is
+holding and running the reaction frame through `DamageTransactorImpl::calc_reaction_frame`. A new
+status line, not a missing call.
+
+**`WorkModule::set_int` in `ThrowF*`** and **`MotionModule::change_motion_inherit_frame` /
+`WorkModule::is_flag` in SpecialLw** -- the last three, unread.

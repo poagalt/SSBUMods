@@ -663,33 +663,31 @@ unsafe extern "C" fn pikachu_speciallw_main_loop(fighter: &mut L2CFighterCommon)
     let boma = fighter.module_accessor;
     let entry = entry_of(boma);
 
-    // REVENGE IS CANCELLABLE AT ITS FAF, AND THIS LOOP HAD NO CANCEL CHECK AT ALL.
+    // THE CANCEL CHECK IS REVERTED, AND WHY IS THE POINT.
     //
-    // The first statement of `SpecialLw/main_loop.c`, before anything else it does:
+    // `SpecialLw/main_loop.c` opens with `if is_enable_cancel() { sub_wait_ground_check_common;
+    // sub_air_check_fall_common }`, `check-callparity.sh` found it missing, and transcribing it
+    // broke Revenge two ways in one playtest:
     //
-    //     if CancelModule::is_enable_cancel() {
-    //         if sub_wait_ground_check_common(false) { return 1 }
-    //         if sub_air_check_fall_common()         { return 1 }
-    //     }
+    //   "using revenge repeatedly seems to allow it to be used too quickly -- some kind of
+    //    autocancel just for revenge"
+    //   "pikachu can now sometimes activate the revenge counter fire damage on command while
+    //    having a stored revenge boost"
     //
-    // `is_enable_cancel` is how the engine reports the FAF has passed, so without it the stance
-    // runs its whole animation and nothing can come out of it early. Incineroar can walk, jump,
-    // shield or attack out of Revenge the moment its FAF lands; this Pikachu was committed to
-    // the full length.
+    // A TRANSCRIBED CALL IS ONLY RIGHT IF THE DATA IT READS IS THE SOURCE'S. `is_enable_cancel`
+    // reports that the motion's FAF has passed -- and the motion here is PIKACHU'S OWN
+    // `special_lw`, which is Thunder. Nothing patches its FAF to Incineroar's. So the check went
+    // true at Thunder's frame, not Revenge's, and the stance became cancellable almost at once.
     //
-    // The identical three lines are already in the cargo's `throw_loop` -- the same idiom, from
-    // the same place in the same kind of function -- so this is not a new mechanism, it is one
-    // that was simply absent here. `check-callparity.sh` found it by noticing
-    // `CancelModule::is_enable_cancel` is called by all three of gaogaen's SpecialLw statuses
-    // and by nothing in this module.
-    if CancelModule::is_enable_cancel(boma) {
-        if fighter.sub_wait_ground_check_common(false.into()).get_bool() {
-            return 1.into();
-        }
-        if fighter.sub_air_check_fall_common().get_bool() {
-            return 1.into();
-        }
-    }
+    // The second symptom follows from the first and is worse: the ACMD calls `close_window` on
+    // frame 28. Cancel out at frame 25 and that line never runs, so WINDOW_OPEN stays true after
+    // the move has ended and the counter is left armed -- to fire on the next damage, or on the
+    // next down-B, which is exactly "on command".
+    //
+    // RESTORING IT NEEDS THE FAF FIRST. Patch `special_lw`/`special_air_lw` in
+    // fighter_param_motion to Incineroar's frame, confirm with the `faf` field the telemetry
+    // already logs, and only then put these four lines back. Reverted rather than left in with a
+    // guard, because a guard would be me inventing the frame.
     // Landing out of an airborne Revenge used to slide across the ground: the status runs on
     // FIGHTER_KINETIC_TYPE_UNIQ, which keeps whatever horizontal momentum the jump had and never
     // brakes. Switching to the grounded kinetic on touchdown hands the momentum back to normal

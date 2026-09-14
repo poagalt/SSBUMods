@@ -499,3 +499,39 @@ pub fn of(kind: i32) -> &'static str {
         Err(_) => "",
     }
 }
+
+/// This moveset's own kinds, generated from src/specials/status.rs.
+static OWN: &[(i32, &str)] = &[
+    (496, "RAT_SPECIAL_HI_CLOSE"),
+    (497, "RAT_SPECIAL_HI_OPEN"),
+    (498, "RAT_SPECIAL_S_SHOULDER"),
+    (499, "RAT_SPECIAL_S_LARIAT"),
+    (500, "RAT_SPECIAL_S_THROW"),
+    (501, "RAT_SPECIAL_S_END"),
+    (502, "RAT_SPECIAL_S_FAILURE"),
+    (503, "RAT_SHOULDER_START"),
+    (504, "RAT_SHOULDER_WAIT"),
+    (505, "RAT_SHOULDER_WALK"),
+    (506, "RAT_SHOULDER_TURN"),
+    (507, "RAT_SHOULDER_FALL"),
+    (508, "RAT_SHOULDER_LANDING"),
+    (509, "RAT_THROW_F_F"),
+    (510, "RAT_THROW_F_B"),
+    (511, "RAT_THROW_F_HI"),
+    (512, "RAT_THROW_F_LW"),
+    (513, "RAT_SPECIAL_LW_HIT"),
+    (514, "RAT_SHOULDER_JUMP_SQUAT"),
+    (515, "RAT_SHOULDER_JUMP_SQUAT_B"),
+    (516, "RAT_SHOULDER_JUMP"),
+    (517, "RAT_SHOULDER_PASS"),
+];
+
+/// The name for one of this moveset's own kinds, or "".
+pub fn of_own(kind: i32) -> &'static str {
+    for (k, n) in OWN {
+        if *k == kind {
+            return n;
+        }
+    }
+    ""
+}
