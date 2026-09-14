@@ -9,11 +9,14 @@ same as the current chrom sword implementation".
 mesh object, bound to a bone grafted under his own `HaveR`, and `src/sword/mod.rs` shows it for the
 motions that need it. Technique from LilyLavender Modding Workshop episode 39.
 
-This deliberately avoids `smashline::clone_weapon`, which crashes inside the game's own
-`fighter_initialize_object_data` — the Ptooie blocker in `handbook/open-questions.md`, with
-`CLONE_ENABLED = false` in `src/articles/mod.rs` to prove it was tried. A merged mesh needs none of
-that machinery: it is part of Pikachu's model, it inherits his skeleton's animation for free, and
-a visibility flag is its entire lifecycle.
+This deliberately avoided `smashline::clone_weapon`, which had crashed inside the game's own
+`fighter_initialize_object_data` — the Ptooie blocker in `handbook/open-questions.md`. A merged mesh
+needs none of that machinery: it is part of Pikachu's model, it inherits his skeleton's animation
+for free, and a visibility flag is its entire lifecycle. That is still the right answer for a
+weapon that is a stick, and the four grafts below stay whatever the clone does.
+
+`CLONE_ENABLED` is now `true` — see "The clone, and the three articles waiting behind it" at the
+end of this file.
 
 ## Shipped
 
@@ -131,6 +134,28 @@ the stage. That `set_no_finish_camera` exists at all says the engine offers the 
 and a fighter opts out, which is why Little Mac's f-smash script contains no camera call and still
 gets the effect in vanilla.
 
+**And the macro is entirely common-engine state**, which is what makes it portable at all.
+`CHECK_FINISH_CAMERA` decompiles (`work/ghidra/main-22af6c.annotated.c`) to three calls on
+`[boma+0x50]` and nothing else:
+
+```
+WorkModule vtable[0x110]  on_flag(0x2000009F)     FLAG_REQUEST_CHECK_FINISH_CAMERA_THROW
+WorkModule vtable[0x60]   set_float(arg1, 0x42)   the macro's first argument
+WorkModule vtable[0x60]   set_float(arg2, 0x43)   the macro's second
+```
+
+`0x42` and `0x43` sit just below `FIGHTER_INSTANCE_WORK_ID_FLOAT_FINISH_CAMERA_THROW_RAY_LENGTH`
+(`0x44`), so all three are common instance ids — no fighter kind, no namespaced constant, nothing
+this port has to translate. `_IF_NOT_HP_MODE` adds one check of the stamina-mode byte at
+`0x52c51b2` and returns early.
+
+That also settles what Incineroar's `critical_frame` / `critical_zoom_rate` / `critical_slow_rate`
+/ `critical_zoom_in_frame` / `critical_camera_offset_x`,`_y` / `critical_1_on_1` params are *not*:
+they are not this path. `tools/check-srcparams.sh` lists them as unmodelled in both
+`param_special_s` and `param_special_lw`, and that is correct — they are read by HIS native code
+keyed on HIS fighter kind, which never runs here. `src/params/table.rs` serves them anyway because
+it is generated from the whole object, which is harmless.
+
 **And half of it was missing here.** Both of Incineroar's side-B finishers ask for the camera:
 
 ```
@@ -157,3 +182,34 @@ allowlist from both crates' sources, so it still cannot drift.
 `set_reaction_mul` — the *generic* multiplier slots that rage, items and handicap also write, so
 whichever ran last won. All four call sites in `speciallw` now write slot 5 and slot 3. That closes
 the parity gap recorded above; whether it also restores the zoom is a playtest question.
+
+## The clone, and the three articles waiting behind it
+
+`src/articles/mod.rs` holds a two-step experiment. Step 1 — clone OFF, card repaired — has loaded
+on every deploy since it was written, so the open question is only whether the clone itself
+crashes. `CLONE_ENABLED = true` as of this round, which is step 2.
+
+If Pikachu loads with the spikeball appended, all four constants exist and the remaining work is
+three rows in `tools/gen-article-assets.sh` and three `clone_weapon` calls:
+
+| article | weapon kind | donor's own id | assets in the arc |
+|---|---|---|---|
+| Ptooie's spiked ball | `WEAPON_KIND_PACKUN_SPIKEBALL` | `0x3` (packun) | 14 model, 10 motion |
+| Incineroar's ropes | `WEAPON_KIND_GAOGAEN_ROPE` **and** `_ROPE2` | `0x0`, `0x1` | 14 model, 6 motion |
+| G&W's parachute | `WEAPON_KIND_GAMEWATCH_PARACHUTE` | — | 16 model (incl. `model.nuanmb`), 6 motion |
+| Corrin's dragon hand | `WEAPON_KIND_KAMUI_DRAGONHAND` | — | 19 model (incl. `model.nuanmb`), 26 motion |
+
+The parachute and the dragon hand each ship their own `model.nuanmb`, which is exactly what a
+one-bone graft could not reproduce and what a real article plays for free — so the clone route
+answers the objection in "What a one-bone graft cannot do" directly rather than working around it.
+
+**The rope is still the hard one, and not for asset reasons.** ADR 0004's crash evidence is that
+`status_SwingGaogaenThrown` faults at address 0 because Incineroar's linked parent is *always* the
+rope; a real rope hands the whole victim side back to engine code that assumes it. Two articles,
+not one, and the victim's status reads through `LinkModule::get_parent_id`. Cloning it is necessary
+but not sufficient.
+
+**Every clone is c00-only right now.** A cloned article resolves under the owner's costume slot and
+vanilla has no `fighter/pikachu/<article>` at any slot, so a non-c00 Pikachu has nothing to fall
+back to. Recorded in `gen-article-assets.sh`; the fix is a loop over `c00..c07`, deferred so the
+clone experiment stays one variable.
