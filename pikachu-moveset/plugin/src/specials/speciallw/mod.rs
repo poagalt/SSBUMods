@@ -408,6 +408,9 @@ pub static mut COUNTERED: [f32; 8] = [0.0; 8];
 static mut DAMAGE_SINCE_BOOST: [f32; 8] = [0.0; 8];
 /// Did the hit that opened the retaliation come from behind? Written by `revenge_check_damage`.
 static mut FROM_BEHIND: [bool; 8] = [false; 8];
+/// Has `revenge_check_damage` ever run for this entry? Reported once, and never reset -- the
+/// question is whether the line is installed at all, which does not change during a boot.
+static mut CHECK_DMG_RAN: [bool; 8] = [false; 8];
 /// Whether the active-Revenge visual is up, so it is spawned and killed exactly once.
 /// Whether the three absorb calls are currently armed on this entry.
 ///
@@ -956,6 +959,19 @@ unsafe extern "C" fn revenge_check_damage(
 ) -> L2CValue {
     let boma = fighter.module_accessor;
     let entry = entry_of(boma);
+    // UNCONDITIONAL, ONCE PER STANCE, AND IT IS THE TEST. The existing diag below only fires when
+    // the window is open AND the damage is positive, so its silence could mean this never ran OR
+    // that it ran and both guards were false. Those need different fixes: the first is a broken
+    // registration, the second is the port's own trigger. `revenge_turn` was reported not working
+    // and this line is what tells the two apart.
+    if !CHECK_DMG_RAN[entry] {
+        CHECK_DMG_RAN[entry] = true;
+        crate::telemetry::sink::diag(format!(
+            "[rat] REVENGE p{entry} check_damage RAN (window_open={}) -- the CheckDamage line IS \
+             installed on SPECIAL_LW",
+            WINDOW_OPEN[entry]
+        ));
+    }
     if WINDOW_OPEN[entry] {
         // `damage_info["damage_add_"] > 0.0`, the engine's own guard at 0xab9f40 -- a zero-damage
         // connection is not a counter.

@@ -1783,11 +1783,33 @@ const DAMAGE_REACTION_MAX: u64 = 0xdc56470f9;
 /// The param hashes are `battle_object` 0xd8ddb421d, `damage_level1` 0xd14025cb6, `damage_level2`
 /// 0xd8d0b0d0c and `damage_level3` 0xdfa0c3d9a, all confirmed in
 /// `vendor/refs/param-labels/ParamLabels.csv`.
+/// One line the FIRST time this runs in a given status, and it is the whole point of the line.
+///
+/// `sv_get_status_func` told the selftest that none of the ten CheckDamage registrations had taken.
+/// That reading cannot be trusted: the same probe reported SHOULDER_JUMP_SQUAT_B (0x203) and
+/// SHOULDER_JUMP (0x204) absent in a log that contains eleven transitions THROUGH them, so the
+/// statuses were dispatching while the table said they did not exist.
+///
+/// This function was silent, so its absence from that log proved nothing either. Now it is not.
+/// If the registration took, one line appears the first time Pikachu is hit while carrying; if it
+/// did not, the line never appears. Unlike asking the table, that cannot lie -- the evidence IS
+/// the function having run.
+static mut CHECK_DMG_LOGGED: [i32; 8] = [-1; 8];
+
 unsafe extern "C" fn shoulder_check_damage(
     fighter: &mut L2CFighterCommon,
     damage_info: &L2CValue,
 ) -> L2CValue {
     let boma = fighter.module_accessor;
+    let entry = entry_of(boma);
+    let status = StatusModule::status_kind(boma);
+    if entry < 8 && CHECK_DMG_LOGGED[entry] != status {
+        CHECK_DMG_LOGGED[entry] = status;
+        crate::telemetry::sink::diag(format!(
+            "[rat] CARRY p{entry} check_dmg RAN in {} -- the CheckDamage line IS installed",
+            crate::telemetry::probe::st(status)
+        ));
+    }
 
     // `if (L2CValue(is_linked) == L2CValue(false))` -- nobody on the shoulder, nothing to defend.
     if !LinkModule::is_linked(boma, *LINK_NO_CAPTURE) {

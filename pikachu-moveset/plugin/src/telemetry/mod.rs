@@ -164,7 +164,7 @@ unsafe extern "C" fn pikachu_telemetry(fighter: &mut L2CFighterCommon) {
         // `global_table[0xC]` is where smashline writes the extended status-kind count
         // (vendor/sl_create_agent.rs:738), so this is also the only way to confirm from inside the
         // running game that the seven new kinds registered rather than assuming they did.
-        selftest::run(fighter, boma, entry, fighter.global_table[0xC].get_int() as i32);
+        selftest::run(boma, entry, fighter.global_table[0xC].get_int() as i32);
         // The game's own code, if asked for. Off by default -- see exedump.rs.
         exedump::run(sink::prefix().as_str());
     }
