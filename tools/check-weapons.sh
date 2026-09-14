@@ -67,7 +67,11 @@ else
         case "${name:-}" in '' | \#*) continue ;; esac
         miss=""
         jq -e --arg n "$name" '[.objects[].name]|index($n)'            "$W/mesh.json" >/dev/null || miss="$miss mesh"
-        jq -e --arg b "$bone" '[.bones[].name]|index($b)'              "$W/bone.json" >/dev/null || miss="$miss bone:$bone"
+        # THE GRAFTED BONE IS PREFIXED WITH THE WEAPON NAME, and checking the bare name here was a
+        # FALSE PASS waiting to happen -- `mythra_sword`'s table bone is `Sword1` and
+        # `tools/add-bones.sh` independently adds a `Sword1` of Chrom's for Chrom's jab hitboxes,
+        # so the bare lookup found add-bones' bone and reported the graft present when it was not.
+        jq -e --arg b "${name}_${bone}" '[.bones[].name]|index($b)'    "$W/bone.json" >/dev/null || miss="$miss bone:${name}_${bone}"
         jq -e --arg n "$name" '[.entries[].mesh_object_name]|index($n)' "$W/modl.json" >/dev/null || miss="$miss modl"
         jq -e --arg m "$material" '[.entries[].material_label]|index($m)' "$W/matl.json" >/dev/null || miss="$miss matl:$material"
         jq -e --arg n "$name" '[.mesh_object_groups[].mesh_object_name]|index($n)' "$W/mx.json" >/dev/null || miss="$miss meshex"
@@ -112,6 +116,27 @@ if [ -f "$MODEL/model.numshb" ]; then
         rc=1
     else
         echo "  ok  every influence bone of every skinned mesh is in the skeleton"
+    fi
+fi
+
+echo; echo "== no graft shadows a bone another tool provides =="
+# `tools/add-bones.sh` puts `Sword1` (Chrom's) and `Stick` (Palutena's) in this same skeleton so
+# ported ACMD hitboxes have something to ride. It is idempotent -- "a bone already present is left
+# alone" -- and merge-weapons.sh runs FIRST, so an unprefixed graft silently wins and the hitboxes
+# inherit the wrong bind transform. Chrom's jab spent one shipped build aimed with Mythra's.
+#
+# Prefixing removes the class of bug; this makes sure it stays removed.
+if [ -f "$MODEL/model.nusktb" ]; then
+    bad=""
+    while IFS='|' read -r name dir mesh material bone parent sphere radius; do
+        case "${name:-}" in '' | \#*) continue ;; esac
+        jq -e --arg b "${name}_${bone}" '[.bones[].name]|index($b)' "$W/bone.json" >/dev/null 2>&1 \
+            || bad="$bad ${name}:${bone}"
+    done < <(awk -F'|' '/^[a-z_]+\|/' tools/merge-weapons.sh)
+    if [ -n "$bad" ]; then
+        echo "  FAIL these weapons' bones are not prefixed in the skeleton:"; printf '       %s\n' $bad; rc=1
+    else
+        echo "  ok  every grafted bone carries its weapon's prefix"
     fi
 fi
 

@@ -71,6 +71,7 @@ done < <(find . -type f | sort)
     first=1
     while IFS='|' read -r target _src; do
         [ -z "${target// }" ] && continue
+        case "$target" in "#"*) continue ;; esac
         [ "$first" = 1 ] && first=0 || echo ','
         printf '            "%s"' "$target"
     done <<< "$ALIASES"
@@ -85,6 +86,7 @@ done < <(find . -type f | sort)
     first=1
     while IFS='|' read -r target src; do
         [ -z "${target// }" ] && continue
+        case "$target" in "#"*) continue ;; esac
         [ "$first" = 1 ] && first=0 || echo ','
         printf '        "%s": ["%s"]' "$src" "$target"
     done <<< "$ALIASES"
@@ -93,5 +95,5 @@ done < <(find . -type f | sort)
     echo '}'
 } > "$OUT"
 
-n_alias=$(printf '%s\n' "$ALIASES" | grep -c '|' || true)
+n_alias=$(printf '%s\n' "$ALIASES" | grep -v '^#' | grep -c '|' || true)
 echo "  wrote config.json: ${#NEW[@]} shipped new path(s) + $n_alias alias(es)"
