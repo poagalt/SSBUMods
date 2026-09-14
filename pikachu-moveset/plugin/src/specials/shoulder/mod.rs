@@ -1597,12 +1597,37 @@ unsafe extern "C" fn throw_loop(fighter: &mut L2CFighterCommon) -> L2CValue {
     // switched nothing here, so Pikachu kept the `UNIQ` kinetic and the horizontal speed he
     // carried into the throw, and slid on it. DK swaps to GROUND_STOP on the frame he touches
     // down and stops dead.
-    if StatusModule::situation_kind(boma) != *SITUATION_KIND_GROUND {
-        GroundModule::correct(boma, GroundCorrectKind(*GROUND_CORRECT_KIND_AIR));
-        KineticModule::change_kinetic(boma, *FIGHTER_KINETIC_TYPE_AIR_STOP);
-    } else {
-        GroundModule::correct(boma, GroundCorrectKind(*GROUND_CORRECT_KIND_GROUND));
-        KineticModule::change_kinetic(boma, *FIGHTER_KINETIC_TYPE_GROUND_STOP);
+    // GUARDED ON `is_changing`, AND ON THE SITUATION HAVING ACTUALLY CHANGED.
+    //
+    // The first cut of this ran the swap every frame off the CURRENT situation, which fixed the
+    // slide and was not what `FUN_7100021af0` does. Reading further into it:
+    //
+    //     if !StatusModule::is_changing() {
+    //         if globalTable[0x17] == GROUND && globalTable[0x16] == AIR   -> <took off>
+    //         if globalTable[0x17] == GROUND                               -> <...>
+    //         if globalTable[0x16] == GROUND                               -> <...>
+    //     }
+    //
+    // `[0x17]` is the PREVIOUS situation and `[0x16]` the current, so the branch that swaps the
+    // kinetic is a TRANSITION, not a state -- it fires on the frame the situation flips and not
+    // on the hundred frames either side of it. And the whole dispatch sits behind `is_changing`,
+    // so nothing touches the kinetics on a frame where a status change is already pending.
+    //
+    // Calling `change_kinetic` to the type it is already set to every frame probably costs
+    // nothing, and `GroundModule::correct` every frame probably does not either -- but "probably"
+    // is what this project keeps paying for, and the source is right here.
+    if !StatusModule::is_changing(boma) {
+        let now_ground = fighter.global_table[0x16] == *SITUATION_KIND_GROUND;
+        let was_ground = fighter.global_table[0x17] == *SITUATION_KIND_GROUND;
+        if now_ground != was_ground {
+            if now_ground {
+                GroundModule::correct(boma, GroundCorrectKind(*GROUND_CORRECT_KIND_GROUND));
+                KineticModule::change_kinetic(boma, *FIGHTER_KINETIC_TYPE_GROUND_STOP);
+            } else {
+                GroundModule::correct(boma, GroundCorrectKind(*GROUND_CORRECT_KIND_AIR));
+                KineticModule::change_kinetic(boma, *FIGHTER_KINETIC_TYPE_AIR_STOP);
+            }
+        }
     }
     0.into()
 }
