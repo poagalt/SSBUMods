@@ -200,14 +200,35 @@ unsafe fn report_missing_statuses(fighter: &mut L2CFighterCommon, entry: usize) 
     ];
     let mut absent = Vec::new();
     let mut partial = Vec::new();
+    // CHECK_DAMAGE IS ASKED FOR SEPARATELY BECAUSE IT IS THE SUSPECT.
+    //
+    // `sv_set_status_func` indexes a per-status array by (status, line), and the ten carry
+    // statuses got their first CheckDamage registration in 8a62c76 -- line 0xB on ids 0x1F7
+    // through 0x205, all of them past Pikachu's own NUM of 0x1F0. Every line this plugin had used
+    // before is 0..7. If those ten writes land outside whatever the game allocated, the symptom
+    // would be exactly what pt36 shows, so the log has to be able to tell "the status is gone"
+    // from "the status is there and only its CheckDamage is not".
+    let mut no_check = Vec::new();
     for (name, id) in DECLARED {
         let pre = has_line(fighter, *id, *LUA_SCRIPT_STATUS_FUNC_STATUS_PRE);
         let main = has_line(fighter, *id, *LUA_SCRIPT_STATUS_FUNC_STATUS_MAIN);
+        if *id >= RAT_STATUS_KIND_SHOULDER_START
+            && *id <= RAT_STATUS_KIND_SHOULDER_PASS
+            && !has_line(fighter, *id, *LUA_SCRIPT_STATUS_FUNC_CHECK_DAMAGE)
+        {
+            no_check.push(format!("{name}({id:#x})"));
+        }
         match (pre, main) {
             (true, true) => {}
             (false, false) => absent.push(format!("{name}({id:#x})")),
             _ => partial.push(format!("{name}({id:#x}) pre={pre} main={main}")),
         }
+    }
+    if !no_check.is_empty() {
+        sink::diag(format!(
+            "[rat] SELFTEST p{entry} STATUS PROBE no CheckDamage on: {}",
+            no_check.join(" ")
+        ));
     }
     if absent.is_empty() && partial.is_empty() {
         sink::diag(format!(
