@@ -1554,8 +1554,40 @@ unsafe fn lariat_frame(boma: *mut BattleObjectModuleAccessor, entry: usize) {
         return;
     }
     LARIAT_LOGGED[entry] += 1;
+    // `d_arml` IS THE NUMBER THE HITBOX ACTUALLY TESTS, and `off` is not.
+    //
+    // The ACMD's hitbox is a 7.291667-radius sphere on bone `arml` with x/y/z offsets of zero, so
+    // what decides a hit is the distance from THAT BONE to the victim -- not their offset from
+    // Pikachu's centre, which is what every other line in this file reports. During a lariat the
+    // arm swings well away from the centre, so the two can differ by more than the radius.
+    //
+    // This is the column that tells a geometric miss from a state one. pt38's last reading before
+    // each lariat has the victim at an `off` of -12 to -23 while the lariat animation moves
+    // Pikachu only +2.69 -- which would leave 9.4 against a 7.29 radius, a miss, except that
+    // nothing there measured the ARM. If `d_arml` comes back comfortably under 7.29 on the live
+    // frames and the swing still misses, the geometry is fine and the cause is elsewhere.
+    let d_arml = match v {
+        Some((id, _, _, _)) => crate::victim::boma(id).map(|vb| {
+            let mut a = Vector3f { x: -9999.0, y: -9999.0, z: 0.0 };
+            ModelModule::joint_global_position(boma, Hash40::new("arml"), &mut a, true);
+            if a.x < -9000.0 {
+                return -1.0;
+            }
+            let dx = PostureModule::pos_x(vb) - a.x;
+            let dy = PostureModule::pos_y(vb) - a.y;
+            (dx * dx + dy * dy).sqrt()
+        }),
+        None => None,
+    };
     let where_ = match v {
-        Some((_, off, dy, d)) => format!("off=({off:.2},{dy:.2}) vdmg={d:.1}"),
+        Some((_, off, dy, d)) => format!(
+            "off=({off:.2},{dy:.2}) vdmg={d:.1} d_arml={} (hitbox r=7.29)",
+            match d_arml {
+                Some(d) if d >= 0.0 => format!("{d:.2}"),
+                Some(_) => "bone absent".to_string(),
+                None => "-".to_string(),
+            }
+        ),
         None => "victim GONE".to_string(),
     };
     crate::telemetry::sink::diag(format!(
