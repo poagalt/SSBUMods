@@ -102,3 +102,26 @@ The last registering function yielded 2,092 of an expected 2,897 constants -- ab
 the 39,213 total is ~98% of what that pass should have found. Every other one of the 55 matched
 exactly. Worth knowing before anything treats `consts-1305.csv` as complete: a NAME missing from
 it is not evidence that the constant does not exist.
+
+## Two things found while using it on a real question
+
+Both came out of chasing the Alolan Whip's lariat, where the answer turned out to be an engine-side
+victim transition at `main` 0x637ec4 -- the same shape as the Revenge HIT/TURN branch.
+
+**The expansion does not cover that function, and neither does the indirect sweep.** The whole
+64 KB region 0x630000..0x63ffff contains exactly ONE entry point in either list -- 0x6307f0, which
+is a 137-line list lookup, not the dispatcher that holds 0x637ec4. The 2,063 indirect targets do
+not reach it either. So the 3.1x expansion is real and was proven useful elsewhere (the Gaogaen
+window went 1 -> 7), but it is not uniform, and a specific question can still land in a hole. The
+honest framing is "three times the coverage", not "the blind spot is gone".
+
+**Every file in `work/emu/` is CRLF, and that silently breaks `$` anchors.** This cost a wrong
+answer during the above: `grep -cE "^0x000063[0-9a-f]{4}$"` returns 0 on all of them because the
+line ends `...\r`, and 0 reads exactly like "no entry points in that range" rather than like a
+parsing failure. Anything consuming these needs `tr -d '\r'` first, and any checker built on them
+should assert the line count is non-zero rather than trusting a zero.
+
+    tr -d '\r' < work/emu/all-entrypoints.txt | grep -cE "^0x[0-9a-f]{10}$"     # 100508
+
+That belongs in whatever runs the bulk decompilation over `new-entrypoints.txt`, because a
+silently-empty address list would look like a finished job.
