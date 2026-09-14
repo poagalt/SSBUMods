@@ -1609,7 +1609,7 @@ unsafe extern "C" fn throw_exit(fighter: &mut L2CFighterCommon) -> L2CValue {
     // `false`: DK reaches the carry out of an ORDINARY GRAB, so the capture is the engine's and
     // its teardown is `catch_cut` and nothing else -- `ThrowFF_exit` is literally that one line.
     // Forcing CAPTURE_CUT here was interrupting the throw. See `crate::victim::drop_capture`.
-    crate::victim::drop_capture(entry, "throw over", false);
+    crate::victim::drop_capture(entry, "throw over");
     crate::victim::forget(entry, "throw over");
     VICTIM[entry] = *BATTLE_OBJECT_ID_INVALID as u32;
     apply_lift_param(boma, entry, false);
@@ -1960,7 +1960,7 @@ unsafe fn leave_carry(boma: *mut BattleObjectModuleAccessor, entry: usize, next:
     }
     // `catch_cut` and `set_ignore_catching(false)` are DK's two lines here; the unlink is ours to
     // undo because the link was ours to make. See `crate::victim::drop_capture`.
-    crate::victim::drop_capture(entry, "carry released", false);
+    crate::victim::drop_capture(entry, "carry released");
 }
 
 /// `carry_change` for the transitions DK makes with `change_status(kind, TRUE)`.

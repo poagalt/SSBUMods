@@ -570,7 +570,7 @@ unsafe fn whip_release_teardown(fighter: &mut L2CFighterCommon) {
     // so his teardown is the engine's. Ours is not.
     // `true`: `whip::catch::take_captive` calls `CaptureModule::capture` by hand, so this port
     // owns the record and has to undo it.
-    crate::victim::drop_capture(entry, "whip over", true);
+    crate::victim::drop_capture(entry, "whip over");
     // Stop tracing and forget the victim, so a stale id cannot make the next whip's
     // `whip_victim_held` watchdog answer about the previous one's victim.
     crate::victim::untrace(entry);

@@ -156,6 +156,7 @@ unsafe extern "C" fn pikachu_telemetry(fighter: &mut L2CFighterCommon) {
     // what makes it a detector rather than a guess.
     crate::victim::new_frame(entry);
     crate::victim::tick_hold(entry);
+    crate::victim::tick_deferred_cut(entry);
 
     let motion = MotionModule::motion_kind(boma);
     let frame = MotionModule::frame(boma);

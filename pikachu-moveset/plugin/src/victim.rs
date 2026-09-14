@@ -340,111 +340,28 @@ unsafe fn unlink_if_linked(boma: *mut BattleObjectModuleAccessor) {
     }
 }
 
-pub unsafe fn drop_capture(entry: usize, why: &str, ours_by_hand: bool) {
+pub unsafe fn drop_capture(entry: usize, why: &str) {
     let Some(ours) = boma(id_of_entry(entry as u32)) else { return };
     if CatchModule::is_catch(ours) {
         CatchModule::catch_cut(ours, false, false);
     }
     CaptureModule::set_ignore_catching(ours, false);
     unlink_if_linked(ours);
-    // THE VICTIM'S CAPTURE RECORD, WHICH ONLY THE MASH-OUT PATH WAS CLEARING -- AND THAT IS THE
-    // WHOLE OF "AFTER HITTING A CARGO THROW OR ALOLAN WHIP IN ANY CAPACITY MODIFIED PIKACHU CANNOT
-    // GRAB THE OPPONENT".
+    // AND THE CAPTURE THIS PORT MADE BY HAND IS UNDONE BY THIS PORT -- but not on this frame.
     //
-    // The captor side has been provably clean for two rounds: `ours_linked=false
-    // ignore_catching=false is_catch=false` on every release in the log. And the victim was in
-    // WAIT with `cap=false` when the whip's own probe looked at them. So the block is not any of
-    // the four things I had been printing -- but the ORDER of successful grabs in the log is
-    // unambiguous:
+    // Everything about the victim's record is our own to fix: the engine has no `capture_cut`
+    // call in either source fighter (the capture tracer recorded zero across a whole session of
+    // real DK and real Incineroar) because their captures are the ENGINE's and its release path
+    // does this internally. Both of this port's grabs call `CaptureModule::capture` themselves,
+    // so both leave a record nothing else will clear.
     //
-    //     CATCH_PULL at lines 38, 62, 135 ... then nothing until 3697
-    //     captures established at lines 73, 293, 427, 580, 737, 872
-    //
-    // Three grabs worked, then a cargo carry at 293 and every grab after it whiffed for three
-    // thousand lines. `cut_capture` requests CAPTURE_CUT on the victim and `drop_capture` did not,
-    // so the mash-out path released them and the THROW path left the engine's own record of the
-    // capture standing. A fighter the engine believes is captured cannot be caught.
-    //
-    // GATED ON THE ENGINE STILL NAMING US, which is what makes this safe to call from the end of a
-    // throw: a real throw releases them itself, so `catch_object_id` no longer points at us and
-    // this does nothing. It only fires when the record is stale by definition.
-    // ONLY IF THIS PORT MADE THE CAPTURE ITSELF, AND THE CARGO DOES NOT.
-    //
-    // Everything below is the port's own invention: the engine has no `capture_cut` in either
-    // source fighter and neither of them forces CAPTURE_CUT on anybody. It is right for the WHIP,
-    // where `whip::catch::take_captive` calls `CaptureModule::capture` by hand and so owns the
-    // record it made. It is wrong for the CARGO, which reaches the carry out of an ORDINARY GRAB
-    // the engine established -- and DK's own `ThrowFF_exit` is one line, `catch_cut(false,false)`,
-    // with no capture surgery at all.
-    //
-    // AND ON THE CARGO IT WAS BREAKING THE THROW. pt24, with the victim mid-flight:
-    //
-    //   SHOULDER p0 throw init: ... victim plays thrown_f_donkey_hi, target=0x10000
-    //   about to force status 0x44 on victim from stale capture record (they are in 0x49)
-    //   HOLD p0 dropped the capture (throw over): MY_is_capture=true their_capture=true
-    //                                             their_st=CAPTURE_CUT(0x44)
-    //
-    // 0x49 is the victim being thrown, one frame after the port told them to play
-    // `thrown_f_donkey_hi`. The test above -- the engine still names us as their captor -- is
-    // true during a LEGITIMATE throw exactly as it is for a leaked record, so this yanked them
-    // out of the throw into CAPTURE_CUT, and CAPTURE_CUT from there completes nothing: both sides
-    // stayed flagged and no grab could start. Same shape of mistake as `whip_release`'s old
-    // `is_capture` guard and `find_caught_victim`'s adopt test -- a predicate that cannot tell a
-    // live capture from a dead one being asked to decide.
-    if !ours_by_hand {
-        crate::telemetry::sink::diag(format!(
-            "[rat] HOLD p{entry} dropped the capture ({why}): engine-made, so the engine's own \n             teardown is the whole of it -- ours_linked={} ignore_catching={} MY_is_capture={}",
-            LinkModule::is_linked(ours, *LINK_NO_CAPTURE),
-            CaptureModule::is_ignore_catching(ours),
-            CaptureModule::is_capture(ours),
-        ));
-        return;
+    // Firing it here is what pt24 caught breaking the cargo throw, and `arm_deferred_cut` carries
+    // the trace and the reasoning. `who` in the diagnostic below names the fighter, because
+    // reading it off the WRONG fighter is what the old `0` sentinel did for three rounds -- see
+    // the note on `HELD_ID`.
+    if plausible(HELD_ID[entry]) {
+        arm_deferred_cut(entry, HELD_ID[entry], why);
     }
-    if let Some(vboma) = boma(HELD_ID[entry]) {
-        // NOT IF THEY ARE ALREADY IN IT, and this guard is a crash class rather than tidiness.
-        //
-        // `whip_release` forces CAPTURE_CUT for the SWING_GAOGAEN statuses and then calls this,
-        // so without the test the same status would be forced twice in one frame -- a re-entry,
-        // which is exactly what killed the game when `shoulder_the_victim` forced
-        // SHOULDERED_DONKEY_START on a victim already in it: "forcing a status the fighter is
-        // already in re-runs its entry, and the engine's path for a re-entry is what faulted".
-        // Two of this session's three crashes were also the second of two identical calls.
-        if CaptureModule::is_capture(vboma)
-            && CaptureModule::catch_object_id(vboma) as u32 == id_of_entry(entry as u32)
-        {
-            if StatusModule::status_kind(vboma) != *FIGHTER_STATUS_KIND_CAPTURE_CUT {
-                request_status(vboma, *FIGHTER_STATUS_KIND_CAPTURE_CUT, "stale capture record");
-            }
-            // AND `capture_cut` WITH ITS FIRST ARGUMENT TRUE, WHICH IS THE ONE CALL THAT ACTUALLY
-            // CLEARS `is_capture` -- the measured log says nothing else does:
-            //
-            //   HOLD p0 dropped the capture (throw over): ours_linked=false ignore_catching=false
-            //                                             is_catch=false their_capture=TRUE
-            //                                             their_st=0x44
-            //
-            // 0x44 IS CAPTURE_CUT. The victim is already in the status the engine's own escape
-            // uses, every captor-side flag is clear, and `CaptureModule::is_capture` on them is
-            // still true -- so the engine still believes Pikachu is holding somebody and no grab
-            // can start. That is "still can't grab after alolan whip or after a cargo throw",
-            // three rounds after the captor side stopped being the problem.
-            //
-            // `cut_capture`'s note calls `capture_cut` "the wrong function entirely" and it is
-            // right about WHY: Ghidra on `CaptureCut(this, p2, p3, p4)` shows the whole teardown
-            // gated on `p2`, so the `(false, false, false)` this project used to pass skipped the
-            // two vtable calls -- 0x3b8 and 0x3c0 -- that undo the capture, and left the victim's
-            // model constrained to our bone. That was an argument bug, not the wrong function:
-            // with `p2` TRUE those two calls are exactly what is needed.
-            //
-            // Neither source fighter calls it -- the engine capture tracer recorded zero
-            // `capture_cut` across a session of real DK and real Incineroar -- because their
-            // captures are the ENGINE's and its own release path does this internally. Ours is
-            // made by hand with `CaptureModule::capture`, so the same rule as the link applies:
-            // what this port establishes itself, it releases itself.
-            CaptureModule::capture_cut(vboma, true, false, false);
-        }
-    }
-    // `who` names the fighter, because reading this line off the WRONG fighter is what the old
-    // `0` sentinel did for three rounds -- see the note on `HELD_ID`.
     let their = boma(HELD_ID[entry])
         .map(|v| (CaptureModule::is_capture(v), StatusModule::status_kind(v)))
         .unwrap_or((false, -1));
@@ -815,6 +732,13 @@ pub unsafe fn cut_capture(entry: usize, why: &str) -> bool {
     if CaptureModule::is_capture(vboma) {
         request_status(vboma, *FIGHTER_STATUS_KIND_CAPTURE_CUT, "releasing a held victim");
     }
+    // AND THE MASH-OUT PATH OWNS THE SAME HAND-MADE CAPTURE THE THROW PATH DOES.
+    //
+    // "Still can't grab mario after a cargo throw mash out or successful throw" is one sentence
+    // and was two halves of one omission: this requests CAPTURE_CUT on the victim and never
+    // undoes `CaptureModule::capture`, so the record the carry made by hand outlived the escape
+    // exactly as it outlived the throw. Deferred for the same reason -- see `arm_deferred_cut`.
+    arm_deferred_cut(entry, id, why);
     // AND THE LINK IS UNDONE ON BOTH ENDS, BECAUSE THIS PORT MADE IT ON BOTH ENDS.
     //
     // Neither source fighter has anything to undo here: Donkey Kong and Incineroar reach their
@@ -867,4 +791,110 @@ pub unsafe fn engine_holds(entry: usize, vboma: *mut BattleObjectModuleAccessor)
     entry < 8
         && CaptureModule::is_capture(vboma)
         && CaptureModule::catch_object_id(vboma) as u32 == id_of_entry(entry as u32)
+}
+
+// ================================================================================================
+// THE DEFERRED CUT: undo our own `CaptureModule::capture`, but NOT WHILE THE THROW IS USING IT.
+// ================================================================================================
+//
+// BOTH MOVES MAKE THE CAPTURE BY HAND. The previous round split `drop_capture` on `ours_by_hand`
+// and gave the cargo `false`, on the reasoning that it reaches the carry out of an ordinary grab
+// so the record is the engine's. pt25 says otherwise, in the cargo's own trace:
+//
+//     TRACE mario1 st=0x44 mot=0xb319a8b44 CaptureModule::capture(captor=0x0, 0xffffffff, true, 0)
+//     SHOULDER p0 established capture on 0x10000: is_capture=true their_is_link=true their_st=0x42
+//
+// Mario is at 0x44 -- CAPTURE_CUT, the ordinary grab already over -- and the carry re-captures
+// him itself. So the port owns that record exactly as it owns the whip's, and nobody but the port
+// is going to undo it: `MY_is_capture=true` on every single `throw over` in pt25, and the probe
+// finds Pikachu and Mario still flagged at the next grab attempt.
+//
+// AND CUTTING IT AT `throw_exit` BREAKS THE THROW, which is what pt24 measured:
+//
+//     SHOULDER p0 throw init: ... victim plays thrown_f_donkey_hi, target=0x10000
+//     about to force status 0x44 on victim from stale capture record (they are in 0x49)
+//
+// 0x49 is the victim in mid-flight, one frame after being told to play the throw animation. So
+// the cut is necessary and the moment is wrong, and neither `is_capture` nor `catch_object_id`
+// can tell the two moments apart -- the same class of mistake as `whip_release`'s old guard and
+// `find_caught_victim`'s adopt test, for the third and fourth time.
+//
+// WHAT DISTINGUISHES THEM IS TIME, NOT STATE, so this waits instead of testing. The victim's
+// status at the moment of the release is recorded; the cut fires on the first frame their status
+// is something else, which is the throw having finished with them. No status taxonomy is needed
+// and no id has to be identified -- only that it changed.
+static mut CUT_ID: [u32; 8] = [NOBODY; 8];
+static mut CUT_ST: [i32; 8] = [-1; 8];
+static mut CUT_AGE: [i32; 8] = [0; 8];
+
+/// Longest a deferred cut may wait before firing anyway, in frames.
+///
+/// A backstop, not a schedule: the status change is what normally fires it. This exists so a
+/// victim who somehow never leaves the status they were thrown in cannot hold the capture open
+/// forever -- which is the bug this whole mechanism exists to end, and it would be poor to
+/// reintroduce it in the fix. Twice `MAX_HOLD_FRAMES`, the same bound the hold itself uses.
+const CUT_DEADLINE: i32 = MAX_HOLD_FRAMES * 2;
+
+/// Arm the cut. Called where the old inline `capture_cut` used to be.
+pub unsafe fn arm_deferred_cut(entry: usize, id: u32, why: &str) {
+    if entry >= 8 {
+        return;
+    }
+    let Some(vboma) = boma(id) else { return };
+    if !CaptureModule::is_capture(vboma)
+        || CaptureModule::catch_object_id(vboma) as u32 != id_of_entry(entry as u32)
+    {
+        return;
+    }
+    CUT_ID[entry] = id;
+    CUT_ST[entry] = StatusModule::status_kind(vboma);
+    CUT_AGE[entry] = 0;
+    crate::telemetry::sink::diag(format!(
+        "[rat] HOLD p{entry} armed a deferred capture cut on {id:#x} ({why}): they are in {} and \
+         it fires when that changes",
+        crate::telemetry::probe::st(CUT_ST[entry])
+    ));
+}
+
+/// Fire it when the victim has moved on. Called once per frame per entry.
+pub unsafe fn tick_deferred_cut(entry: usize) {
+    if entry >= 8 || !plausible(CUT_ID[entry]) {
+        return;
+    }
+    let id = CUT_ID[entry];
+    let Some(vboma) = boma(id) else {
+        CUT_ID[entry] = NOBODY;
+        return;
+    };
+    CUT_AGE[entry] += 1;
+    // Already clear, or the engine handed them to somebody else: nothing of ours is left to undo.
+    if !CaptureModule::is_capture(vboma)
+        || CaptureModule::catch_object_id(vboma) as u32 != id_of_entry(entry as u32)
+    {
+        CUT_ID[entry] = NOBODY;
+        return;
+    }
+    let st = StatusModule::status_kind(vboma);
+    let moved_on = st != CUT_ST[entry];
+    if !moved_on && CUT_AGE[entry] < CUT_DEADLINE {
+        return;
+    }
+    let Some(ours) = boma(id_of_entry(entry as u32)) else {
+        CUT_ID[entry] = NOBODY;
+        return;
+    };
+    // `p2` TRUE is the only argument that actually undoes the capture -- Ghidra on
+    // `CaptureCut(this, p2, p3, p4)` gates the two vtable calls at 0x3b8 and 0x3c0 on it, and
+    // those are the ones that clear `is_capture` and drop the model constraint.
+    CaptureModule::capture_cut(vboma, true, false, false);
+    crate::telemetry::sink::diag(format!(
+        "[rat] HOLD p{entry} deferred cut fired on {id:#x} after {}f ({}): they are in {} now; \
+         after it their_capture={} MY_is_capture={}",
+        CUT_AGE[entry],
+        if moved_on { "status changed" } else { "DEADLINE -- nothing ever changed" },
+        crate::telemetry::probe::st(st),
+        CaptureModule::is_capture(vboma),
+        CaptureModule::is_capture(ours),
+    ));
+    CUT_ID[entry] = NOBODY;
 }

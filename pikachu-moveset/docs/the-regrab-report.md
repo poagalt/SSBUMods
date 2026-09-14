@@ -409,3 +409,36 @@ one step. The test is now which step lands *nearest* the line, with half a step 
 between the two candidates -- 0.0 away against 11.2 away. No tolerance constant; the game's own
 speed is the whole of it. That puts the attach at off -40.69 and the extreme at -48.53, which is
 native.
+
+---
+
+# Round four (pt25): the cargo captures by hand too, and the cut has to wait
+
+The whip is done. The distance is right -- *"Alolan whip now goes the correct distance"* -- and
+the release is clean on every one of pt25's whips.
+
+Last round's cargo fix was built on a premise pt25 disproves, in the cargo's own trace:
+
+```
+TRACE mario1 st=0x44 mot=0xb319a8b44 CaptureModule::capture(captor=0x0, 0xffffffff, true, 0)
+SHOULDER p0 established capture on 0x10000: is_capture=true their_is_link=true their_st=0x42
+```
+
+Mario is at `0x44` -- CAPTURE_CUT, the ordinary grab already finished -- and **the carry
+re-captures him itself**. So `ours_by_hand=false` was wrong: the port owns the cargo's record
+exactly as it owns the whip's, and passing `false` meant nothing undid it at all. Every `throw
+over` in pt25 reads `MY_is_capture=true`, and the probe finds both fighters still flagged at the
+next grab.
+
+So the cut is necessary *and* the moment was wrong, both at once, and the two are not
+distinguishable by any state predicate — which is the fourth instance of that class in this bug.
+What separates them is **time**, so the cut now waits instead of testing: `drop_capture` and
+`cut_capture` record the victim's status and arm; `tick_deferred_cut` fires
+`capture_cut(vboma, true, ..)` on the first frame that status is something else, which is the
+throw having finished with them. No status id has to be identified — only that it changed. A
+deadline of `2 × MAX_HOLD_FRAMES` backstops it so a victim who never moves on cannot hold the
+capture open, which would be this very bug reintroduced by its own fix.
+
+The mash-out path had the same hole from the other side: `cut_capture` requested CAPTURE_CUT on
+the victim and never undid `CaptureModule::capture`. *"Still can't grab mario after a cargo throw
+mash out or successful throw"* is one sentence because it was one omission. Both arm now.
