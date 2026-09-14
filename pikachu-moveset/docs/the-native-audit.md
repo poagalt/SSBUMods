@@ -150,11 +150,13 @@ from one asterisk. The map takes a trailing `=` for an exact directory now.
 
 ### Still open, and now specific
 
-**`param_special_hi`: `stick_min`, `stick_mul`, `landing_frame`.** `src/params` provides Incineroar's
-`param_special_s` and `param_special_lw` and **nothing for gamewatch at all**, so G&W's up-B reads
-Pikachu's own `param_special_hi` -- Quick Attack's -- or zero. Resolved through
-`vendor/refs/param-labels/ParamLabels.csv`, which is what that clone is for. Bounded work:
-extend the provider the way it was extended for gaogaen.
+~~**`param_special_hi`: `stick_min`, `stick_mul`, `landing_frame`.**~~ **NOT A GAP -- I was wrong
+again.** The provider answers only `param_special_s` at runtime, which is what made these look
+unanswered, but every other param object is HARDCODED in Rust and `check-srcparams.sh` verifies
+the constants against the same prc. For gamewatch it reports **5 used, 0 declared unmodelled, 0
+unaccounted**: stick_min 0.25, stick_mul 30, limit_y_mul 0.5, landing_frame 40,
+pass_speed_mul 1.1. See `the-data-analysis.md` for why this keeps happening -- the tool measures
+whether a CALL appears, not whether the behaviour is present.
 
 **The `CheckDamage` line (3 calls, both `ItemModule` among them).** This port registers none. DK
 decides whether the carry survives a hit by asking whether the damage came from the fighter he is
