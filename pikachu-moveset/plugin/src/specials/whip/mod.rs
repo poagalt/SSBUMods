@@ -1636,12 +1636,25 @@ unsafe fn lariat_frame(boma: *mut BattleObjectModuleAccessor, entry: usize) {
         ),
         None => "victim GONE".to_string(),
     };
+    // PIKACHU'S OWN x AND lr, so `off` can be DECOMPOSED. Without these the column is a
+    // difference of two moving things and every reading of it is a guess.
+    //
+    // It already cost one. During SWING_GAOGAEN_RETURN the victim closes at exactly +2.80 per
+    // frame -- `special_s_through_target_return_speed` to the digit, so the param provider and the
+    // engine are both correct -- but across the lariat the closing rate works out at about 3.9
+    // (27.28 units in 7 game frames). I was ready to blame the return speed for that; the return
+    // speed is exact, so the remainder is Pikachu, and `off` alone cannot say how much or which
+    // way. `moved x +2.69` for the whole motion does not reconcile with ~1.1 per frame of closing
+    // either, which is the contradiction these two columns exist to settle.
     crate::telemetry::sink::diag(format!(
-        "[rat] LARIAT p{entry} f{:.1} rate={:.2} attack={live} link={} cap={} {where_}",
+        "[rat] LARIAT p{entry} f{:.1} rate={:.2} attack={live} link={} cap={} \
+         pika_x={:.2} lr={:.0} {where_}",
         MotionModule::frame(boma),
         MotionModule::rate(boma),
         LinkModule::is_link(boma, *LINK_NO_CAPTURE),
         CaptureModule::is_capture(boma),
+        PostureModule::pos_x(boma),
+        PostureModule::lr(boma),
     ));
 }
 
