@@ -1572,6 +1572,38 @@ unsafe extern "C" fn throw_loop(fighter: &mut L2CFighterCommon) -> L2CValue {
         let next = if ground { *FIGHTER_STATUS_KIND_WAIT } else { *FIGHTER_STATUS_KIND_FALL };
         return carry_change(fighter, entry, next, "throw animation over");
     }
+
+    // THE KINETICS FOLLOW THE SITUATION, EVERY FRAME, AND THAT IS THE LANDING SLIDE.
+    //
+    // "If I throw the opponent while pikachu is still in the air he slides when he lands instead
+    // of staying in the spot where he landed as dk does."
+    //
+    // `throw_pre` matches DK's exactly -- SITUATION_NONE, KINETIC_TYPE_UNIQ,
+    // GROUND_CORRECT_KEEP, CLIFF_CHECK_NONE, the three THROW keep flags -- so the settings were
+    // never the problem. What this loop was missing is what DK's does every frame it is NOT at
+    // the end of the animation. `ThrowFF_main` shifts to a loop that is one call to a static,
+    // `FUN_7100021af0`, which the status dump does not contain and `tools/decomp.sh donkey
+    // 0x7100021af0` does:
+    //
+    //     if situation != GROUND {
+    //         GroundModule::correct(GROUND_CORRECT_KIND_AIR)
+    //         KineticModule::change_kinetic(FIGHTER_KINETIC_TYPE_AIR_STOP)
+    //     } else {
+    //         GroundModule::correct(GROUND_CORRECT_KIND_GROUND)
+    //         KineticModule::change_kinetic(FIGHTER_KINETIC_TYPE_GROUND_STOP)
+    //     }
+    //
+    // `*_STOP` is the whole answer: it is the kinetic with no momentum in it. Landing mid-throw
+    // switched nothing here, so Pikachu kept the `UNIQ` kinetic and the horizontal speed he
+    // carried into the throw, and slid on it. DK swaps to GROUND_STOP on the frame he touches
+    // down and stops dead.
+    if StatusModule::situation_kind(boma) != *SITUATION_KIND_GROUND {
+        GroundModule::correct(boma, GroundCorrectKind(*GROUND_CORRECT_KIND_AIR));
+        KineticModule::change_kinetic(boma, *FIGHTER_KINETIC_TYPE_AIR_STOP);
+    } else {
+        GroundModule::correct(boma, GroundCorrectKind(*GROUND_CORRECT_KIND_GROUND));
+        KineticModule::change_kinetic(boma, *FIGHTER_KINETIC_TYPE_GROUND_STOP);
+    }
     0.into()
 }
 
