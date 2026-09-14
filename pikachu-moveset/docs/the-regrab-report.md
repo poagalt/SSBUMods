@@ -442,3 +442,72 @@ capture open, which would be this very bug reintroduced by its own fix.
 The mash-out path had the same hole from the other side: `cut_capture` requested CAPTURE_CUT on
 the victim and never undid `CaptureModule::capture`. *"Still can't grab mario after a cargo throw
 mash out or successful throw"* is one sentence because it was one omission. Both arm now.
+
+---
+
+# Round five (pt28): there is no release call, so stop needing one
+
+The ladder ran all four candidates, one per frame, and every one failed with `their_captured_by`
+stuck at `0x0`:
+
+```
+release candidate 0 capture_cut(v, true, false, false):     cleared=false
+release candidate 1 CatchModule::set_catch(ours, INVALID):  cleared=false
+release candidate 2 capture_cut(v, true, true, true):       cleared=false
+release candidate 3 capture(v, INVALID, ..):                cleared=false
+                                              (INVALID is 0x50000000)
+```
+
+**A capture this port makes with `CaptureModule::capture` cannot be undone by any call the port
+knows of.** That is the finding, and it is a better one than another failed guess: it says the
+fix is not a missing function call, it is not making the capture at all.
+
+## Why the port makes one, and why DK does not
+
+Native DK, from the playtest where the user grabbed as him:
+
+```
+DONKEY0 status CATCH_DASH(0x39) -> 0x3a -> 490(0x1ea)  SHOULDER_START
+DONKEY0 st=0x3a  CatchModule::set_catch(0x50000000)
+DONKEY0 st=0x1ea LinkModule::send_event_nodes(link=0, event=0x8af9b3d1d, 0)
+mario1  st=0xc5  ControlModule::start_clatter(139, 0, 10, ...)
+```
+
+He goes from a CATCH status **straight into SHOULDER_START**, never enters `THROW`, and never
+calls `CaptureModule::capture`. The "shoulder" link event alone carries the victim across --
+because the engine's own grab is still intact when it arrives.
+
+This port, three times in the same log:
+
+```
+pika0  status CATCH_WAIT(0x3c) -> THROW(0x40)
+pika0  st=0x40  CatchModule::catch_cut(false, false)      <- the grab is destroyed
+mario1 st=0x44  CaptureModule::capture(captor=0x0, ...)   <- enter_carry rebuilds it
+pika0  status THROW(0x40) -> 503(0x1f7)
+```
+
+`pikachu_throw_main` intercepts on THROW's **Main**, and its comment claimed "Pikachu's own throw
+never runs, so nothing is released". `catch_cut` happens on the way **in**, before Main is
+reached. So the engine's grab was already gone, `enter_carry`'s `if !LinkModule::is_linked(..)`
+was true, and it built the replacement capture that nothing can undo.
+
+Every cargo symptom of the last five rounds is downstream of that one frame.
+
+## The fix
+
+`pikachu_catch_wait_main` takes the forward throw in `CATCH_WAIT`, on the engine's own
+`FIGHTER_PAD_CMD_CAT2_FLAG_THROW_F`, and goes straight to SHOULDER_START. `THROW` is never
+entered, `catch_cut` never fires, the engine's grab survives into the carry, `enter_carry`'s guard
+is false, and there is no hand-made capture to leak.
+
+Back, up and down throws are untouched -- they test a different flag and reach Pikachu's own
+`THROW` exactly as before. `pikachu_throw_main` stays as the fallback, so if the flag is not
+raised in that status the behaviour is what it is today rather than a broken grab.
+
+## And the status names were lying
+
+`probe::status_name` had `56 => "CATCH_PULL", 57 => "CATCH_WAIT"` as hardcoded literals, and four
+rounds of logs were read through them. The native DK trace is what exposed it: he reaches the
+carry from `0x39` and our Pikachu reaches `THROW` from `0x3c`, which the table printed as the
+same name. The whole catch family now resolves from `FIGHTER_STATUS_KIND_*` instead. A status
+number this project reasons about should never be a number somebody remembered.

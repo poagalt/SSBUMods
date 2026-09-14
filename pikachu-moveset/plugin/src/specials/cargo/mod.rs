@@ -261,6 +261,73 @@ pub unsafe extern "C" fn pikachu_cargo_frame(fighter: &mut L2CFighterCommon) {
 /// THE OTHER THREE THROWS ARE UNTOUCHED. Only `throw_f` becomes the lift; back, up and down
 /// delegate to the original Main through `smashline::original_status`, so Pikachu's down throw
 /// stays vanilla as `docs/decisions.md` requires.
+/// TAKE THE FORWARD THROW IN `CATCH_WAIT`, SO PIKACHU NEVER ENTERS `THROW` AT ALL.
+///
+/// THE ONE FRAME OF `THROW` IS THE WHOLE CARGO REGRAB BUG, and the native trace of a real DK
+/// grab (pt27) says he does not spend it:
+///
+///     DONKEY0 status CATCH_DASH(0x39) -> 0x3a -> 490(0x1ea)  SHOULDER_START
+///     DONKEY0 st=0x3a  CatchModule::set_catch(0x50000000)
+///     DONKEY0 st=0x1ea LinkModule::send_event_nodes(link=0, event=0x8af9b3d1d, 0)
+///     mario1  st=0xc5  ControlModule::start_clatter(139, 0, 10, ...)
+///
+/// He goes from a CATCH status straight into SHOULDER_START, and he never calls
+/// `CaptureModule::capture` -- the "shoulder" link event alone carries the victim across,
+/// because THE ENGINE'S OWN GRAB IS STILL INTACT when it arrives.
+///
+/// This port went through `THROW`, and the same log shows what that costs, three times over:
+///
+///     pika0  status CATCH_WAIT(0x3c) -> THROW(0x40)
+///     pika0  st=0x40  CatchModule::catch_cut(false, false)      <- the grab is destroyed
+///     mario1 st=0x44  CaptureModule::capture(captor=0x0, ...)   <- `enter_carry` rebuilds it
+///     pika0  status THROW(0x40) -> 503(0x1f7)
+///
+/// `pikachu_throw_main` intercepts on THROW's MAIN and its comment claimed "Pikachu's own throw
+/// never runs, so nothing is released". `catch_cut` happens on the way IN, before Main is
+/// reached. So the engine's grab was already gone, `enter_carry`'s
+/// `if !LinkModule::is_linked(..)` was true, and it built a replacement capture by hand.
+///
+/// AND THAT REPLACEMENT CANNOT BE UNDONE. pt28 ran a four-candidate ladder against it, one per
+/// frame, and every one failed with `their_captured_by` stuck at `0x0`:
+///
+///     capture_cut(v, true, false, false)      cleared=false
+///     CatchModule::set_catch(ours, INVALID)   cleared=false
+///     capture_cut(v, true, true, true)        cleared=false
+///     capture(v, INVALID, ..)                 cleared=false
+///
+/// There is no release call to find, so the fix is to stop needing one. Intercepting HERE leaves
+/// the engine's grab standing all the way into SHOULDER_START, which makes `enter_carry`'s guard
+/// false, which means no hand-made capture exists to leak.
+///
+/// ONLY THE FORWARD THROW, AND ONLY ON THE ENGINE'S OWN FLAG. `FIGHTER_PAD_CMD_CAT2_FLAG_THROW_F`
+/// is what the engine itself tests here, so back, up and down throws are untouched and reach
+/// Pikachu's own `THROW` exactly as before. If the flag is never raised in this status the
+/// interception simply never fires and `pikachu_throw_main` catches it a frame later the way it
+/// does today -- a safe failure, not a broken grab.
+unsafe extern "C" fn pikachu_catch_wait_main(fighter: &mut L2CFighterCommon) -> L2CValue {
+    let boma = fighter.module_accessor;
+    let entry = entry_of(boma);
+    if entry < 8 && !CARRYING[entry] {
+        let cat2 = fighter.global_table[0x21].get_i32();
+        if cat2 & *FIGHTER_PAD_CMD_CAT2_FLAG_THROW_F != 0 {
+            let victim = LAST_CAPTURED[entry];
+            if crate::victim::boma(victim).is_some() {
+                CARRYING[entry] = true;
+                CARRY_FRAMES[entry] = 0;
+                VICTIM[entry] = victim;
+                crate::telemetry::sink::diag(format!(
+                    "[rat] CARGO p{entry} took the forward throw in CATCH_WAIT, victim \
+                     {victim:#x} -- THROW is never entered, so the engine's grab survives \
+                     into the carry and nothing has to be re-captured by hand"
+                ));
+                super::shoulder::begin(fighter, victim);
+                return 1.into();
+            }
+        }
+    }
+    smashline::original_status(Main, fighter, *FIGHTER_STATUS_KIND_CATCH_WAIT)(fighter)
+}
+
 unsafe extern "C" fn pikachu_throw_main(fighter: &mut L2CFighterCommon) -> L2CValue {
     let boma = fighter.module_accessor;
     let entry = WorkModule::get_int(boma, *FIGHTER_INSTANCE_WORK_ID_INT_ENTRY_ID) as usize;
@@ -294,6 +361,9 @@ pub fn install() {
         .on_line(Main, pikachu_cargo_frame)
         // The forward throw IS the lift, and it has to be taken over before Pikachu's own throw
         // executes. See `pikachu_throw_main`.
+        // FIRST CHOICE: take it before THROW is ever entered. See `pikachu_catch_wait_main`.
+        .status(Main, *FIGHTER_STATUS_KIND_CATCH_WAIT, pikachu_catch_wait_main)
+        // Fallback, and now only reached if the CAT2 flag was not raised in CATCH_WAIT.
         .status(Main, *FIGHTER_STATUS_KIND_THROW, pikachu_throw_main)
         .install();
 }

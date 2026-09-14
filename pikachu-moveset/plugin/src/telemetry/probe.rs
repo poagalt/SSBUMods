@@ -54,6 +54,22 @@ pub fn status_name(k: i32) -> &'static str {
     // `specials::whip` already references them for the same reason.
     let victim: &[(i32, &'static str)] = &[
         (*FIGHTER_STATUS_KIND_CAPTURE_CUT, "CAPTURE_CUT"),
+        // THE CATCH FAMILY, FROM THE CONSTANTS, BECAUSE THE HARDCODED TABLE BELOW WAS WRONG.
+        //
+        // It named 56 CATCH_PULL and 57 CATCH_WAIT, and four rounds of logs were read through
+        // that. The native DK trace is what exposed it: he reaches the carry from 0x39, which
+        // the table printed as CATCH_WAIT while OUR Pikachu reached THROW from 0x3c -- two
+        // different statuses that looked like one story. A status number this project reasons
+        // about should never be a number somebody remembered.
+        (*FIGHTER_STATUS_KIND_CATCH, "CATCH"),
+        (*FIGHTER_STATUS_KIND_CATCH_PULL, "CATCH_PULL"),
+        (*FIGHTER_STATUS_KIND_CATCH_DASH, "CATCH_DASH"),
+        (*FIGHTER_STATUS_KIND_CATCH_DASH_PULL, "CATCH_DASH_PULL"),
+        (*FIGHTER_STATUS_KIND_CATCH_TURN, "CATCH_TURN"),
+        (*FIGHTER_STATUS_KIND_CATCH_WAIT, "CATCH_WAIT"),
+        (*FIGHTER_STATUS_KIND_CATCH_ATTACK, "CATCH_ATTACK"),
+        (*FIGHTER_STATUS_KIND_CATCH_CUT, "CATCH_CUT"),
+        (*FIGHTER_STATUS_KIND_THROW, "THROW"),
         (*FIGHTER_STATUS_KIND_CAPTURE_WAIT, "CAPTURE_WAIT"),
         (*FIGHTER_STATUS_KIND_CAPTURE_PULLED, "CAPTURE_PULLED"),
         (*FIGHTER_STATUS_KIND_THROWN, "THROWN"),
@@ -99,10 +115,6 @@ pub fn status_name(k: i32) -> &'static str {
         22 => "ATTACK",
         23 => "ATTACK_100",
         28 => "ATTACK_AIR",
-        55 => "CATCH",
-        56 => "CATCH_PULL",
-        57 => "CATCH_WAIT",
-        64 => "THROW",
         475 => "SPECIAL_N",
         477 => "SPECIAL_S",
         478 => "SPECIAL_HI",
