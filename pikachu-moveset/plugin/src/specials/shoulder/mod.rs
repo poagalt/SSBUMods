@@ -1697,6 +1697,136 @@ unsafe extern "C" fn throw_flw_main(fighter: &mut L2CFighterCommon) -> L2CValue 
     throw_main(fighter, "throw_f_lw")
 }
 
+// ------------------------------------------------------------------------------------------
+// THE CheckDamage LINE, WHICH IS HOW DK DECIDES WHETHER THE CARRY SURVIVES A HIT.
+//
+// This port registered NO CheckDamage line at all -- the largest single gap `the-native-audit.md`
+// found. DK registers ONE function on exactly ten statuses:
+//
+//     disasm lua2cpp_donkey.nro --statusmap 0x7100000480 | grep CHECK_DAMAGE
+//     0x71000041d0  FIGHTER_DONKEY_STATUS_KIND_SHOULDER_START   ..._FUNC_CHECK_DAMAGE
+//     0x71000041d0  FIGHTER_DONKEY_STATUS_KIND_SHOULDER_WAIT    ..._FUNC_CHECK_DAMAGE
+//     0x71000041d0  ... and WALK, TURN, JUMP_SQUAT, JUMP_SQUAT_B, JUMP, FALL, LANDING, PASS
+//
+// One address for all ten, which is why all ten `check_dmg.c` files are byte-identical
+// (md5 e43d7438) -- the same shared-body shape as his `exit`. SHOULDER_END is deliberately not
+// among them; the statusmap gives it only PRE/MAIN/END, so neither does this.
+//
+// WHY THIS NEEDED A DISASSEMBLY AND NOT JUST THE DECOMPILATION. Ghidra collapses every
+// `lib::L2CValue` comparison operator into one name, `operator_`, so the decompiled body reads
+//
+//     lib::L2CValue::L2CValue(aLStack64,_DAMAGE_LEVEL_FLY);
+//     uVar5 = lib::L2CValue::operator_(aLStack96,aLStack64);
+//     if ((uVar5 & 1) == 0) { ...drop the item...; return false; } else { return true; }
+//
+// and `operator_` there could be `==`, `!=`, `<` or `<=`. Each reading inverts the move: the item
+// and the carry would break on weak hits instead of launching ones. ADR 0005 forbids a fix
+// without evidence, so nothing was written until the PLT stub's MANGLED name settled it:
+//
+//     0x7100004508  ldr w1, [x22, #0x1274]        ; ~lua_const DAMAGE_LEVEL_FLY
+//     0x710000451c  bl _ZNK3lib8L2CValueltERKS0_  ; operator<  ->  w0 = (level < FLY)
+//     0x710000452c  tbz w21, #0x0, $+0x14         ; NOT less -> the ItemModule path below
+//     0x7100004530  mov w1, #0x1                  ; less     -> return true
+//
+// So the item drops when the level IS FLY, and the ladder's three earlier comparisons are `lt`
+// too, which is what makes it monotonic. The four DAMAGE_LEVEL constants are identified by their
+// const-table offsets -- 0xa8c, 0xa9c, 0xaa0, 0x1274 -- through `vendor/ssbu-status/lua_dict.txt`,
+// which is built independently of the decompiler.
+//
+// WHAT THE RETURN VALUE MEANS TO THE ENGINE IS NOT MODELLED HERE, AND DOES NOT NEED TO BE. This
+// reproduces DK's answer for DK's inputs, so whatever the engine does with it is by construction
+// what it does for him. That is ADR 0006 working: transcribe the source's tree, do not
+// reimplement its consequences.
+//
+// The 90.0 is read out of the NRO rather than out of the decompiler's rendering of it:
+//
+//     0x7100004574  adrp x8, $+0x12f000
+//     0x7100004578  ldr s0, [x8, #0x694]      ; -> 0x7100133694
+//     od -A x -t f4 -j 0x133694 -N 4 lua2cpp_donkey.nro   ->   90
+//
+// EVERYTHING IT READS IS GLOBAL, so none of it is a foreign fighter's namespace: `damage_level1`
+// / `_2` / `_3` hang off the `battle_object` param object, which every fighter reads the same
+// way, and LINK_NO_CAPTURE is the link this module already builds on both ends in `enter_carry`.
+
+extern "C" {
+    /// `app::DamageTransactorImpl::calc_reaction_frame(float)`, CALLED rather than reimplemented.
+    ///
+    /// It is exported from `main` -- `_ZN3app20DamageTransactorImpl19calc_reaction_frameEf` at
+    /// 0x404ec0, 98 bytes -- and `lua2cpp_donkey.nro` reaches it through a PLT stub at 0x71001209f0,
+    /// so DK's call and this one land on the same code. skyline-smash ships no binding for it, hence
+    /// the declaration.
+    ///
+    /// IT IS STATIC, which the disassembly says even though the mangling cannot: the first thing it
+    /// does is `mov v8.16b, v0.16b` to preserve the incoming float, and the `x0` it works through is
+    /// a singleton fetched from a GOT slot, not an incoming `this`. It looks up two global params by
+    /// hash40 (0x10eb42a0a3 and 0x10e33b9cd2), multiplies the argument by them and clamps with
+    /// `fcmp s8, s0; fcsel s0, s0, s8, mi` -- exactly the kind of thing that must not be retyped by
+    /// hand here, because neither of those two hashes is in any label list this project has.
+    #[link_name = "\u{1}_ZN3app20DamageTransactorImpl19calc_reaction_frameEf"]
+    fn calc_reaction_frame(reaction: f32) -> f32;
+}
+
+/// `damage_info["owner_object_id_"]` -- who owns the hitbox that connected.
+///
+/// The literal is the one in the binary, at the `operator[](Hash40)` on 0x7100004280, and
+/// `tools/luaconst --hashdict` names it: the top byte 0x10 says a 16-character string, and
+/// `owner_object_id_` is 16 characters with crc32 0xd723eebb. The trailing underscore is
+/// Nintendo's C++ member-name convention -- the L2C damage table is keyed by the struct's own
+/// field names, which is also why it is not in ParamLabels.csv.
+const DAMAGE_OWNER_OBJECT_ID: u64 = 0x10d723eebb;
+/// `damage_info["reaction_max_"]`, the value fed to `calc_reaction_frame`. 13 characters, crc32
+/// 0xc56470f9, same convention.
+const DAMAGE_REACTION_MAX: u64 = 0xdc56470f9;
+
+/// DK's shared carry `check_dmg`, on all ten of his carry statuses.
+///
+/// The param hashes are `battle_object` 0xd8ddb421d, `damage_level1` 0xd14025cb6, `damage_level2`
+/// 0xd8d0b0d0c and `damage_level3` 0xdfa0c3d9a, all confirmed in
+/// `vendor/refs/param-labels/ParamLabels.csv`.
+unsafe extern "C" fn shoulder_check_damage(
+    fighter: &mut L2CFighterCommon,
+    damage_info: &L2CValue,
+) -> L2CValue {
+    let boma = fighter.module_accessor;
+
+    // `if (L2CValue(is_linked) == L2CValue(false))` -- nobody on the shoulder, nothing to defend.
+    if !LinkModule::is_linked(boma, *LINK_NO_CAPTURE) {
+        return false.into();
+    }
+
+    // Damage from the fighter being carried is not the carry being broken.
+    if damage_info[DAMAGE_OWNER_OBJECT_ID].get_u32()
+        == LinkModule::get_node_object_id(boma, *LINK_NO_CAPTURE) as u32
+    {
+        return false.into();
+    }
+
+    let reaction = calc_reaction_frame(damage_info[DAMAGE_REACTION_MAX].get_f32());
+    let level = if reaction
+        < WorkModule::get_param_float(boma, hash40("battle_object"), hash40("damage_level1"))
+    {
+        *DAMAGE_LEVEL_1
+    } else if reaction
+        < WorkModule::get_param_float(boma, hash40("battle_object"), hash40("damage_level2"))
+    {
+        *DAMAGE_LEVEL_2
+    } else if reaction
+        < WorkModule::get_param_float(boma, hash40("battle_object"), hash40("damage_level3"))
+    {
+        *DAMAGE_LEVEL_3
+    } else {
+        *DAMAGE_LEVEL_FLY
+    };
+
+    if level < *DAMAGE_LEVEL_FLY {
+        return true.into();
+    }
+    if ItemModule::is_have_item(boma, 0) {
+        ItemModule::drop_item(boma, 90.0, 0.0, 0);
+    }
+    false.into()
+}
+
 /// Called from ../cargo when the grab lands, to hand the carry over.
 pub unsafe fn begin(fighter: &mut L2CFighterCommon, victim: u32) {
     let boma = fighter.module_accessor;
@@ -1752,6 +1882,18 @@ pub fn install() {
         .status(Pre,  RAT_STATUS_KIND_SHOULDER_PASS,    shoulder_pass_pre)
         .status(Main, RAT_STATUS_KIND_SHOULDER_PASS,    shoulder_pass_main)
         .status(Exit, RAT_STATUS_KIND_SHOULDER_PASS,    shoulder_exit)
+        // DK's ONE SHARED check_dmg, ON HIS TEN. SHOULDER_END is not among them because it is
+        // not among his -- see the statusmap quoted above `shoulder_check_damage`.
+        .status(CheckDamage, RAT_STATUS_KIND_SHOULDER_START,      shoulder_check_damage)
+        .status(CheckDamage, RAT_STATUS_KIND_SHOULDER_WAIT,       shoulder_check_damage)
+        .status(CheckDamage, RAT_STATUS_KIND_SHOULDER_WALK,       shoulder_check_damage)
+        .status(CheckDamage, RAT_STATUS_KIND_SHOULDER_TURN,       shoulder_check_damage)
+        .status(CheckDamage, RAT_STATUS_KIND_SHOULDER_JUMP_SQUAT, shoulder_check_damage)
+        .status(CheckDamage, RAT_STATUS_KIND_SHOULDER_JUMP_SQUAT_B, shoulder_check_damage)
+        .status(CheckDamage, RAT_STATUS_KIND_SHOULDER_JUMP,       shoulder_check_damage)
+        .status(CheckDamage, RAT_STATUS_KIND_SHOULDER_FALL,       shoulder_check_damage)
+        .status(CheckDamage, RAT_STATUS_KIND_SHOULDER_LANDING,    shoulder_check_damage)
+        .status(CheckDamage, RAT_STATUS_KIND_SHOULDER_PASS,       shoulder_check_damage)
         .status(Init, RAT_STATUS_KIND_THROW_F_F, throw_init)
         .status(Pre,  RAT_STATUS_KIND_THROW_F_F,  throw_pre)
         .status(Main, RAT_STATUS_KIND_THROW_F_F,  throw_ff_main)
