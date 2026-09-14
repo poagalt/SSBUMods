@@ -662,6 +662,34 @@ unsafe extern "C" fn pikachu_speciallwhit_main(fighter: &mut L2CFighterCommon) -
 unsafe extern "C" fn pikachu_speciallw_main_loop(fighter: &mut L2CFighterCommon) -> L2CValue {
     let boma = fighter.module_accessor;
     let entry = entry_of(boma);
+
+    // REVENGE IS CANCELLABLE AT ITS FAF, AND THIS LOOP HAD NO CANCEL CHECK AT ALL.
+    //
+    // The first statement of `SpecialLw/main_loop.c`, before anything else it does:
+    //
+    //     if CancelModule::is_enable_cancel() {
+    //         if sub_wait_ground_check_common(false) { return 1 }
+    //         if sub_air_check_fall_common()         { return 1 }
+    //     }
+    //
+    // `is_enable_cancel` is how the engine reports the FAF has passed, so without it the stance
+    // runs its whole animation and nothing can come out of it early. Incineroar can walk, jump,
+    // shield or attack out of Revenge the moment its FAF lands; this Pikachu was committed to
+    // the full length.
+    //
+    // The identical three lines are already in the cargo's `throw_loop` -- the same idiom, from
+    // the same place in the same kind of function -- so this is not a new mechanism, it is one
+    // that was simply absent here. `check-callparity.sh` found it by noticing
+    // `CancelModule::is_enable_cancel` is called by all three of gaogaen's SpecialLw statuses
+    // and by nothing in this module.
+    if CancelModule::is_enable_cancel(boma) {
+        if fighter.sub_wait_ground_check_common(false.into()).get_bool() {
+            return 1.into();
+        }
+        if fighter.sub_air_check_fall_common().get_bool() {
+            return 1.into();
+        }
+    }
     // Landing out of an airborne Revenge used to slide across the ground: the status runs on
     // FIGHTER_KINETIC_TYPE_UNIQ, which keeps whatever horizontal momentum the jump had and never
     // brakes. Switching to the grounded kinetic on touchdown hands the momentum back to normal
