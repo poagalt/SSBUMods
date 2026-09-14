@@ -343,6 +343,9 @@ bash "$ROOT/tools/check-lists.sh" || rc=1
 echo; echo "== 4i. every Init/Exec/Exit the source status has is registered =="
 bash "$ROOT/tools/check-statuslines.sh" || rc=1
 
+echo; echo "== 4j. nothing this mod does reaches a fighter that is not Pikachu =="
+bash "$ROOT/tools/check-blastradius.sh" || rc=1
+
 echo; echo "== 4c. hand-written code uses no other fighter's constants =="
 bash "$ROOT/tools/check-status.sh" || rc=1
 

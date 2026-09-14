@@ -165,3 +165,31 @@ pub unsafe fn catch_start(entry: usize, me: *mut BattleObjectModuleAccessor) {
     }
     event(line);
 }
+
+/// The same, but told whether the fighter is OURS.
+///
+/// `status_name` consults `statusnames::of_own` first, and that table is 0x1F0..0x206 -- kinds
+/// that exist only on this Pikachu. Applied to any other fighter it is simply wrong, because every
+/// fighter's own ids start where the common ones end: Donkey Kong's 0x1F0 is SHOULDER_JUMP, his
+/// 0x1F1 is SHOULDER_FALL and his 0x1F7 is THROW_F_HI.
+///
+/// THAT COST A WRONG DIAGNOSIS. Hunting the crash in native DK's cargo throw, pt36 read
+/// `DONKEY0 status ... -> RAT_SHOULDER_START(0x1f7)` and the obvious conclusion was that DK had
+/// been pushed into one of Pikachu's statuses. He had not -- 0x1F7 is his own THROW_F_HI, and the
+/// real bug (his forward-throw slot repointed at it) was worse and in a different place. A log
+/// that names a foreign fighter's statuses out of our table is a log that argues for the wrong
+/// fix.
+///
+/// So a foreign fighter gets the COMMON table only, which is valid for everyone, and anything past
+/// it prints as a bare number -- which is honest rather than confident.
+pub fn st_kind(k: i32, ours: bool) -> String {
+    if ours {
+        return st(k);
+    }
+    let n = super::statusnames::of(k);
+    if n.is_empty() {
+        format!("{k}(={k:#x})")
+    } else {
+        format!("{n}({k:#x})")
+    }
+}

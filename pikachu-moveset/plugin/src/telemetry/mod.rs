@@ -131,7 +131,29 @@ unsafe extern "C" fn pikachu_telemetry(fighter: &mut L2CFighterCommon) {
     if entry >= 8 {
         return;
     }
-    if !DUMPED_PARAMS[entry] {
+
+    // IS THIS OUR FIGHTER? ASKED ONCE, AND EVERY ACTION BELOW IS GATED ON IT.
+    //
+    // THIS CALLBACK IS INSTALLED ON SOURCE_AGENTS TOO, which is deliberate -- tracing what the
+    // real Donkey Kong does is the point -- and for a long time that meant a mod which changes
+    // Pikachu ran fifteen calls per frame against Incineroar, Donkey Kong, Game & Watch and
+    // Piranha Plant. One of them wrote into the engine's own table and crashed native DK's cargo
+    // throw (see `specials::shoulder::retarget_forward_throw`). Guarding that ONE call fixed that
+    // ONE bug and left the shape intact, so the shape is fixed here instead.
+    //
+    // TWO HAZARDS, and the second is not hypothetical. Every static in this plugin is indexed by
+    // ENTRY -- the PLAYER SLOT -- not by object, and a slot outlives a fighter: pt37 has
+    // `SELFTEST p0` for Pikachu and `DONKEY0` for Donkey Kong in the same log, because the user
+    // changed character in slot 0. Nothing resets `crate::victim`'s state between matches, so
+    // `CUT_ID[0]` armed by a Pikachu is still armed when a DK spawns into slot 0 -- and
+    // `tick_deferred_cut` would look that stale battle-object id up and act on whatever now
+    // answers to it. Same for `speciallw`'s PHASE and RATE, and `shoulder`'s VICTIM.
+    //
+    // So: READS AND LOG LINES RUN FOR EVERYONE, because that is what the source tracing is for.
+    // Anything that MUTATES state -- ours or the engine's -- runs only for a Pikachu.
+    let mine = smash::app::utility::get_kind(&mut *boma) == *FIGHTER_KIND_PIKACHU;
+
+    if mine && !DUMPED_PARAMS[entry] {
         DUMPED_PARAMS[entry] = true;
         // A LOAD-CRASH BISECTION MARKER, flushed immediately. Fighter object init happens before
         // any status or ACMD runs, so if the plugin dies there this line never appears -- and its
@@ -148,26 +170,36 @@ unsafe extern "C" fn pikachu_telemetry(fighter: &mut L2CFighterCommon) {
     }
     // The self-test's second pass, two seconds in. Which motions are missing has come back
     // differently from two loads of the same files, so asking once is not a measurement.
-    selftest::tick(boma, entry);
+    // `trace_source_victim` is the one thing here that is FOR the other fighters -- it records
+    // what the engine does to a victim held by a real Incineroar or DK -- so it is not gated.
     trace_source_victim(boma, entry);
-    mirror_probe(boma, entry);
-    // ONE PLACE THAT KNOWS A FRAME HAS PASSED. The per-frame status-change budget in
-    // src/victim.rs is reset here, and only here: if a status cycle is running away the frame
-    // never ends, so this never runs and the counter keeps climbing until it refuses. That is
-    // what makes it a detector rather than a guess.
-    crate::victim::new_frame(entry);
-    crate::victim::tick_hold(entry);
-    crate::victim::tick_deferred_cut(entry);
-    // THE FORWARD THROW'S DESTINATION IS A SLOT IN THE GLOBAL TABLE, AND DK'S HOLDS THE CARRY.
-    // This is the one assignment that makes the cargo native. See `specials::shoulder::retarget`.
-    crate::specials::shoulder::retarget_forward_throw(fighter);
+    if mine {
+        // The self-test's second pass, two seconds in. Which motions are missing has come back
+        // differently from two loads of the same files, so asking once is not a measurement.
+        selftest::tick(boma, entry);
+        mirror_probe(boma, entry);
+        // ONE PLACE THAT KNOWS A FRAME HAS PASSED. The per-frame status-change budget in
+        // src/victim.rs is reset here, and only here: if a status cycle is running away the frame
+        // never ends, so this never runs and the counter keeps climbing until it refuses. That is
+        // what makes it a detector rather than a guess.
+        crate::victim::new_frame(entry);
+        crate::victim::tick_hold(entry);
+        crate::victim::tick_deferred_cut(entry);
+        // THE FORWARD THROW'S DESTINATION IS A SLOT IN THE GLOBAL TABLE, AND DK'S HOLDS THE CARRY.
+        // This is the one assignment that makes the cargo native. See `specials::shoulder::retarget`.
+        crate::specials::shoulder::retarget_forward_throw(fighter);
+    }
 
     let motion = MotionModule::motion_kind(boma);
     let frame = MotionModule::frame(boma);
     let end = MotionModule::end_frame(boma);
     let status = StatusModule::status_kind(boma);
-    // ONE LINE PER MOVE ATTEMPT, which is the index into everything else in this log.
-    moves::tick(boma, entry, status);
+    // ONE LINE PER MOVE ATTEMPT, which is the index into everything else in this log. Ours only:
+    // it matches against THIS moveset's 52 ported motions and latches per-entry state doing it, so
+    // on a foreign fighter it would both mislabel and occupy the slot a later Pikachu wants.
+    if mine {
+        moves::tick(boma, entry, status);
+    }
     let pos_x = PostureModule::pos_x(boma);
     let pos_y = PostureModule::pos_y(boma);
 
@@ -185,7 +217,7 @@ unsafe extern "C" fn pikachu_telemetry(fighter: &mut L2CFighterCommon) {
             "[rat] {who}{entry} DAMAGE {:+.1} -> {dmg:.1}% on frame {frame:.0} of {motion:#012x}, \
              {}",
             dmg - LAST_LOGGED_DAMAGE[entry],
-            probe::st(status)
+            probe::st_kind(status, mine)
         ));
         LAST_LOGGED_DAMAGE[entry] = dmg;
     }
@@ -235,7 +267,8 @@ unsafe extern "C" fn pikachu_telemetry(fighter: &mut L2CFighterCommon) {
         // seeing RAT_SPECIAL_S_SHOULDER in the log is direct evidence the grab connected.
         probe::event(format!(
             "[rat] {}{} status {} -> {} on frame {:.0} of {:#012x} (anim end {:.0})",
-            who, entry, probe::st(LAST_STATUS[entry]), probe::st(status), frame, motion, end
+            who, entry, probe::st_kind(LAST_STATUS[entry], mine), probe::st_kind(status, mine),
+            frame, motion, end
         ));
         LAST_STATUS[entry] = status;
     }
