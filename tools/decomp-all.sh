@@ -64,11 +64,28 @@ else
 fi
 total=$(wc -l < "$WORK/$MOD.todo.all")
 
-# Skip what is already on disk. The filename is the SYMBOL, so this is an exact resume rather
-# than a count.
+# NAMES ARE NOT UNIQUE, AND KEYING FILES ON THEM ALONE LOSES FUNCTIONS SILENTLY.
+#
+# `main` has 8905 symbolised addresses under 8055 distinct names -- 850 collisions, mostly C++
+# overloads and per-template instantiations that share a mangled-away name. Writing
+# `<name>.c` for each meant the second one overwrote the first and the run reported a tidy
+# count that was 850 short with nothing to show which were missing. Duplicated names get the
+# address appended; unique ones stay readable, which is almost all of them.
+awk '{print $2}' "$WORK/$MOD.todo.all" | sort | uniq -d > "$WORK/$MOD.dupnames"
+ndup=$(wc -l < "$WORK/$MOD.dupnames")
+[ "$ndup" -gt 0 ] && echo "  $ndup duplicated symbol name(s) will carry their address"
+# `addr sym filename`, computed once, so every site that touches a path agrees.
+awk -v dups="$WORK/$MOD.dupnames" '
+    BEGIN { while ((getline d < dups) > 0) { DUP[d] = 1 } }
+    { print $1, $2, (DUP[$2] ? $2 "@" $1 : $2) }
+' "$WORK/$MOD.todo.all" > "$WORK/$MOD.map"
+mv "$WORK/$MOD.map" "$WORK/$MOD.todo.all"
+
+# Skip what is already on disk, by the filename computed above, so this is an exact resume
+# rather than a count.
 : > "$WORK/$MOD.todo"
-while read -r addr sym; do
-    [ -s "$OUTDIR/$sym.c" ] || printf '%s %s\n' "$addr" "$sym" >> "$WORK/$MOD.todo"
+while read -r addr sym fname; do
+    [ -s "$OUTDIR/$fname.c" ] || printf '%s %s %s\n' "$addr" "$sym" "$fname" >> "$WORK/$MOD.todo"
 done < "$WORK/$MOD.todo.all"
 todo=$(wc -l < "$WORK/$MOD.todo")
 done_already=$((total - todo))
@@ -115,7 +132,7 @@ while [ -s "$WORK/$MOD.todo" ]; do
     for ANN in work/ghidra/"$MOD"-*.annotated.c; do
         [ -s "$ANN" ] || continue
         w=$(awk -v outdir="$OUTDIR" -v batch="$WORK/$MOD.batch" '
-            BEGIN { while ((getline l < batch) > 0) { split(l, a, " "); SYM[a[1]] = a[2] } }
+            BEGIN { while ((getline l < batch) > 0) { split(l, a, " "); SYM[a[1]] = a[3] } }
             /^\/\* ==== 0x[0-9a-f]+  .* ==== \*\/$/ {
                 if (name != "") close(outdir "/" name ".c")
                 name = SYM[$3]
@@ -139,9 +156,9 @@ while [ -s "$WORK/$MOD.todo" ]; do
     # "produced nothing" and the resume would skip them, which is the exact shape of gap this
     # whole script exists to close.
     if [ "$ok" -eq 1 ]; then
-        while read -r addr sym; do
-            [ -s "$OUTDIR/$sym.c" ] || printf '/* %s  %s -- the decompiler produced nothing */\n' \
-                "$addr" "$sym" > "$OUTDIR/$sym.c"
+        while read -r addr sym fname; do
+            [ -s "$OUTDIR/$fname.c" ] || printf '/* %s  %s -- the decompiler produced nothing */\n' \
+                "$addr" "$sym" > "$OUTDIR/$fname.c"
         done < "$WORK/$MOD.batch"
     fi
 
@@ -151,8 +168,8 @@ while [ -s "$WORK/$MOD.todo" ]; do
     # were skipped for the rest of the run and only a later re-run would notice. Re-filtering
     # against the output directory means a failure costs one retry, not a hole.
     : > "$WORK/$MOD.todo.next"
-    while read -r addr sym; do
-        [ -s "$OUTDIR/$sym.c" ] || printf '%s %s\n' "$addr" "$sym" >> "$WORK/$MOD.todo.next"
+    while read -r addr sym fname; do
+        [ -s "$OUTDIR/$fname.c" ] || printf '%s %s %s\n' "$addr" "$sym" "$fname" >> "$WORK/$MOD.todo.next"
     done < "$WORK/$MOD.todo"
     if [ "$(wc -l < "$WORK/$MOD.todo.next")" -eq "$(wc -l < "$WORK/$MOD.todo")" ]; then
         say "[$(stamp)] $MOD batch $batch_n: made NO progress -- stopping rather than spinning"

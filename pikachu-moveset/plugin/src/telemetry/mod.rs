@@ -31,6 +31,7 @@ pub mod sink;
 mod motions;
 pub mod selftest;
 pub mod probe;
+pub mod statusnames;
 mod buildstamp;
 pub mod exedump;
 // Serves main's mapped regions over TCP -- the sink exedump could not use. See memserve.rs.

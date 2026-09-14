@@ -35,58 +35,19 @@ use super::sink;
 /// to false and the per-frame probes cost one branch.
 pub const VERBOSE: bool = true;
 
-/// Names for the status kinds this moveset creates or routes through, so the log is readable
-/// without a lookup table. Anything not here prints as a number, which is still better than the
-/// previous state of everything printing as a number.
+/// The name for a status kind, or "" when nothing names it.
+///
+/// THE GAME'S OWN TABLE FIRST, THEN THIS MOVESET'S OWN KINDS. `statusnames` is generated from
+/// `vendor/ssbu-status/lua_dict.txt` against the crate's runtime statics -- all 508 common kinds
+/// -- so no number in a log is unnamed and none of them is a number somebody remembered.
+///
+/// THE HAND-WRITTEN TABLE THIS REPLACES WAS WRONG, and it cost four rounds. It had
+/// `56 => "CATCH_PULL", 57 => "CATCH_WAIT"` as literals, so a native Donkey Kong reaching the
+/// carry from 0x39 and our Pikachu reaching THROW from 0x3c printed as the same name and looked
+/// like one story. Only the moveset's OWN kinds are listed by hand below, because they are ours
+/// and the game's table has never heard of them.
 pub fn status_name(k: i32) -> &'static str {
-    // THE VICTIM-SIDE FAMILY COMES FROM THE GAME'S OWN CONSTANTS, NOT FROM LITERALS, and that is
-    // the whole reason this block exists separately from the match below.
-    //
-    // `HOLD p0 dropped the capture (...): their_capture=true their_st=0x44` is the single most
-    // important line this project prints -- it is the state of the fighter we just let go -- and
-    // `0x44` is unreadable. A comment in `crate::victim` asserts it is CAPTURE_CUT; nothing local
-    // proves that, and asserting a status number from memory is exactly the kind of invented fact
-    // this moveset is not allowed to have. Comparing against the LuaConst makes the log say the
-    // name, so there is nothing left to remember or to get wrong.
-    //
-    // These are COMMON statuses, not any one fighter's, so naming them here is not the thing
-    // `tools/check-status.sh` forbids. The SWING_GAOGAEN ids are the whip's victim statuses and
-    // `specials::whip` already references them for the same reason.
-    let victim: &[(i32, &'static str)] = &[
-        (*FIGHTER_STATUS_KIND_CAPTURE_CUT, "CAPTURE_CUT"),
-        // THE CATCH FAMILY, FROM THE CONSTANTS, BECAUSE THE HARDCODED TABLE BELOW WAS WRONG.
-        //
-        // It named 56 CATCH_PULL and 57 CATCH_WAIT, and four rounds of logs were read through
-        // that. The native DK trace is what exposed it: he reaches the carry from 0x39, which
-        // the table printed as CATCH_WAIT while OUR Pikachu reached THROW from 0x3c -- two
-        // different statuses that looked like one story. A status number this project reasons
-        // about should never be a number somebody remembered.
-        (*FIGHTER_STATUS_KIND_CATCH, "CATCH"),
-        (*FIGHTER_STATUS_KIND_CATCH_PULL, "CATCH_PULL"),
-        (*FIGHTER_STATUS_KIND_CATCH_DASH, "CATCH_DASH"),
-        (*FIGHTER_STATUS_KIND_CATCH_DASH_PULL, "CATCH_DASH_PULL"),
-        (*FIGHTER_STATUS_KIND_CATCH_TURN, "CATCH_TURN"),
-        (*FIGHTER_STATUS_KIND_CATCH_WAIT, "CATCH_WAIT"),
-        (*FIGHTER_STATUS_KIND_CATCH_ATTACK, "CATCH_ATTACK"),
-        (*FIGHTER_STATUS_KIND_CATCH_CUT, "CATCH_CUT"),
-        (*FIGHTER_STATUS_KIND_THROW, "THROW"),
-        (*FIGHTER_STATUS_KIND_CAPTURE_WAIT, "CAPTURE_WAIT"),
-        (*FIGHTER_STATUS_KIND_CAPTURE_PULLED, "CAPTURE_PULLED"),
-        (*FIGHTER_STATUS_KIND_THROWN, "THROWN"),
-        (*FIGHTER_STATUS_KIND_SWING_GAOGAEN_CATCHED, "SWING_CATCHED"),
-        (*FIGHTER_STATUS_KIND_SWING_GAOGAEN_THROWN, "SWING_THROWN"),
-        (*FIGHTER_STATUS_KIND_SWING_GAOGAEN_ATTACH_ROPE, "SWING_ATTACH_ROPE"),
-        (*FIGHTER_STATUS_KIND_SWING_GAOGAEN_RETURN, "SWING_RETURN"),
-        (*FIGHTER_STATUS_KIND_SWING_GAOGAEN_LARIAT, "SWING_LARIAT"),
-        (*FIGHTER_STATUS_KIND_SWING_GAOGAEN_SHOULDER, "SWING_SHOULDER"),
-        (*FIGHTER_STATUS_KIND_SWING_GAOGAEN_FAILURE, "SWING_FAILURE"),
-    ];
-    for (id, name) in victim {
-        if k == *id {
-            return name;
-        }
-    }
-    match k {
+    let own = match k {
         // The moveset's own kinds, from src/specials/status.rs.
         0x1F0 => "RAT_SPECIAL_HI_CLOSE",
         0x1F1 => "RAT_SPECIAL_HI_OPEN",
@@ -95,6 +56,20 @@ pub fn status_name(k: i32) -> &'static str {
         0x1F4 => "RAT_SPECIAL_S_THROW",
         0x1F5 => "RAT_SPECIAL_S_END",
         0x1F6 => "RAT_SPECIAL_S_FAILURE",
+        0x1F7 => "RAT_SHOULDER_START",
+        0x1F8 => "RAT_SHOULDER_WAIT",
+        0x1F9 => "RAT_SHOULDER_WALK",
+        0x1FA => "RAT_SHOULDER_TURN",
+        0x1FB => "RAT_SHOULDER_FALL",
+        0x1FC => "RAT_SHOULDER_LANDING",
+        0x1FD => "RAT_SPECIAL_LW_HIT",
+        0x1FF => "RAT_THROW_F_F",
+        0x200 => "RAT_THROW_F_B",
+        0x201 => "RAT_THROW_F_HI",
+        0x202 => "RAT_THROW_F_LW",
+        0x203 => "RAT_SHOULDER_JUMP_SQUAT",
+        0x204 => "RAT_SHOULDER_JUMP_SQUAT_B",
+        0x205 => "RAT_SHOULDER_JUMP",
         // Pikachu's own extras, which ../lockout bounces out of. Seeing one of these in the log
         // means something reached a retired move.
         0x1E1 => "pika_SPECIAL_HI_WARP",
@@ -104,23 +79,12 @@ pub fn status_name(k: i32) -> &'static str {
         0x1E5 => "pika_SPECIAL_S_ATTACK",
         0x1E6 => "pika_SPECIAL_S_END",
         0x1E7 => "pika_SPECIAL_LW_HIT",
-        // The common kinds this moveset actually passes through.
-        0 => "WAIT",
-        1 => "WALK",
-        3 => "DASH",
-        6 => "TURN",
-        7 => "TURN_DASH",
-        11 => "FALL",
-        14 => "FALL_AERIAL",
-        22 => "ATTACK",
-        23 => "ATTACK_100",
-        28 => "ATTACK_AIR",
-        475 => "SPECIAL_N",
-        477 => "SPECIAL_S",
-        478 => "SPECIAL_HI",
-        479 => "SPECIAL_LW",
         _ => "",
+    };
+    if !own.is_empty() {
+        return own;
     }
+    unsafe { super::statusnames::of(k) }
 }
 
 /// Format a status as `name(0x1f2)`, or just the number when unnamed.
