@@ -780,10 +780,41 @@ unsafe extern "C" fn pikachu_speciallw_main_loop(fighter: &mut L2CFighterCommon)
 }
 
 unsafe extern "C" fn pikachu_speciallw_end(fighter: &mut L2CFighterCommon) -> L2CValue {
-    // REVERTS THE THREE ENGINE CALLS, LEAVES WINDOW_OPEN ALONE. Both halves of that are
-    // deliberate and both were wrong before -- see `revert_absorb`. `SpecialLw_end` in the decomp
-    // is exactly these three calls and nothing else.
-    revert_absorb(fighter.module_accessor);
+    let boma = fighter.module_accessor;
+    let entry = entry_of(boma);
+
+    // PHASE IS RESET ON EVERY EXIT, NOT ONLY WHEN THE ANIMATION RUNS OUT.
+    //
+    // "pikachu can now sometimes activate the revenge counter fire damage on command while having
+    // a stored revenge boost... the fire damage should only activate if an opponent hits the
+    // counter." One stuck variable, and it produced BOTH symptoms this move has had.
+    //
+    // The stance's own `main` picks its animation from PHASE:
+    //
+    //     let motion = match (PHASE[entry] == PHASE_COUNTER, air) {
+    //         (true,  false) => "special_lw",         // the RETALIATION animation
+    //         (false, false) => "special_lw_start",   // the stance animation
+    //
+    // and `PHASE[entry] = PHASE_STANCE` lived ONLY inside `main_loop`'s `is_end` branch. Restoring
+    // the FAF cancel means the loop returns at the FAF and `is_end` is never reached -- so after
+    // one real counter PHASE stayed COUNTER for the rest of the match, and every later down-B
+    // played the fire.
+    //
+    // AND THAT IS ALSO THE "TOO QUICKLY" FROM THE ROUND BEFORE. `special_lw` is faf 27;
+    // `special_lw_start` is faf 59. Playing the wrong motion moved the FAF 32 frames earlier, so
+    // the cancel came up almost at once. Two reports, one cause, and the probe printed the
+    // evidence in plain sight: every `is_enable_cancel went TRUE` line in pt34 reads `phase=1`.
+    //
+    // NOT WHEN THE COUNTER IS WHAT WE ARE LEAVING FOR. `globalTable[0xb]` is the next status, the
+    // same idiom the whip's release and DK's carry exit both use. The counter sets PHASE and then
+    // requests SPECIAL_LW_HIT; clearing it on that transition would undo the thing that just
+    // decided to happen.
+    if fighter.global_table[0xb] != RAT_STATUS_KIND_SPECIAL_LW_HIT {
+        PHASE[entry] = PHASE_STANCE;
+        WINDOW_OPEN[entry] = false;
+    }
+
+    revert_absorb(boma);
     0.into()
 }
 
