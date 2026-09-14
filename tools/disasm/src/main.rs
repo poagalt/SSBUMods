@@ -644,6 +644,67 @@ fn main() {
         return;
     }
 
+    // EVERY FUNCTION SOMETHING CALLS, WHICH IS HOW TO GET FUNCTION BOUNDARIES WITHOUT SYMBOLS.
+    //
+    // Ghidra with `-noanalysis` can only decompile an address it is handed, and `main` has 8,905
+    // symbols against an estimated ~99,000 functions -- so 91% of the engine was unreachable.
+    // `ultimate-research/module-info-extractor` solves that by emulating the module with Unicorn,
+    // which needs the NSO as an ELF and produced its list for version 2.0.0, not 13.0.5.
+    //
+    // This needs neither. Every `bl <imm>` in AArch64 names a function entry point by definition,
+    // and this file already decodes all 15 million instructions of `.text` for `--scan`. Walking
+    // them and collecting the branch-with-link targets yields the call graph's entry points
+    // directly out of the binary being shipped. `b <imm>` targets are collected separately and NOT
+    // merged: a plain branch is usually intra-function control flow and treating those as starts
+    // would cut real functions into pieces.
+    //
+    // What it cannot see is a function reached only through a vtable or a function pointer -- and
+    // the engine is C++, so there will be some. That is a floor, not a ceiling: every address it
+    // reports really is an entry point, and more coverage than 8,905 symbols by a wide margin.
+    if mode == "--callees" {
+        let decoder = InstDecoder::default();
+        let mut targets: std::collections::BTreeSet<u64> = std::collections::BTreeSet::new();
+        let mut bl_count = 0u64;
+        let mut off = 0usize;
+        while off + 4 <= nro.text_size as usize {
+            let pc = GHIDRA_BASE() + off as u64;
+            let mut reader = U8Reader::new(&nro.bytes[off..off + 4]);
+            if let Ok(inst) = decoder.decode(&mut reader) {
+                let text = format!("{inst}");
+                if let Some((op, rest)) = text.split_once(' ') {
+                    if op == "bl" {
+                        if let Some(t) = parse_branch_target(rest, pc) {
+                            // Inside this image only. A `bl` into a PLT stub or another module is
+                            // a real call and not a function of ours to decompile.
+                            if t >= GHIDRA_BASE() && t < GHIDRA_BASE() + nro.text_size as u64 {
+                                targets.insert(t);
+                                bl_count += 1;
+                            }
+                        }
+                    }
+                }
+            }
+            off += 4;
+        }
+        // The symbols we already have are entry points too, and some are never called directly.
+        let mut from_syms = 0u64;
+        for (k, _) in &nro.defined {
+            let a = GHIDRA_BASE() + *k;
+            if a < GHIDRA_BASE() + nro.text_size as u64 && targets.insert(a) {
+                from_syms += 1;
+            }
+        }
+        eprintln!(
+            "{} distinct call target(s) from {} bl instruction(s), plus {} symbol(s) nothing calls \
+             directly = {} entry point(s)",
+            targets.len() - from_syms as usize, bl_count, from_syms, targets.len()
+        );
+        for t in &targets {
+            println!("0x{t:010x}");
+        }
+        return;
+    }
+
     if mode == "--sym" {
         let needle = a.get(2).expect("--sym needs a substring").to_lowercase();
         let mut hits: Vec<(u64, &String, &str)> = Vec::new();

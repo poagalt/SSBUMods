@@ -874,10 +874,26 @@ pub unsafe fn arm_deferred_cut(entry: usize, id: u32, why: &str) {
 /// that actually clears `is_capture`" -- is wrong, and the Ghidra reading it rested on was read
 /// too generously.
 ///
-/// AND THE ENGINE CANNOT BE ASKED DIRECTLY. The capture tracer has recorded 435
-/// `CaptureModule::capture` calls across every session and all 435 are OURS: neither source
-/// fighter routes a capture through a hookable module function, exactly as
-/// `docs/the-recording.md` says. There is no native call to copy.
+/// AND THE ENGINE HAS NOW BEEN ASKED DIRECTLY, which retires most of this ladder. `CaptureCut`
+/// at main 0x3ee290 is decompiled -- see `vendor/decomp/main/` and `tools/decomp-many.sh` -- and
+/// it says the gate is p2 AND p3 AND NOT p4:
+///
+///     if ((param_2 & 1) && param_1[0x7d]) {
+///         if ((param_3 & 1) != 0) {
+///             if (!(param_4 & 1) || param_1[0x70] == 0x7fb997a80) {
+///                 vtable[0x3b8](module, 1, 0, 0);   // undoes the capture
+///             } else { ...a different path entirely... }
+///         }
+///         vtable[0x3c0](module, 1);
+///     }
+///
+/// Both combinations the ladder tried MISS 0x3b8: `(true, false, false)` fails the p3 test and
+/// reaches only 0x3c0, and `(true, true, true)` takes the else branch because p4 is set. The one
+/// that reaches it -- `(true, true, false)` -- was never tried, and is now step 0.
+///
+/// The whole reason this was guesswork is gone: the tracer recorded 435 `CaptureModule::capture`
+/// calls and all 435 were ours, so there was no native call to copy and nothing to read. There is
+/// now, because the engine is decompiled.
 ///
 /// So this stops guessing one per playtest round. Each frame the ladder tries the next candidate
 /// and prints whether the flag moved, and the log names the one that works instead of another
@@ -906,8 +922,28 @@ unsafe fn try_release(
     let invalid = *BATTLE_OBJECT_ID_INVALID as u32;
     let what = match step {
         0 => {
-            CaptureModule::capture_cut(vboma, true, false, false);
-            "capture_cut(v, true, false, false)"
+            // `(true, TRUE, false)`, READ OUT OF THE ENGINE RATHER THAN GUESSED.
+            //
+            // `CaptureCut` at main 0x3ee290 is now decompiled, and the two vtable calls this
+            // repository has called "the teardown" are gated like this:
+            //
+            //     if ((param_2 & 1) && param_1[0x7d]) {
+            //         if ((param_3 & 1) != 0) {
+            //             if (!(param_4 & 1) || param_1[0x70] == 0x7fb997a80) {
+            //                 vtable[0x3b8](module, 1, 0, 0);   // undoes the capture
+            //             } else { ...a different path entirely... }
+            //         }
+            //         vtable[0x3c0](module, 1);
+            //     }
+            //
+            // So 0x3b8 needs p2 TRUE, p3 TRUE and p4 FALSE. The comment this file carried said
+            // the gate was p2 alone -- "with `p2` TRUE those two calls are exactly what is
+            // needed" -- and on that reading the port called (true, false, false), which reaches
+            // 0x3c0 and never 0x3b8. The pt28 ladder then tried (true, true, true), where p4
+            // TRUE sends control to the else branch and misses 0x3b8 again. Both measured
+            // "cleared=false", correctly, and the combination that reaches it was never tried.
+            CaptureModule::capture_cut(vboma, true, true, false);
+            "capture_cut(v, true, TRUE, false)"
         }
         1 => {
             CatchModule::set_catch(ours, invalid);
