@@ -1395,6 +1395,196 @@ unsafe extern "C" fn shoulder_exit(f: &mut L2CFighterCommon) -> L2CValue {
 
 /// SPECIAL_S_LARIAT -- the spinning throw. Source pre `0x7100005870`, main `0x7100005c50`,
 /// end `0x71000062c0`.
+
+// ============================================================================================
+// WHY THE LARIAT SOMETIMES SWINGS THROUGH NOTHING
+//
+// Reported: "alolan whip sometimes misses mario entirely when a lariat is correctly timed", and
+// reproduced several times in pt38 -- 27 whips, 20 of which reached SPECIAL_S_LARIAT. That log
+// cannot say which of the 20 connected, because NOTHING is logged between entering the lariat
+// and leaving it: 567 `area:` lines describe the approach and then the move goes dark.
+//
+// So this does not guess at the cause. It records the three things that can produce a miss, per
+// lariat, and ends with one greppable verdict so "sometimes" becomes a count.
+//
+// WHAT CAN MISS, and what each looks like here:
+//
+//   1. THE MOTION RATE SKIPS THE HITBOX. `lariat_main` sets the rate from where the button was
+//      pressed inside the area:
+//
+//          dist = |button_push_pos_x - area_hit_pos_x| ;  t = dist / area_length
+//          rate = special_s_lariat_motion_rate_min + (max - min) * t
+//
+//      `t` IS NOT CLAMPED. If `area_length` is small or stale relative to `dist`, t exceeds 1
+//      and the rate exceeds the param's max -- and a large enough rate steps the motion past the
+//      hitbox's active frames within a single game frame. The ENTER line prints every input and
+//      the quotient, so an out-of-range `t` is visible rather than inferred.
+//
+//   2. THE VICTIM IS NOT WHERE THE SWING IS. Nothing in this port positions the victim during
+//      the lariat -- the engine carries them on the capture node -- so if the capture has quietly
+//      gone (link torn, `is_capture` false, the watchdog in `followup_main_loop` having released
+//      a stale victim) they stand still while Pikachu swings. The per-frame line carries `off`,
+//      the victim's x in Pikachu's own frame, next to `link` and `cap`.
+//
+//   3. THE HITBOX IS NEVER LIVE. `AttackModule::is_attack(boma, 0, false)` says whether group 0
+//      has an active hitbox this frame. A lariat whose live-frame count stays 0 for its whole
+//      duration failed in the ACMD or its frame window, which is a different bug from 1 and 2.
+//
+// The verdict compares the VICTIM'S OWN damage across the status, which is the only unambiguous
+// test of connection: a hit raises it, hitlag and knockback do not.
+//
+// BOUNDED. `LARIAT_LINES` caps the per-frame lines per lariat, because twenty lariats at twenty
+// frames each would bury the rest of the log, and the interesting frames are the early ones.
+const LARIAT_LINES: i32 = 14;
+
+static mut LARIAT_ACTIVE: [bool; 8] = [false; 8];
+static mut LARIAT_VICTIM: [u32; 8] = [0; 8];
+static mut LARIAT_VDMG_IN: [f32; 8] = [0.0; 8];
+static mut LARIAT_ATTACK_FRAMES: [i32; 8] = [0; 8];
+static mut LARIAT_FRAMES: [i32; 8] = [0; 8];
+static mut LARIAT_LOGGED: [i32; 8] = [0; 8];
+static mut LARIAT_OFF_MIN: [f32; 8] = [0.0; 8];
+static mut LARIAT_OFF_MAX: [f32; 8] = [0.0; 8];
+/// Carried into the verdict so ONE grep correlates HIT/MISS with the rate that produced it.
+///
+/// THE PRIME SUSPECT, AND THE ARITHMETIC IS WHY. `special_s_lariat_motion_rate_min/max` are 1 and
+/// 2 in gaogaen's vl.prc, so a `t` in [0,1] gives a rate in [1,2] -- and the ACMD's hitbox runs
+/// from frame 9 to `clear_all` at frame 20, an eleven-frame window that 2x cannot collapse.
+///
+/// But `t = dist / len` is NOT clamped, and `dist` is built from two WORLD x coordinates:
+/// `lariat_button_push_pos_x` and `lariat_area_hit_pos_x`, both `PostureModule::pos_x` of the
+/// victim. `len` is fixed at 14 (`|special_s_lariat_offset_x1 - ..._end_offset_x1|` = |-24 - -10|,
+/// confirmed in pt38's `area:` lines). So the moment `area_hit_pos_x` fails to record -- its
+/// setter is guarded by `if let Some(x) = victim_pos_x(..)` after the AREA_FIRST flag has already
+/// been consumed -- it stays 0.0 and `dist` becomes the victim's ABSOLUTE world x.
+///
+/// Near the stage centre that is ~0, t ~0, rate ~1, and the lariat works. Out at |x| = 40 it is
+/// t = 2.9, rate = 3.9, and the eleven-frame window is stepped through in three game frames; at
+/// |x| = 80 it is rate 6.7 and the window collapses to about one. That is a miss that depends on
+/// WHERE ON THE STAGE the whip happened, which is exactly the shape of "sometimes".
+///
+/// Predicted and falsifiable: MISS verdicts should carry a large `t` and a large `push`, and
+/// should cluster away from x = 0. If they do not, this is wrong and the per-frame `attack`/`off`
+/// columns say which of the other two causes it is instead.
+static mut LARIAT_RATE: [f32; 8] = [0.0; 8];
+
+/// The victim's id, their x in Pikachu's own frame, their y offset, and their damage.
+///
+/// `None` when there is no live victim -- which is itself the answer to case 2 above.
+unsafe fn lariat_victim(boma: *mut BattleObjectModuleAccessor) -> Option<(u32, f32, f32, f32)> {
+    let id = state::swing_thrown_fighter(entry_of(boma));
+    if id == *BATTLE_OBJECT_ID_INVALID as u32 || !sv_battle_object::is_active(id) {
+        return None;
+    }
+    let vboma = crate::victim::boma(id)?;
+    let off = (PostureModule::pos_x(vboma) - PostureModule::pos_x(boma)) * PostureModule::lr(boma);
+    let dy = PostureModule::pos_y(vboma) - PostureModule::pos_y(boma);
+    Some((id, off, dy, DamageModule::damage(vboma, 0)))
+}
+
+/// Called from `lariat_main`, after `set_rate`, with the numbers that produced the rate.
+unsafe fn lariat_begin(
+    boma: *mut BattleObjectModuleAccessor,
+    entry: usize,
+    rate: f32,
+    push: f32,
+    area_hit: f32,
+    len: f32,
+    t: f32,
+    lo: f32,
+    hi: f32,
+) {
+    if entry >= 8 {
+        return;
+    }
+    let v = lariat_victim(boma);
+    LARIAT_ACTIVE[entry] = true;
+    LARIAT_VICTIM[entry] = v.map_or(*BATTLE_OBJECT_ID_INVALID as u32, |(id, _, _, _)| id);
+    LARIAT_VDMG_IN[entry] = v.map_or(-1.0, |(_, _, _, d)| d);
+    LARIAT_ATTACK_FRAMES[entry] = 0;
+    LARIAT_FRAMES[entry] = 0;
+    LARIAT_LOGGED[entry] = 0;
+    LARIAT_OFF_MIN[entry] = f32::MAX;
+    LARIAT_OFF_MAX[entry] = f32::MIN;
+    LARIAT_RATE[entry] = rate;
+    let who = match v {
+        Some((id, off, dy, d)) => format!("{id:#x} off=({off:.2},{dy:.2}) vdmg={d:.1}"),
+        None => "NONE".to_string(),
+    };
+    let warn = if !t.is_finite() || t > 1.0 {
+        "  <- t OUT OF RANGE, so the rate exceeds the param max"
+    } else {
+        ""
+    };
+    crate::telemetry::sink::diag(format!(
+        "[rat] LARIAT p{entry} ENTER rate={rate:.3} from {lo:.2}+({hi:.2}-{lo:.2})*t, t={t:.3} \
+         (dist={:.2} len={len:.2}, push={push:.2} area_hit={area_hit:.2}){warn} -- victim {who}",
+        (push - area_hit).abs(),
+    ));
+}
+
+/// Called every frame of the lariat from `followup_main_loop`.
+unsafe fn lariat_frame(boma: *mut BattleObjectModuleAccessor, entry: usize) {
+    if entry >= 8 || !LARIAT_ACTIVE[entry] {
+        return;
+    }
+    LARIAT_FRAMES[entry] += 1;
+    let live = AttackModule::is_attack(boma, 0, false);
+    if live {
+        LARIAT_ATTACK_FRAMES[entry] += 1;
+    }
+    let v = lariat_victim(boma);
+    if let Some((_, off, _, _)) = v {
+        LARIAT_OFF_MIN[entry] = LARIAT_OFF_MIN[entry].min(off);
+        LARIAT_OFF_MAX[entry] = LARIAT_OFF_MAX[entry].max(off);
+    }
+    if LARIAT_LOGGED[entry] >= LARIAT_LINES {
+        return;
+    }
+    LARIAT_LOGGED[entry] += 1;
+    let where_ = match v {
+        Some((_, off, dy, d)) => format!("off=({off:.2},{dy:.2}) vdmg={d:.1}"),
+        None => "victim GONE".to_string(),
+    };
+    crate::telemetry::sink::diag(format!(
+        "[rat] LARIAT p{entry} f{:.1} rate={:.2} attack={live} link={} cap={} {where_}",
+        MotionModule::frame(boma),
+        MotionModule::rate(boma),
+        LinkModule::is_link(boma, *LINK_NO_CAPTURE),
+        CaptureModule::is_capture(boma),
+    ));
+}
+
+/// Called from `lariat_end`. ONE LINE, and HIT/MISS is the word to grep for.
+unsafe fn lariat_verdict(boma: *mut BattleObjectModuleAccessor, entry: usize) {
+    if entry >= 8 || !LARIAT_ACTIVE[entry] {
+        return;
+    }
+    LARIAT_ACTIVE[entry] = false;
+    let now = lariat_victim(boma).map(|(_, _, _, d)| d);
+    let was = LARIAT_VDMG_IN[entry];
+    // A victim who left mid-lariat reports UNKNOWN: that is neither a hit nor a clean miss, and
+    // calling it either would be the kind of guess this whole block exists to avoid.
+    let verdict = match now {
+        Some(d) if was >= 0.0 && d > was + 0.01 => "HIT",
+        Some(_) if was >= 0.0 => "MISS",
+        _ => "UNKNOWN(victim gone)",
+    };
+    let span = if LARIAT_OFF_MIN[entry] == f32::MAX {
+        "-".to_string()
+    } else {
+        format!("{:.2}..{:.2}", LARIAT_OFF_MIN[entry], LARIAT_OFF_MAX[entry])
+    };
+    crate::telemetry::sink::diag(format!(
+        "[rat] LARIAT p{entry} VERDICT {verdict} rate={:.3} -- victim {:#x} vdmg {was:.1} -> {}, \
+         {} frame(s), hitbox live on {} of them, off ranged {span}",
+        LARIAT_RATE[entry],
+        LARIAT_VICTIM[entry],
+        now.map_or("-".to_string(), |d| format!("{d:.1}")),
+        LARIAT_FRAMES[entry],
+        LARIAT_ATTACK_FRAMES[entry],
+    ));
+}
 unsafe extern "C" fn lariat_pre(fighter: &mut L2CFighterCommon) -> L2CValue {
     whip_pre(fighter, *FIGHTER_STATUS_ATTR_DISABLE_TURN_DAMAGE)
 }
@@ -1445,7 +1635,19 @@ unsafe extern "C" fn lariat_main(fighter: &mut L2CFighterCommon) -> L2CValue {
         hash40("param_special_s"),
         hash40("special_s_lariat_motion_rate_max"),
     );
-    MotionModule::set_rate(boma, lo + (hi - lo) * t);
+    let rate = lo + (hi - lo) * t;
+    MotionModule::set_rate(boma, rate);
+    lariat_begin(
+        boma,
+        entry,
+        rate,
+        state::lariat_button_push_pos_x(entry),
+        state::lariat_area_hit_pos_x(entry),
+        len,
+        t,
+        lo,
+        hi,
+    );
 
     whip_kinetics(fighter, true);
     fighter.sub_shift_status_main(L2CValue::Ptr(followup_main_loop as *const () as _))
@@ -1455,6 +1657,9 @@ unsafe fn lariat_end_body(fighter: &mut L2CFighterCommon, line: &str) -> L2CValu
     if !end_line_first(fighter, line) {
         return false.into();
     }
+    // BEFORE `whip_release`, which tears the link down and would make the victim unreadable --
+    // the verdict needs their damage, and that is the whole test of whether the swing connected.
+    lariat_verdict(fighter.module_accessor, entry_of(fighter.module_accessor));
     whip_release(fighter);
     false.into()
 }
@@ -1763,6 +1968,7 @@ unsafe fn whip_followup_loop(fighter: &mut L2CFighterCommon) -> L2CValue {
     // animation however late the input was; only the approach stretches. `LARIAT_HIT_FRAME` is
     // already set to 9.0 by this moveset's own ACMD, so the value was there the whole time.
     if status == RAT_STATUS_KIND_SPECIAL_S_LARIAT {
+        lariat_frame(boma, entry_of(boma));
         let rate = MotionModule::rate(boma);
         if rate != 1.0 {
             let target = WorkModule::get_float(
