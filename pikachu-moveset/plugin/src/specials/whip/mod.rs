@@ -1479,6 +1479,17 @@ static mut LARIAT_OFF_MAX: [f32; 8] = [0.0; 8];
 /// The rate is still printed, because ruling it out from a log beats ruling it out from a reading,
 /// and because the per-frame `off`/`link`/`cap` columns are what will actually decide this.
 static mut LARIAT_RATE: [f32; 8] = [0.0; 8];
+/// Latched per frame, because a HIT releases the victim and the end of the status is too late to
+/// read them. See `lariat_frame`.
+static mut LARIAT_VDMG_LAST: [f32; 8] = [-1.0; 8];
+static mut LARIAT_HIT: [bool; 8] = [false; 8];
+/// Where the victim was, in Pikachu's own frame, on the frame the damage actually went up.
+///
+/// THE NUMBER THE COMPLAINT IS ABOUT. pt39 lands every one of its seven hits at off=+6.75 to
+/// +7.08 -- the victim already through Pikachu and in FRONT of him -- and the three misses have
+/// them at +9.54 and climbing to +31 while the hitbox is live. "Too far through pikachu before it
+/// lands" is this column, and it is the same cause as the whiff rather than a second bug.
+static mut LARIAT_HIT_OFF: [f32; 8] = [0.0; 8];
 
 /// The victim's id, their x in Pikachu's own frame, their y offset, and their damage.
 ///
@@ -1519,6 +1530,9 @@ unsafe fn lariat_begin(
     LARIAT_OFF_MIN[entry] = f32::MAX;
     LARIAT_OFF_MAX[entry] = f32::MIN;
     LARIAT_RATE[entry] = rate;
+    LARIAT_VDMG_LAST[entry] = v.map_or(-1.0, |(_, _, _, d)| d);
+    LARIAT_HIT[entry] = false;
+    LARIAT_HIT_OFF[entry] = f32::NAN;
     let who = match v {
         Some((id, off, dy, d)) => format!("{id:#x} off=({off:.2},{dy:.2}) vdmg={d:.1}"),
         None => "NONE".to_string(),
@@ -1546,9 +1560,19 @@ unsafe fn lariat_frame(boma: *mut BattleObjectModuleAccessor, entry: usize) {
         LARIAT_ATTACK_FRAMES[entry] += 1;
     }
     let v = lariat_victim(boma);
-    if let Some((_, off, _, _)) = v {
+    if let Some((_, off, _, d)) = v {
         LARIAT_OFF_MIN[entry] = LARIAT_OFF_MIN[entry].min(off);
         LARIAT_OFF_MAX[entry] = LARIAT_OFF_MAX[entry].max(off);
+        // LATCHED HERE, NOT READ AT THE END, and the first version got that wrong. `lariat_verdict`
+        // re-read the victim after the status was over -- by which time a HIT has released them,
+        // `swing_thrown_fighter` is invalid and `lariat_victim` returns None. So every one of
+        // pt39's ten lariats printed UNKNOWN(victim gone), including the seven that connected.
+        // A verdict that cannot say HIT is not a verdict.
+        if d > LARIAT_VDMG_LAST[entry] + 0.01 && LARIAT_VDMG_LAST[entry] >= 0.0 {
+            LARIAT_HIT[entry] = true;
+            LARIAT_HIT_OFF[entry] = off;
+        }
+        LARIAT_VDMG_LAST[entry] = d;
     }
     if LARIAT_LOGGED[entry] >= LARIAT_LINES {
         return;
@@ -1627,14 +1651,17 @@ unsafe fn lariat_verdict(boma: *mut BattleObjectModuleAccessor, entry: usize) {
         return;
     }
     LARIAT_ACTIVE[entry] = false;
-    let now = lariat_victim(boma).map(|(_, _, _, d)| d);
     let was = LARIAT_VDMG_IN[entry];
-    // A victim who left mid-lariat reports UNKNOWN: that is neither a hit nor a clean miss, and
-    // calling it either would be the kind of guess this whole block exists to avoid.
-    let verdict = match now {
-        Some(d) if was >= 0.0 && d > was + 0.01 => "HIT",
-        Some(_) if was >= 0.0 => "MISS",
-        _ => "UNKNOWN(victim gone)",
+    let now = LARIAT_VDMG_LAST[entry];
+    // FROM THE LATCH, not from a fresh read. A hit releases the victim, so re-reading them here
+    // returns None and reported UNKNOWN for all ten of pt39's lariats -- seven of which had
+    // landed. UNKNOWN now means only what it says: no victim was ever readable.
+    let verdict = if LARIAT_HIT[entry] {
+        "HIT"
+    } else if was >= 0.0 && now >= 0.0 {
+        "MISS"
+    } else {
+        "UNKNOWN(no victim seen)"
     };
     let span = if LARIAT_OFF_MIN[entry] == f32::MAX {
         "-".to_string()
@@ -1642,11 +1669,15 @@ unsafe fn lariat_verdict(boma: *mut BattleObjectModuleAccessor, entry: usize) {
         format!("{:.2}..{:.2}", LARIAT_OFF_MIN[entry], LARIAT_OFF_MAX[entry])
     };
     crate::telemetry::sink::diag(format!(
-        "[rat] LARIAT p{entry} VERDICT {verdict} rate={:.3} -- victim {:#x} vdmg {was:.1} -> {}, \
-         {} frame(s), hitbox live on {} of them, off ranged {span}",
+        "[rat] LARIAT p{entry} VERDICT {verdict} rate={:.3} hit_off={} -- victim {:#x} \
+         vdmg {was:.1} -> {now:.1}, {} frame(s), hitbox live on {} of them, off ranged {span}",
         LARIAT_RATE[entry],
+        if LARIAT_HIT_OFF[entry].is_nan() {
+            "-".to_string()
+        } else {
+            format!("{:+.2}", LARIAT_HIT_OFF[entry])
+        },
         LARIAT_VICTIM[entry],
-        now.map_or("-".to_string(), |d| format!("{d:.1}")),
         LARIAT_FRAMES[entry],
         LARIAT_ATTACK_FRAMES[entry],
     ));
