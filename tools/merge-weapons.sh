@@ -50,7 +50,7 @@ WORK="$ROOT/work/weapons"
 # work/arc-weapons/, because the four weapons past Chrom were pulled from the running game by
 # `tools/arc-fetch.sh` and only Chrom's was in the original extraction.
 TABLE="
-chrom_sword|chrom/model/sword|fal_RShape|pasted__met_chrom_001|Sword|HaveR|0,0,4.5|7.0
+chrom_sword|chrom/model/sword|fal_RShape|pasted__met_chrom_001|Sword1|HaveR|0,0,4.5|7.0
 cloud_sword|cloud/model/fusionsword|fusionsword1_VIS_O_OBJShape|def_cloud_004|fusionsword1|HaveR|0,6.26053,0|10.0666
 mythra_sword|elight/model/esword|lightsword_VIS_O_OBJShape|alp_light_002|Sword1|HaveR|0,0,4.29851|6.57543
 palutena_staff|palutena/model/body|staff_group_VIS_O_OBJShape|metal_palutena_002_a|Stick|HaveR|0.0275341,-0.65733,0.0205462|10.1638
@@ -114,11 +114,37 @@ while IFS='|' read -r name dir mesh material bone parent sphere radius; do
     #
     # Prefixing removes the class of bug rather than this instance of it: a graft can no longer
     # shadow any bone Pikachu has or any bone another tool provides, whatever order they run in.
-    jq --argjson anchor "$pidx" --arg b "$bone" --arg pfx "${name}_" \
-       --slurpfile sk src_nusktb.json '
-      .bones += [ ( $sk[0].bones[] | select(.name == $b)
-                    | .name = ($pfx + $b)
-                    | .parent_index = $anchor ) ]
+    # BARE NAMES, BECAUSE THE ANIMATION DRIVES BONES BY NAME.
+    #
+    # Prefixing every graft with the weapon name removed the add-bones collision and BROKE all
+    # three weapons that need animating. The dropped-in `.nuanmb` animates bones by name:
+    #
+    #     c00attack11.nuanmb   (chrom jab)     HaveR Sword1 Sword2
+    #     c05attackairn.nuanmb (palutena nair) HaveR Stick
+    #     e00catch*.nuanmb     (palutena grab) HaveR Stick
+    #     c00attackdash.nuanmb (mythra dash)   HaveR only
+    #
+    # A graft called `palutena_staff_Stick` has no track, so the staff sat at bind pose and did not
+    # sweep; `chrom_sword_Sword` likewise, which is why the Falchion was in the wrong hand jabbing
+    # left. Playtest, exactly: "Chrom sword doesn't appear in pikachu's correct hand when jabbing to
+    # the left. Palutena staff doesn't spin correctly when using nair."
+    #
+    # THE COLLISION IS NOT A PROBLEM AFTER ALL, which is what made prefixing look necessary.
+    # `add-bones.sh` wants `Sword1` for chrom's jab and this tool wants one for mythra's sword --
+    # different bones, same name. But an ANIMATION supplies the transform per move, so one `Sword1`
+    # serves both: chrom's jab animates it, and mythra's dash has no track and therefore wants a
+    # bind pose, which is hers. The bind only decides where an UNANIMATED bone sits.
+    #
+    # Two skips, both load-bearing. Already in the skeleton: it is the same bone by name, leave it.
+    # Not in the SOURCE skeleton: chrom's table bone is `Sword1` and his sword MODEL only carries
+    # `HaveR` and `Sword` -- `Sword1` lives in his BODY skeleton, which add-bones.sh supplies from
+    # work/fk/chrom_skel.json. The mesh binds to the name either way.
+    jq --argjson anchor "$pidx" --arg b "$bone" --slurpfile sk src_nusktb.json '
+      if ([.bones[].name] | index($b)) != null then .
+      elif ([$sk[0].bones[].name] | index($b)) == null then .
+      else .bones += [ ( $sk[0].bones[] | select(.name == $b)
+                         | .parent_index = $anchor ) ]
+      end
     ' cur_nusktb.json > next_nusktb.json
 
     # ONE BONE, AND THE MESH IS FORCED RIGID ONTO IT. That is the documented technique -- episode
@@ -140,7 +166,7 @@ while IFS='|' read -r name dir mesh material bone parent sphere radius; do
     # SUBINDEX 0 ONLY. Several of these meshes appear more than once under one name -- Mythra's has
     # four and Palutena's staff two, which are the game's own LOD and variant slots. Taking the
     # first is what `set_mesh_visibility` can address by name and is the highest-detail one.
-    jq --arg n "$name" --arg m "$mesh" --arg pb "${name}_${bone}" --slurpfile s src_numshb.json '
+    jq --arg n "$name" --arg m "$mesh" --arg pb "$bone" --slurpfile s src_numshb.json '
       .objects += [ ( [ $s[0].objects[] | select(.name == $m) ][0]
                       | .name = $n
                       | .subindex = 0

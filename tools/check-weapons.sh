@@ -67,11 +67,7 @@ else
         case "${name:-}" in '' | \#*) continue ;; esac
         miss=""
         jq -e --arg n "$name" '[.objects[].name]|index($n)'            "$W/mesh.json" >/dev/null || miss="$miss mesh"
-        # THE GRAFTED BONE IS PREFIXED WITH THE WEAPON NAME, and checking the bare name here was a
-        # FALSE PASS waiting to happen -- `mythra_sword`'s table bone is `Sword1` and
-        # `tools/add-bones.sh` independently adds a `Sword1` of Chrom's for Chrom's jab hitboxes,
-        # so the bare lookup found add-bones' bone and reported the graft present when it was not.
-        jq -e --arg b "${name}_${bone}" '[.bones[].name]|index($b)'    "$W/bone.json" >/dev/null || miss="$miss bone:${name}_${bone}"
+        jq -e --arg b "$bone" '[.bones[].name]|index($b)'              "$W/bone.json" >/dev/null || miss="$miss bone:$bone"
         jq -e --arg n "$name" '[.entries[].mesh_object_name]|index($n)' "$W/modl.json" >/dev/null || miss="$miss modl"
         jq -e --arg m "$material" '[.entries[].material_label]|index($m)' "$W/matl.json" >/dev/null || miss="$miss matl:$material"
         jq -e --arg n "$name" '[.mesh_object_groups[].mesh_object_name]|index($n)' "$W/mx.json" >/dev/null || miss="$miss meshex"
@@ -119,27 +115,34 @@ if [ -f "$MODEL/model.numshb" ]; then
     fi
 fi
 
-echo; echo "== no graft shadows a bone another tool provides =="
-# `tools/add-bones.sh` puts `Sword1` (Chrom's) and `Stick` (Palutena's) in this same skeleton so
-# ported ACMD hitboxes have something to ride. It is idempotent -- "a bone already present is left
-# alone" -- and merge-weapons.sh runs FIRST, so an unprefixed graft silently wins and the hitboxes
-# inherit the wrong bind transform. Chrom's jab spent one shipped build aimed with Mythra's.
+echo; echo "== every mesh binds to the bone its move's animation drives =="
+# THE ANIMATION DRIVES BONES BY NAME, and renaming a graft breaks it silently.
 #
-# Prefixing removes the class of bug; this makes sure it stays removed.
-if [ -f "$MODEL/model.nusktb" ]; then
+# Prefixing every graft with its weapon name (to dodge an add-bones collision) left
+# `palutena_staff_Stick` and `chrom_sword_Sword` with no animation track at all, so the staff did
+# not sweep and the Falchion sat in the wrong hand jabbing left. The hitboxes diverged from the
+# mesh at the same time, because `tools/reach/src/bin/rebase.rs` looks the bone up as `Stick` and
+# found add-bones' copy while the mesh was bound to the prefixed one.
+#
+# The collision it was dodging is not real: an animation supplies the transform per move, so one
+# `Sword1` serves chrom's jab (animated) and mythra's dash (no track, wants a bind pose).
+#
+# So: the mesh's bind bone must be exactly the table's bone, and that bone must be in the skeleton.
+if [ -f "$MODEL/model.numshb" ]; then
     bad=""
     while IFS='|' read -r name dir mesh material bone parent sphere radius; do
         case "${name:-}" in '' | \#*) continue ;; esac
-        jq -e --arg b "${name}_${bone}" '[.bones[].name]|index($b)' "$W/bone.json" >/dev/null 2>&1 \
-            || bad="$bad ${name}:${bone}"
+        pb=$(jq -r --arg n "$name" '.objects[]|select(.name==$n)|.parent_bone_name' "$W/mesh.json" 2>/dev/null)
+        [ "$pb" = "$bone" ] || bad="$bad ${name}:bound-to-${pb:-none}-not-${bone}"
+        jq -e --arg b "$bone" '[.bones[].name]|index($b)' "$W/bone.json" >/dev/null 2>&1 \
+            || bad="$bad ${name}:bone-${bone}-absent"
     done < <(awk -F'|' '/^[a-z_]+\|/' tools/merge-weapons.sh)
     if [ -n "$bad" ]; then
-        echo "  FAIL these weapons' bones are not prefixed in the skeleton:"; printf '       %s\n' $bad; rc=1
+        echo "  FAIL mesh/bone binding is wrong:"; printf '       %s\n' $bad; rc=1
     else
-        echo "  ok  every grafted bone carries its weapon's prefix"
+        echo "  ok  every mesh binds to its table bone, and every one is in the skeleton"
     fi
 fi
-
 echo; echo "== no motion shows two weapons at once =="
 # Only what is INSIDE the motion arrays, which is the inverse of the extraction above.
 dupes=$(printf '%s' "$WEAPONS_BLOCK" | tr '\n' ' ' | grep -oE '&\[[^]]*\]' \
