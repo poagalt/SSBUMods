@@ -1500,22 +1500,33 @@ unsafe extern "C" fn throw_init(fighter: &mut L2CFighterCommon) -> L2CValue {
             *FIGHTER_STATUS_THROW_WORK_INT_TARGET_HIT_NO,
             *FIGHTER_STATUS_THROW_WORK_FLOAT_MOTION_RATE,
         );
+        // `set_int`, NOT `set_int64`, AND THE DIFFERENCE IS NOT COSMETIC.
+        //
+        // `WorkModule`'s INT and INT64 work ids are separate arrays. DK writes TARGET_OBJECT with
+        // `set_int`, so it lives in the INT array and the engine reads it back with `get_int`.
+        // This wrote it with `set_int64`, which puts the victim id at that index of the INT64
+        // array -- a different variable -- and then read it back the same wrong way, so the
+        // telemetry printed a plausible `target=0x10000` while the engine saw zero.
+        //
+        // `check-callparity.sh` surfaced it as "source calls set_int, port does not", which is
+        // the fourth distinct shape of finding that tool has produced: not a missing call, a call
+        // made through the wrong-width accessor.
         let them = LinkModule::get_node_object_id(boma, *LINK_NO_CAPTURE);
-        WorkModule::set_int64(boma, them as u64, *FIGHTER_STATUS_THROW_WORK_INT_TARGET_OBJECT);
+        WorkModule::set_int(boma, them as i32, *FIGHTER_STATUS_THROW_WORK_INT_TARGET_OBJECT);
     } else {
         // No link means no engine-side throw target, and `game_throwff`'s `ATK_HIT_ABS` on frame
         // 15 reads this. Our own bookkeeping is the fallback, which is the ADR 0004 shape again:
         // the precondition DK gets for free has to be supplied here.
-        WorkModule::set_int64(
+        WorkModule::set_int(
             boma,
-            VICTIM[entry] as u64,
+            VICTIM[entry] as i32,
             *FIGHTER_STATUS_THROW_WORK_INT_TARGET_OBJECT,
         );
     }
     crate::telemetry::probe::event(format!(
         "[rat] SHOULDER p{entry} throw init: motion_kind={kind:#x} -> victim plays {thrown}, \
          target={:#x}; {}",
-        WorkModule::get_int64(boma, *FIGHTER_STATUS_THROW_WORK_INT_TARGET_OBJECT),
+        WorkModule::get_int(boma, *FIGHTER_STATUS_THROW_WORK_INT_TARGET_OBJECT),
         crate::telemetry::probe::ctx(boma)
     ));
     0.into()
