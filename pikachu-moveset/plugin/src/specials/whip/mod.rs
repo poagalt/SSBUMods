@@ -1579,9 +1579,31 @@ unsafe fn lariat_frame(boma: *mut BattleObjectModuleAccessor, entry: usize) {
         }),
         None => None,
     };
+    // `vst` IS THE CENTRAL COLUMN, and leaving it out was an oversight.
+    //
+    // Across pt38's twenty lariats the victim NEVER entered
+    // FIGHTER_STATUS_KIND_SWING_GAOGAEN_LARIAT (0x17A) -- not once. They stay in
+    // SWING_GAOGAEN_RETURN (0x179), drifting back along a rope ADR 0004 does not ship, which is
+    // why they are still 12 to 23 units behind when the swing comes out.
+    //
+    // Nothing in `lua2cpp_gaogaen.nro` requests 0x17A -- `--scan 0x27e0` finds it nowhere -- and
+    // the single reference in `lua2cpp_common.nro`, at 0x710028ff74, is a `globalTable[0xb]`
+    // next-status GUARD inside a status_end, not a transition. The engine does it: `main` at
+    // 0x637ec4 loads `mov w1, #0x17a` straight into the argument register for
+    // `StatusModule::change_status_request`, reached through the same `vtable[0x48]` that the
+    // Revenge HIT/TURN branch uses. So this is the same class of gap as that one -- a victim-side
+    // transition the engine makes for Incineroar and cannot make for a Pikachu captor.
+    //
+    // Printing `vst` makes the next log say so directly instead of by inference, and it is the
+    // number that will confirm a fix: 0x17a here, `d_arml` under 7.29, VERDICT HIT.
+    let vst = match v {
+        Some((id, _, _, _)) => crate::victim::boma(id).map(|vb| StatusModule::status_kind(vb)),
+        None => None,
+    };
     let where_ = match v {
         Some((_, off, dy, d)) => format!(
-            "off=({off:.2},{dy:.2}) vdmg={d:.1} d_arml={} (hitbox r=7.29)",
+            "off=({off:.2},{dy:.2}) vdmg={d:.1} vst={} d_arml={} (hitbox r=7.29)",
+            vst.map_or("-".to_string(), |s| format!("{s:#x}")),
             match d_arml {
                 Some(d) if d >= 0.0 => format!("{d:.2}"),
                 Some(_) => "bone absent".to_string(),
