@@ -83,13 +83,26 @@ done < <(find . -type f | sort)
     echo '        ]'
     echo '    },'
     echo '    "share-to-added": {'
+    # GROUPED BY SOURCE, because `share-to-added` is a JSON OBJECT and two aliases sharing one
+    # source file would otherwise emit the same key twice. Duplicate keys are not an error in most
+    # parsers -- they silently keep the last -- so the second alias would vanish with no warning.
+    # One vanilla file legitimately feeds several added paths, so this is reachable, not theoretical.
     first=1
-    while IFS='|' read -r target src; do
-        [ -z "${target// }" ] && continue
-        case "$target" in "#"*) continue ;; esac
+    srcs=$(printf '%s\n' "$ALIASES" | grep -v '^#' | grep '|' | awk -F'|' '{print $2}' | sed 's/^ *//;s/ *$//' | awk '!seen[$0]++')
+    while IFS= read -r s; do
+        [ -z "$s" ] && continue
         [ "$first" = 1 ] && first=0 || echo ','
-        printf '        "%s": ["%s"]' "$src" "$target"
-    done <<< "$ALIASES"
+        printf '        "%s": [' "$s"
+        tfirst=1
+        while IFS='|' read -r target src; do
+            [ -z "${target// }" ] && continue
+            case "$target" in "#"*) continue ;; esac
+            [ "$src" = "$s" ] || continue
+            [ "$tfirst" = 1 ] && tfirst=0 || printf ', '
+            printf '"%s"' "$target"
+        done <<< "$ALIASES"
+        printf ']'
+    done <<< "$srcs"
     echo
     echo '    }'
     echo '}'
