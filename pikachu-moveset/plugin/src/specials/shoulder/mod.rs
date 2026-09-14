@@ -1850,7 +1850,22 @@ unsafe extern "C" fn shoulder_start_init(fighter: &mut L2CFighterCommon) -> L2CV
     //
     // `capture_object_id` first and `LAST_CAPTURED` second: the live answer when there is one,
     // and the id latched every frame of the grab when the engine has already moved on.
-    if !crate::victim::plausible(VICTIM[entry]) {
+    // THE TEST IS WHETHER THE HOLD EXISTS, NOT WHETHER `VICTIM` HAPPENS TO HOLD AN ID.
+    //
+    // This read `!plausible(VICTIM[entry])` and that is the "mario instantly moves out of the
+    // grab" from the first playtest of the native entry. `VICTIM` is STALE after a carry -- only
+    // `throw_exit` clears it, and the mash-out path does not -- so the first cargo grab of a
+    // session adopted correctly and every one after it saw a plausible id left over from the
+    // last victim, skipped the whole block, and never called `victim::hold`. `still_held` reads
+    // `victim::held`, which reads `HELD_ID`, which the previous release had cleared:
+    //
+    //   SHOULDER p0 victim 0x10000 is still in the engine's capture and naming us as master
+    //   SHOULDER p0 apply_lift_param(false)          <- the `!still_held` bail, on frame ONE
+    //   RAT_SHOULDER_START(0x1f7) 1f -> WAIT(0x0)
+    //
+    // The engine's own capture was fine the whole time; our bookkeeping said otherwise. `held`
+    // is the thing `still_held` asks, so it is the thing this has to establish.
+    if crate::victim::held(entry).is_none() {
         let live = CatchModule::capture_object_id(boma, false) as u32;
         let them = if crate::victim::plausible(live) {
             live

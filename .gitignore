@@ -31,3 +31,7 @@ pikachu-moveset/plugin/src/telemetry/buildstamp.rs
 # from the NROs in vendor/nro, so the recipe is versioned and the output is not.
 vendor/decomp/
 work/decomp/
+
+# Every fighter's status scripts, 124 MB, one `tools/fetch-status-scripts.sh` away.
+vendor/ssbu-status-all/
+work/acquire/
