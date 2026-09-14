@@ -1447,25 +1447,37 @@ static mut LARIAT_OFF_MIN: [f32; 8] = [0.0; 8];
 static mut LARIAT_OFF_MAX: [f32; 8] = [0.0; 8];
 /// Carried into the verdict so ONE grep correlates HIT/MISS with the rate that produced it.
 ///
-/// THE PRIME SUSPECT, AND THE ARITHMETIC IS WHY. `special_s_lariat_motion_rate_min/max` are 1 and
-/// 2 in gaogaen's vl.prc, so a `t` in [0,1] gives a rate in [1,2] -- and the ACMD's hitbox runs
-/// from frame 9 to `clear_all` at frame 20, an eleven-frame window that 2x cannot collapse.
+/// I THOUGHT THIS WAS THE PRIME SUSPECT AND THE CODE REFUTES ME. Recorded because the refutation
+/// is the useful part, and because shipping the guess as a headline would have aimed the next
+/// playtest at the wrong column.
 ///
-/// But `t = dist / len` is NOT clamped, and `dist` is built from two WORLD x coordinates:
-/// `lariat_button_push_pos_x` and `lariat_area_hit_pos_x`, both `PostureModule::pos_x` of the
-/// victim. `len` is fixed at 14 (`|special_s_lariat_offset_x1 - ..._end_offset_x1|` = |-24 - -10|,
-/// confirmed in pt38's `area:` lines). So the moment `area_hit_pos_x` fails to record -- its
-/// setter is guarded by `if let Some(x) = victim_pos_x(..)` after the AREA_FIRST flag has already
-/// been consumed -- it stays 0.0 and `dist` becomes the victim's ABSOLUTE world x.
+/// The idea was that `t = dist / len` is NOT clamped, and both positions feeding `dist` are WORLD
+/// x -- `PostureModule::pos_x` of the victim -- while `len` is fixed at 14
+/// (`|special_s_lariat_offset_x1 - ..._end_offset_x1|` = |-24 - -10|, confirmed in pt38's own
+/// `area:` lines). If `lariat_area_hit_pos_x` ever failed to record it would stay 0.0, `dist`
+/// would become the victim's ABSOLUTE world x, and the rate would scale with distance from the
+/// stage centre -- a miss that depends on WHERE the whip happened, which is the shape of
+/// "sometimes".
 ///
-/// Near the stage centre that is ~0, t ~0, rate ~1, and the lariat works. Out at |x| = 40 it is
-/// t = 2.9, rate = 3.9, and the eleven-frame window is stepped through in three game frames; at
-/// |x| = 80 it is rate 6.7 and the window collapses to about one. That is a miss that depends on
-/// WHERE ON THE STAGE the whip happened, which is exactly the shape of "sometimes".
+/// Three things kill it:
 ///
-/// Predicted and falsifiable: MISS verdicts should carry a large `t` and a large `push`, and
-/// should cluster away from x = 0. If they do not, this is wrong and the per-frame `attack`/`off`
-/// columns say which of the other two causes it is instead.
+///   * `whip_update_areas` early-returns unless `victim_pos_x` is Some, and the `area:` line is
+///     printed inside it -- so all 567 of those lines in pt38 are proof the read was working
+///     throughout the area phase, which is exactly when AREA_FIRST is consumed.
+///   * AREA_FIRST is raised only on the transition INTO the area and cleared by the loop that
+///     records the position, so `dist` is the victim's travel WITHIN a 14-unit window. t <= ~1.
+///   * `special_s_lariat_motion_rate_min`/`_max` are 1 and 2, so a t in [0,1] gives a rate in
+///     [1,2], and the ACMD's hitbox runs frame 9 to `clear_all` at frame 20. Eleven frames cannot
+///     be collapsed by 2x.
+///
+/// WHAT IS NOW THE LEADING CANDIDATE is case 2, the capture. The hitbox is a 7.29-radius sphere on
+/// `arml` with no offset; the victim spends the whole approach at an `off` of -10 to -24, and the
+/// only thing that brings them inside that sphere is the engine carrying them on the capture node.
+/// If the capture has gone, Pikachu swings at nothing and the animation looks perfectly correct --
+/// which is what "misses mario entirely" describes.
+///
+/// The rate is still printed, because ruling it out from a log beats ruling it out from a reading,
+/// and because the per-frame `off`/`link`/`cap` columns are what will actually decide this.
 static mut LARIAT_RATE: [f32; 8] = [0.0; 8];
 
 /// The victim's id, their x in Pikachu's own frame, their y offset, and their damage.
