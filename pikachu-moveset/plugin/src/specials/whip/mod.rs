@@ -1360,8 +1360,39 @@ unsafe extern "C" fn shoulder_pre(fighter: &mut L2CFighterCommon) -> L2CValue {
 ///     else                   { correct(AIR);                       change_motion("special_air_s_shoulder") }
 ///     0x710001d4b0(agent, true)
 ///     sub_shift_status_main(<loop>)
+/// The body slam has no motion-rate computation, so it gets a minimal ENTER of its own rather
+/// than `lariat_begin`'s -- the rate fields would all be zero and reading them as data would be
+/// its own small trap.
+unsafe fn shoulder_begin(boma: *mut BattleObjectModuleAccessor, entry: usize) {
+    if entry >= 8 {
+        return;
+    }
+    FOLLOWUP_TAG[entry] = "SLAM";
+    let v = lariat_victim(boma);
+    LARIAT_ACTIVE[entry] = true;
+    LARIAT_VICTIM[entry] = v.map_or(*BATTLE_OBJECT_ID_INVALID as u32, |(id, _, _, _)| id);
+    LARIAT_VDMG_IN[entry] = v.map_or(-1.0, |(_, _, _, d)| d);
+    LARIAT_VDMG_LAST[entry] = LARIAT_VDMG_IN[entry];
+    LARIAT_ATTACK_FRAMES[entry] = 0;
+    LARIAT_FRAMES[entry] = 0;
+    LARIAT_LOGGED[entry] = 0;
+    LARIAT_OFF_MIN[entry] = f32::MAX;
+    LARIAT_OFF_MAX[entry] = f32::MIN;
+    LARIAT_RATE[entry] = MotionModule::rate(boma);
+    LARIAT_HIT[entry] = false;
+    LARIAT_HIT_OFF[entry] = f32::NAN;
+    crate::telemetry::sink::diag(format!(
+        "[rat] SLAM p{entry} ENTER -- victim {}",
+        match v {
+            Some((id, off, dy, d)) => format!("{id:#x} off=({off:.2},{dy:.2}) vdmg={d:.1}"),
+            None => "NONE".to_string(),
+        }
+    ));
+}
+
 unsafe extern "C" fn shoulder_main(fighter: &mut L2CFighterCommon) -> L2CValue {
     let boma = fighter.module_accessor;
+    shoulder_begin(boma, entry_of(boma));
     if fighter.global_table[0x16] == *SITUATION_KIND_GROUND {
         GroundModule::correct(boma, GroundCorrectKind(*GROUND_CORRECT_KIND_GROUND_CLIFF_STOP));
         MotionModule::change_motion(
@@ -1381,6 +1412,9 @@ unsafe fn shoulder_end_body(fighter: &mut L2CFighterCommon, line: &str) -> L2CVa
     if !end_line_first(fighter, line) {
         return false.into();
     }
+    // Before `whip_release`, for the same reason the lariat's verdict is: the release tears the
+    // link down and the victim becomes unreadable, and their damage is the whole test.
+    lariat_verdict(fighter.module_accessor, entry_of(fighter.module_accessor));
     whip_release(fighter);
     false.into()
 }
@@ -1438,6 +1472,20 @@ unsafe extern "C" fn shoulder_exit(f: &mut L2CFighterCommon) -> L2CValue {
 const LARIAT_LINES: i32 = 14;
 
 static mut LARIAT_ACTIVE: [bool; 8] = [false; 8];
+/// Which follow-up is being instrumented, so the same three functions serve both.
+///
+/// THE BODY SLAM NEEDS THE SAME TREATMENT AS THE LARIAT AND FOR THE SAME REASON. "the early
+/// timing which sends the opponent up seems to go too fast, like it has no hitstun during the
+/// hit" -- and the ACMD is not the cause. Its ATTACK carries a hitlag multiplier of 0.4, which is
+/// a REDUCED freeze and would feel precisely like that, except `tools/check-acmd-values.sh`
+/// verifies all 3594 non-geometric args against the source and passes: 0.4 is Incineroar's own
+/// number, so the script is right.
+///
+/// What is left is the victim's STATE when the hit lands. A captured object does not take a
+/// normal reaction, so a slam that connects while the capture is still up would launch them with
+/// no hitlag at all -- which is the complaint, stated as a mechanism. `vst`, `cap` and `link` on
+/// the frame the damage rises are what answer it, and those columns already exist for the lariat.
+static mut FOLLOWUP_TAG: [&str; 8] = ["LARIAT"; 8];
 static mut LARIAT_VICTIM: [u32; 8] = [0; 8];
 static mut LARIAT_VDMG_IN: [f32; 8] = [0.0; 8];
 static mut LARIAT_ATTACK_FRAMES: [i32; 8] = [0; 8];
@@ -1520,6 +1568,7 @@ unsafe fn lariat_begin(
     if entry >= 8 {
         return;
     }
+    FOLLOWUP_TAG[entry] = "LARIAT";
     let v = lariat_victim(boma);
     LARIAT_ACTIVE[entry] = true;
     LARIAT_VICTIM[entry] = v.map_or(*BATTLE_OBJECT_ID_INVALID as u32, |(id, _, _, _)| id);
@@ -1543,8 +1592,9 @@ unsafe fn lariat_begin(
         ""
     };
     crate::telemetry::sink::diag(format!(
-        "[rat] LARIAT p{entry} ENTER rate={rate:.3} from {lo:.2}+({hi:.2}-{lo:.2})*t, t={t:.3} \
+        "[rat] {} p{entry} ENTER rate={rate:.3} from {lo:.2}+({hi:.2}-{lo:.2})*t, t={t:.3} \
          (dist={:.2} len={len:.2}, push={push:.2} area_hit={area_hit:.2}){warn} -- victim {who}",
+        FOLLOWUP_TAG[entry],
         (push - area_hit).abs(),
     ));
 }
@@ -1647,8 +1697,9 @@ unsafe fn lariat_frame(boma: *mut BattleObjectModuleAccessor, entry: usize) {
     // way. `moved x +2.69` for the whole motion does not reconcile with ~1.1 per frame of closing
     // either, which is the contradiction these two columns exist to settle.
     crate::telemetry::sink::diag(format!(
-        "[rat] LARIAT p{entry} f{:.1} rate={:.2} attack={live} link={} cap={} \
+        "[rat] {} p{entry} f{:.1} rate={:.2} attack={live} link={} cap={} \
          pika_x={:.2} lr={:.0} {where_}",
+        FOLLOWUP_TAG[entry],
         MotionModule::frame(boma),
         MotionModule::rate(boma),
         LinkModule::is_link(boma, *LINK_NO_CAPTURE),
@@ -1682,8 +1733,9 @@ unsafe fn lariat_verdict(boma: *mut BattleObjectModuleAccessor, entry: usize) {
         format!("{:.2}..{:.2}", LARIAT_OFF_MIN[entry], LARIAT_OFF_MAX[entry])
     };
     crate::telemetry::sink::diag(format!(
-        "[rat] LARIAT p{entry} VERDICT {verdict} rate={:.3} hit_off={} -- victim {:#x} \
+        "[rat] {} p{entry} VERDICT {verdict} rate={:.3} hit_off={} -- victim {:#x} \
          vdmg {was:.1} -> {now:.1}, {} frame(s), hitbox live on {} of them, off ranged {span}",
+        FOLLOWUP_TAG[entry],
         LARIAT_RATE[entry],
         if LARIAT_HIT_OFF[entry].is_nan() {
             "-".to_string()
@@ -2077,8 +2129,10 @@ unsafe fn whip_followup_loop(fighter: &mut L2CFighterCommon) -> L2CValue {
     // and runs at full speed from there. The hit itself always lands at the same point of the
     // animation however late the input was; only the approach stretches. `LARIAT_HIT_FRAME` is
     // already set to 9.0 by this moveset's own ACMD, so the value was there the whole time.
-    if status == RAT_STATUS_KIND_SPECIAL_S_LARIAT {
+    if status == RAT_STATUS_KIND_SPECIAL_S_LARIAT || status == RAT_STATUS_KIND_SPECIAL_S_SHOULDER {
         lariat_frame(boma, entry_of(boma));
+    }
+    if status == RAT_STATUS_KIND_SPECIAL_S_LARIAT {
         let rate = MotionModule::rate(boma);
         if rate != 1.0 {
             let target = WorkModule::get_float(
