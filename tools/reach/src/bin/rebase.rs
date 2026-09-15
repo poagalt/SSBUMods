@@ -46,9 +46,37 @@
 // usage: rebase <plugin-src-dir> <skeleton-json> <anim-json-dir>
 use std::collections::HashMap;
 
-/// Which grafted bone to rebase onto what. Two entries because the graft is two bones;
-/// `tools/check-bones.sh` fails the build if a third appears.
-const REBASE: &[(&str, &str)] = &[("Sword1", "HaveR"), ("Stick", "HaveR")];
+/// Which grafted bone to rebase onto what. EMPTY, AND THE EVIDENCE BELOW IS WHY.
+///
+/// THIS PASS WAS THE ERROR IT WAS TRYING TO FIX. It moved Chrom's jab and Palutena's n-air
+/// hitboxes off `Sword1`/`Stick` onto `HaveR`, on the header's premise that a grafted bone is not
+/// in the runtime transform chain. Measured with the project's own tools:
+///
+///     hbtrace, hitboxes on `stick`, Pikachu's skeleton + Palutena's animation:
+///         96 active hitbox-frames, deviation 0.00 on every one
+///     check-hitboxes.sh, the SHIPPED script after this pass rebased them to `haver`:
+///         nair_palutena is 18.53 world units off
+///
+/// The rebase introduced all 18.53 units. With this table empty the same check reads 0.00, and no
+/// other move moves: 38 moves, 460 hitbox-frames, all within 0.05 of the source.
+///
+/// WHY THE PREMISE WAS WRONG. `Stick`'s parent is `HaveR` and the dropped-in animation drives
+/// `HaveR`, `HandR`, `HandL` and `Stick` alike, so the whole chain is animation-driven and lands
+/// exactly where the source puts it -- which is what `tools/add-bones.sh:15` said all along:
+/// "Both are animated in their source animation, so once the bone exists the dropped-in animation
+/// drives it and the hitbox is exact." Two tools in this repo contradicted each other and the
+/// wrong one won.
+///
+/// AND THE PLAYTEST SETTLES IT INDEPENDENTLY. The grafted staff mesh is RIGID on `Stick`, and it
+/// visibly sweeps during n-air. A bone outside the runtime transform chain cannot move a mesh
+/// bound to it. Whatever `telemetry::mirror_probe` was reading -- quoted in the header above, and
+/// the whole basis for this pass -- it was not the transform the renderer uses.
+///
+/// KEPT RATHER THAN DELETED because the machinery is correct for a bone the animation genuinely
+/// does NOT drive: it reads the transform per frame out of the shipped `.nuanmb` and falls back to
+/// the skeleton's bind. If such a case appears, one entry here handles it. What must not happen
+/// again is rebasing a bone the animation already drives.
+const REBASE: &[(&str, &str)] = &[];
 
 #[derive(Clone, Copy)]
 struct M34 {

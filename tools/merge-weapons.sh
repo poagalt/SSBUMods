@@ -50,7 +50,7 @@ WORK="$ROOT/work/weapons"
 # work/arc-weapons/, because the four weapons past Chrom were pulled from the running game by
 # `tools/arc-fetch.sh` and only Chrom's was in the original extraction.
 TABLE="
-chrom_sword|chrom/model/sword|fal_RShape|pasted__met_chrom_001|Sword1|HaveR|0,0,4.5|7.0
+chrom_sword|chrom/model/sword|fal_RShape|pasted__met_chrom_001|Sword|HaveR|0,0,4.5|7.0
 cloud_sword|cloud/model/fusionsword|fusionsword1_VIS_O_OBJShape|def_cloud_004|fusionsword1|HaveR|0,6.26053,0|10.0666
 mythra_sword|elight/model/esword|lightsword_VIS_O_OBJShape|alp_light_002|Sword1|HaveR|0,0,4.29851|6.57543
 palutena_staff|palutena/model/body|staff_group_VIS_O_OBJShape|metal_palutena_002_a|Stick|HaveR|0.0275341,-0.65733,0.0205462|10.1638
@@ -139,12 +139,39 @@ while IFS='|' read -r name dir mesh material bone parent sphere radius; do
     # Not in the SOURCE skeleton: chrom's table bone is `Sword1` and his sword MODEL only carries
     # `HaveR` and `Sword` -- `Sword1` lives in his BODY skeleton, which add-bones.sh supplies from
     # work/fk/chrom_skel.json. The mesh binds to the name either way.
-    jq --argjson anchor "$pidx" --arg b "$bone" --slurpfile sk src_nusktb.json '
-      if ([.bones[].name] | index($b)) != null then .
-      elif ([$sk[0].bones[].name] | index($b)) == null then .
-      else .bones += [ ( $sk[0].bones[] | select(.name == $b)
-                         | .parent_index = $anchor ) ]
-      end
+    # THE GRAFT SET IS THE TABLE'S BONE PLUS EVERY BONE THE MESH'S INFLUENCES NAME, walked in
+    # SOURCE SKELETON ORDER so a parent is always appended before its children. Bare names, because
+    # the dropped-in animation drives bones BY NAME -- see the note below the table.
+    #
+    # A SKINNED GRAFT IS FINE, and believing otherwise cost Mythra's sword. Her
+    # `lightsword_VIS_O_OBJShape` is weighted 672 vertices to Sword1 and 32 each to Sword_lightC
+    # and Sword_lightD. I forced every graft rigid on the theory that a skinned mesh needs a
+    # runtime matrix palette entry for bones that are not in the transform chain -- reasoned from
+    # rebase.rs's proof that grafted bones are not in that chain, and motivated by a load hang that
+    # turned out to be `share-to-added` instead. Forcing it rigid reinterprets model-space vertices
+    # as bone-local and collapses the blade: "Mythra sword doesn't appear, but if I go
+    # frame-by-frame I can see very small slivers where the middle of the sword would be".
+    #
+    # So the weights are left alone and the bones they name are grafted. Two skips: already in the
+    # skeleton (same bone by name, leave it), and absent from the SOURCE skeleton -- chrom's table
+    # bone is `Sword1` and his sword MODEL carries only `HaveR` and `Sword`, because `Sword1` lives
+    # in his BODY skeleton and `add-bones.sh` supplies it.
+    jq --argjson anchor "$pidx" --arg m "$mesh" --arg b "$bone" \
+       --slurpfile sm src_numshb.json --slurpfile sk src_nusktb.json '
+      . as $doc
+      | ( ( [ $sm[0].objects[] | select(.name == $m) ][0].bone_influences // [] )
+          | map(.bone_name) ) + [$b]
+      | unique as $want
+      | [ $sk[0].bones[] | select(.name | IN($want[])) ] as $graft
+      | reduce $graft[] as $g ($doc;
+          if ([.bones[].name] | index($g.name)) != null then .
+          else
+            ( if ($g.parent_index == null or $g.parent_index < 0) then ""
+              else ($sk[0].bones[$g.parent_index].name // "") end ) as $pname
+            | ( [.bones[].name] | index($pname) ) as $found
+            | .bones += [ $g | .parent_index = (if $found == null then $anchor else $found end) ]
+          end
+        )
     ' cur_nusktb.json > next_nusktb.json
 
     # ONE BONE, AND THE MESH IS FORCED RIGID ONTO IT. That is the documented technique -- episode
@@ -166,12 +193,21 @@ while IFS='|' read -r name dir mesh material bone parent sphere radius; do
     # SUBINDEX 0 ONLY. Several of these meshes appear more than once under one name -- Mythra's has
     # four and Palutena's staff two, which are the game's own LOD and variant slots. Taking the
     # first is what `set_mesh_visibility` can address by name and is the highest-detail one.
+    # SUBINDEX 0 ONLY. Several of these meshes appear more than once under one name -- Mythra's has
+    # four and Palutena's staff two, the game's own LOD and variant slots. The first is what
+    # `set_mesh_visibility` can address by name and is the highest-detail one.
+    #
+    # `parent_bone_name` is overridden ONLY for a rigid mesh, and it has to be: chrom's source mesh
+    # single-binds to `Sword`, which no animation drives, while the table names `Sword1`, which his
+    # jab animates. A SKINNED mesh keeps its own weights and an empty parent, which is how the game
+    # authored it.
     jq --arg n "$name" --arg m "$mesh" --arg pb "$bone" --slurpfile s src_numshb.json '
-      .objects += [ ( [ $s[0].objects[] | select(.name == $m) ][0]
-                      | .name = $n
-                      | .subindex = 0
-                      | .parent_bone_name = $pb
-                      | .bone_influences = [] ) ]
+      ( [ $s[0].objects[] | select(.name == $m) ][0] ) as $o
+      | .objects += [ $o
+          | .name = $n
+          | .subindex = 0
+          | .parent_bone_name = ( if (($o.bone_influences // []) | length) == 0 then $pb
+                                  else ($o.parent_bone_name // "") end ) ]
     ' cur_numshb.json > next_numshb.json
     jq --arg n "$name" --arg m "$material" '
       .entries += [{ mesh_object_name: $n, mesh_object_subindex: 0, material_label: $m }]
