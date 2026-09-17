@@ -161,6 +161,14 @@ fn main() {
     // So every call we KEEP must appear in the source, identically, in order. Drops are free;
     // changes and inventions are not.
     let rebased = a.iter().any(|x| x == "--rebased");
+    // `--bone-alias from=to`, repeatable. See the note at the comparison below.
+    let aliases: Vec<(String, String)> = a
+        .iter()
+        .enumerate()
+        .filter(|(_, x)| *x == "--bone-alias")
+        .filter_map(|(i, _)| a.get(i + 1))
+        .filter_map(|p| p.split_once('=').map(|(f, t)| (f.to_string(), t.to_string())))
+        .collect();
     if a.iter().any(|x| x == "--subset") {
         let mut si = 0usize;
         let mut dropped = 0usize;
@@ -250,7 +258,22 @@ fn main() {
                 continue;
             }
             checked += 1;
-            if sv != ov {
+            // A BONE ALIAS IS A NAMED EQUIVALENCE, NOT A SKIPPED ARGUMENT.
+            //
+            // `--rebased` above drops the bone check entirely, which is the right shape when the
+            // offsets were rotated onto a different bone and the anchor is no longer comparable.
+            // A REALISED bone is a different situation: `tools/add-bones.sh` reparents the vanilla
+            // `HaveL` under `HaveR` and gives it Palutena's `Stick` bind transform, and
+            // `rename-stick-track.sh` moves Stick's animation track onto it, so `havel` occupies
+            // Stick's frame exactly and the offsets are UNCHANGED. The anchor is still fully
+            // comparable -- it just has another name.
+            //
+            // So this accepts exactly the pairs it was told about and nothing else. Anchoring a
+            // ported hitbox to the wrong bone is one of the most damaging errors possible and this
+            // check is the only thing that would catch it, so the exemption is one substitution
+            // wide rather than one argument wide. `check-acmd-values.sh` derives the pairs from
+            // merge-weapons.sh's `realise` column, so they cannot drift from what the merge did.
+            if sv != ov && !aliased(sv, ov, &aliases) {
                 println!("  call {i} {sc} arg {n}: source {sv} vs ours {ov}");
                 bad += 1;
             }
@@ -261,4 +284,16 @@ fn main() {
     if bad > 0 {
         std::process::exit(1);
     }
+}
+
+/// True when `sv` and `ov` differ ONLY by a declared bone realisation.
+///
+/// Both sides are compared as whole argument strings, so this matches
+/// `Hash40::new("stick")` against `Hash40::new("havel")` and nothing looser -- a substring test
+/// would also accept `Hash40::new("stick2")`, and a bone one character off is exactly the error
+/// this check exists to catch.
+fn aliased(sv: &str, ov: &str, aliases: &[(String, String)]) -> bool {
+    aliases.iter().any(|(from, to)| {
+        sv == format!("Hash40::new(\"{from}\")") && ov == format!("Hash40::new(\"{to}\")")
+    })
 }

@@ -58,9 +58,56 @@ while IFS='|' read -r bone src why; do
     added=$((added+1))
 done <<< "$WANT"
 
+# ==== REPURPOSE `HaveL` AS PALUTENA'S `Stick`, BECAUSE A GRAFTED BONE IS NOT DRIVEN AT RUNTIME ====
+#
+# Everything above grafts bones and it is now known not to be enough. `telemetry::mirror_probe`
+# logs two controls: `handr`, a vanilla bone, reads IDENTICALLY in both facings on every frame --
+# so the pose is the same and the probe is sound -- while `stick` and `sword` differ between
+# facings in all three components including Y, which no facing can change. And `sword2`, a bone
+# the animation drives and this mod never grafts, returns the exact negation of `haver_from_top`,
+# which is the fighter origin: a missing bone does not fail, it returns the origin, and appended
+# bones read like memory past the end of an array sized for Pikachu's vanilla bone count.
+#
+# Playtest, after the meshes were baked onto `HaveR`: "the facing left problem remains for all
+# three attacks" and "palutena nair isn't animated correctly and has wrong hitbox".
+#
+# Four weapons stopped needing a grafted bone when `merge-weapons.sh` began baking them. Palutena
+# cannot be baked: her HAND is nearly static from frame 6 (x 2.7-3.4, y 15-15.9 in the probe) while
+# the staff traces a full circle, so the sweep is entirely `Stick`'s own 65-keyframe track.
+#
+# So give the track a bone the runtime owns. `HaveL` is reparented under `HaveR` and given Stick's
+# bind transform, which makes it occupy Stick's frame exactly; `gen-stick-track.sh` renames the
+# shipped animation's `Stick` node onto it; `merge-weapons.sh` binds the staff mesh there via the
+# table's `realise` column; and `bone-remap.sed` repoints the hitboxes, with NO transform, because
+# the frames coincide by construction. That last part is why the remap is lossless now -- it was
+# emptied for being lossy, and it was lossy only because it mapped to `haver` and threw away
+# Stick's [0,-2.2,0].
+#
+# WHY `HaveL` IS SAFE, checked rather than assumed: nothing in the shipped model is weighted to it
+# (nor to `HaveR`), it is a LEAF with no children, and its only job is holding a left-hand item.
+# The cost is that an item in the left hand would follow the right hand instead. This moveset never
+# puts one there, and no mesh moving means the change is invisible otherwise.
+STICKSRC="$ROOT/work/fk/palutena_skel.json"
+if [ -f "$STICKSRC" ]; then
+    hidx=$(jq '[.bones|to_entries[]|select(.value.name=="HaveR")][0].key' "$W/out.json")
+    before=$(jq -r '(.bones|to_entries) as $bs | $bs[] | select(.value.name=="HaveL")
+                    | $bs[.value.parent_index].value.name' "$W/out.json")
+    jq --argjson p "$hidx" --slurpfile s "$STICKSRC" '
+      ( [ $s[0].bones[] | select(.name == "Stick") ][0].transform ) as $st
+      | .bones = [ .bones[]
+          | if .name == "HaveL" then (.parent_index = $p | .transform = $st) else . end ]
+    ' "$W/out.json" > "$W/next.json" && mv "$W/next.json" "$W/out.json"
+    after=$(jq -r '(.bones|to_entries) as $bs | $bs[] | select(.value.name=="HaveL")
+                   | $bs[.value.parent_index].value.name' "$W/out.json")
+    echo "  ~ HaveL reparented $before -> $after, bind transform taken from palutena Stick"
+    added=$((added+1))
+else
+    echo "  !! no $STICKSRC -- HaveL NOT repurposed, Palutena's staff will ride a grafted bone" >&2
+fi
+
 if [ "$added" -gt 0 ]; then
     "$T" "$W/out.json" "$SKEL" >/dev/null
-    echo "add-bones: $added added, skeleton now $(jq '.bones|length' "$W/out.json") bones"
+    echo "add-bones: $added change(s), skeleton now $(jq '.bones|length' "$W/out.json") bones"
 else
     echo "add-bones: nothing to do ($(jq '.bones|length' "$W/out.json") bones)"
 fi

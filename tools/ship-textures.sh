@@ -60,7 +60,7 @@ rm -rf "$W"; mkdir -p "$W"
 "$T" "$MODEL/model.numatb" "$W/matl.json" >/dev/null 2>&1
 
 shipped=0; skipped=0; missing=""
-while IFS='|' read -r name dir mesh material bone parent sphere radius; do
+while IFS='|' read -r name dir mesh material bone parent sphere radius realise; do
     case "${name:-}" in '' | \#*) continue ;; esac
 
     # BOTH ROOTS ARE SEARCHED FOR EVERY FILE, not one root chosen per weapon. The model

@@ -52,7 +52,27 @@ while read -r f acmd fn stem mod label; do
            && grep -qx "$fn" "$ROOT/work/rebase/rebased.txt" 2>/dev/null; then
             reb="--rebased"
         fi
-        out=$("$P" "$src" "${kind}_$fn" "$S/$mod/mod.rs" "pikachu_${kind}_$fn" $subset $reb 2>&1)
+        # A REALISED BONE IS A RENAME, NOT A REBASE, so it gets a named equivalence instead of a
+        # skipped argument.
+        #
+        # `tools/add-bones.sh` reparents the vanilla `HaveL` under `HaveR` and gives it Palutena's
+        # `Stick` bind transform; `tools/rename-stick-track.sh` moves Stick's animation track onto
+        # it. `havel` therefore occupies Stick's frame exactly and the hitbox OFFSETS are
+        # unchanged, so the anchor is still fully comparable -- it just has a different name.
+        # `--rebased` would drop the bone check for the whole script; `--bone-alias` accepts one
+        # substitution and still catches every other bone error, which matters because a ported
+        # hitbox on the wrong bone is the most damaging thing this check exists to find.
+        #
+        # Derived from merge-weapons.sh's `realise` column, so it cannot disagree with what the
+        # merge and the skeleton actually did.
+        alias_args=""
+        while IFS='|' read -r _n _d _m _mat wbone _p _s _r wreal; do
+            [ -z "${wreal:-}" ] && continue
+            lf=$(printf '%s' "$wbone" | tr 'A-Z' 'a-z')
+            lt=$(printf '%s' "$wreal" | tr 'A-Z' 'a-z')
+            alias_args="$alias_args --bone-alias $lf=$lt"
+        done < <(awk -F'|' '/^[a-z_]+\|/' "$ROOT/tools/merge-weapons.sh")
+        out=$("$P" "$src" "${kind}_$fn" "$S/$mod/mod.rs" "pikachu_${kind}_$fn" $subset $reb $alias_args 2>&1)
         rc=$?
         [ "$kind" = "game" ] && moves=$((moves+1))
         if [ "$kind" = "game" ]; then

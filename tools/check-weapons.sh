@@ -66,7 +66,7 @@ else
     "$T" "$MODEL/model.numdlb"  "$W/modl.json" >/dev/null 2>&1
     "$T" "$MODEL/model.numatb"  "$W/matl.json" >/dev/null 2>&1
     "$T" "$MODEL/model.numshexb" "$W/mx.json"  >/dev/null 2>&1
-    while IFS='|' read -r name dir mesh material bone parent sphere radius; do
+    while IFS='|' read -r name dir mesh material bone parent sphere radius realise; do
         case "${name:-}" in '' | \#*) continue ;; esac
         miss=""
         jq -e --arg n "$name" '[.objects[].name]|index($n)'            "$W/mesh.json" >/dev/null || miss="$miss mesh"
@@ -139,7 +139,7 @@ if [ -f "$MODEL/model.numshb" ]; then
     # "0\n0\n0", which is not equal to "0", so every multi-subindex weapon fell into the SKINNED
     # branch and failed a test written for a mesh that has weights. Rigid and skinned subindices
     # can both exist under one name, so each is checked on its own.
-    while IFS='|' read -r name dir mesh material bone parent sphere radius; do
+    while IFS='|' read -r name dir mesh material bone parent sphere radius realise; do
         case "${name:-}" in '' | \#*) continue ;; esac
         nsub=$(jq -r --arg n "$name" '[.objects[]|select(.name==$n)]|length' "$W/mesh.json" 2>/dev/null | tr -d "$CR")
         if [ "${nsub:-0}" = "0" ]; then
@@ -179,10 +179,15 @@ if [ -f "$MODEL/model.numshb" ]; then
                 [ "$pb" = "HaveR" ] || bad="$bad ${name}#${i}:unanimated-so-should-bake-to-HaveR-but-is-${pb:-none}"
                 [ "${nin:-0}" = "0" ] || bad="$bad ${name}#${i}:baked-but-still-has-${nin}-influence(s)"
             elif [ "${nin:-0}" = "0" ]; then
-                # RIGID AND ANIMATED: the single bind must be the table's bone.
+                # RIGID AND ANIMATED: the single bind must be the bone the mesh is REALISED on --
+                # the table's `realise` column where it has one, the source bone otherwise. For
+                # Palutena that is the vanilla `HaveL`, which `add-bones.sh` has put in Stick's
+                # exact frame, so binding there is the same geometry on a bone the runtime owns.
+                # The block above asserts the two frames really do coincide.
+                expect="${realise:-$bone}"
                 pb=$(jq -r --arg n "$name" --argjson i "$i" \
                      '[.objects[]|select(.name==$n)][$i]|.parent_bone_name' "$W/mesh.json" 2>/dev/null | tr -d "$CR")
-                [ "$pb" = "$bone" ] || bad="$bad ${name}#${i}:rigid-bound-to-${pb:-none}-not-${bone}"
+                [ "$pb" = "$expect" ] || bad="$bad ${name}#${i}:rigid-bound-to-${pb:-none}-not-${expect}"
             else
                 # SKINNED: no parent bone, and the table's bone must be one of its influences.
                 jq -e --arg n "$name" --argjson i "$i" --arg b "$bone" \
@@ -201,6 +206,116 @@ if [ -f "$MODEL/model.numshb" ]; then
         echo "  ok  every mesh binds to its table bone, and every one is in the skeleton"
     fi
 fi
+echo; echo "== a realised bone occupies its source bone's frame, everywhere =="
+# THE FOUR THINGS THAT HAVE TO AGREE FOR A LOSSLESS REMAP, AND ANY ONE OF THEM ALONE IS A BUG.
+#
+# Palutena's staff cannot be baked onto `HaveR` -- the probe shows her hand nearly static from
+# frame 6 while the staff traces a full circle, so the sweep is entirely `Stick`'s 65-keyframe
+# track -- and a grafted `Stick` is not reliably driven at runtime. So the vanilla `HaveL` is
+# REPURPOSED to occupy Stick's frame: reparented under `HaveR` with Stick's bind transform
+# (add-bones.sh), handed Stick's animation track (rename-stick-track.sh), given the mesh
+# (merge-weapons.sh's `realise` column) and given the hitboxes (bone-remap.sed).
+#
+# That is four files agreeing about one fact, which is exactly the shape this project keeps paying
+# for. If the reparent lands but the track does not, the staff freezes at bind pose. If the track
+# lands but the reparent does not, it sweeps relative to the WRONG HAND. If the mesh moves but the
+# hitboxes do not, the visual and the hurtbox separate. So all four are asserted here.
+while IFS='|' read -r name dir mesh material bone parent sphere radius realise; do
+    case "${name:-}" in '' | \#*) continue ;; esac
+    [ -z "${realise:-}" ] && continue
+    fighter="${dir%%/*}"
+    src="work/fk/${fighter}_skel.json"
+    [ -f "$src" ] || { echo "  ..  $name: no $src, cannot verify the realised bind"; continue; }
+
+    # 1. the realised bone hangs off the same parent the source bone does
+    rp=$(jq -r --arg b "$realise" '(.bones|to_entries) as $bs | $bs[] | select(.value.name==$b)
+          | $bs[.value.parent_index].value.name' "$W/bone.json" 2>/dev/null | tr -d "$CR")
+    [ "$rp" = "$parent" ] \
+      && echo "  ok  $realise is parented to $parent, as $bone is in ${fighter}" \
+      || { echo "  FAIL $realise is parented to ${rp:-none}, not $parent -- rerun tools/add-bones.sh"; rc=1; }
+
+    # 2. and carries the source bone's bind transform, so the frames coincide
+    if jq -e --arg b "$realise" --arg sb "$bone" --slurpfile s "$src" '
+          ( [ $s[0].bones[] | select(.name == $sb) ][0].transform ) as $want
+          | ( [ .bones[] | select(.name == $b) ][0].transform ) as $got
+          | ($want != null) and ($got != null)
+            and ([ range(0;4) as $i | range(0;4) as $j
+                   | (($want[$i][$j] - $got[$i][$j]) | if . < 0 then -. else . end) < 0.0001 ]
+                 | all)
+       ' "$W/bone.json" >/dev/null 2>&1; then
+        echo "  ok  $realise carries ${fighter}'s $bone bind transform"
+    else
+        echo "  FAIL $realise's bind transform is not ${fighter}'s $bone -- the frames do not coincide"; rc=1
+    fi
+
+    # 3. every shipped animation that used to drive the source bone now drives the realised one
+    badanim=""
+    for a in pikachu-moveset/mod/fighter/pikachu/motion/body/c00/*.nuanmb; do
+        [ -f "$a" ] || continue
+        "$T" "$a" "$W/an.json" >/dev/null 2>&1 || continue
+        hs=$(jq -r --arg b "$bone" '[.. | objects | select(.name? == $b)] | length' "$W/an.json" 2>/dev/null | tr -d "$CR")
+        [ "${hs:-0}" != "0" ] && badanim="$badanim $(basename "$a")"
+    done
+    [ -z "$badanim" ] \
+      && echo "  ok  no shipped animation still drives $bone" \
+      || { echo "  FAIL these still drive $bone instead of $realise:$badanim -- rerun tools/rename-stick-track.sh"; rc=1; }
+
+    # 4. and the generated hitboxes point at the realised bone, not the source one
+    lb=$(printf '%s' "$bone" | tr 'A-Z' 'a-z')
+    lr2=$(printf '%s' "$realise" | tr 'A-Z' 'a-z')
+    stale=$(grep -rl "Hash40::new(\"$lb\")" pikachu-moveset/plugin/src 2>/dev/null | tr '\n' ' ')
+    got=$(grep -rl "Hash40::new(\"$lr2\")" pikachu-moveset/plugin/src 2>/dev/null | wc -l)
+    if [ -n "$stale" ]; then
+        echo "  FAIL hitboxes still anchored to \"$lb\" in: $stale -- check tools/bone-remap.sed"; rc=1
+    elif [ "$got" = "0" ]; then
+        echo "  FAIL no hitbox anchors to \"$lr2\" at all -- the remap produced nothing"; rc=1
+    else
+        echo "  ok  hitboxes anchor to \"$lr2\" in $got file(s), and none to \"$lb\""
+    fi
+done < <(awk -F'|' '/^[a-z_]+\|/' tools/merge-weapons.sh)
+
+echo; echo "== every weapon's bounding sphere encloses its own geometry =="
+# THE CULLING VOLUME, AND IT IS WHAT "FACING LEFT" TURNED OUT TO BE.
+#
+# `numshexb`'s bounding sphere is what the renderer culls and sorts against, so a sphere in the
+# wrong place makes a mesh vanish or mis-sort depending on where it sits relative to the view --
+# a bug that shows up swinging one way and not the other. The sphere used to come from
+# merge-weapons.sh's hand-entered `sphere`/`radius` columns, read off each source model in the
+# SOURCE bone's frame, which is not the frame the mesh ends up in:
+#
+#     chrom_sword    declared (0,0,4.5) r7.00   actual (0.03,3.83,-2.11) r>=5.58   WRONG
+#     mythra_sword   declared (0,0,4.3) r6.58   actual (0,4.3,0)         r>=6.58   WRONG, y/z swapped
+#     cloud_sword, corrin_sword, palutena_staff                                    already right
+#
+# The two that were wrong are exactly the two the playtest reported. It is computed from the
+# shipped vertices now, so this gate is the guard rather than the fix: the sphere must still
+# enclose every vertex of every subindex, because the group is keyed by mesh NAME.
+if [ -f "$MODEL/model.numshb" ]; then
+    bad=""
+    while IFS='|' read -r name dir mesh material bone parent sphere radius realise; do
+        case "${name:-}" in '' | \#*) continue ;; esac
+        out=$(jq -r --arg n "$name" '
+          ( [ .mesh_object_groups[] | select(.mesh_object_name==$n) ][0].bounding_sphere ) as $bs
+          | if $bs == null then "nogroup" else
+              ( [ $bs.center.x, $bs.center.y, $bs.center.z, $bs.radius ] | @tsv ) end
+        ' "$W/mx.json" 2>/dev/null | tr -d "$CR")
+        [ "$out" = "nogroup" ] && { bad="$bad ${name}:no-numshexb-group"; continue; }
+        need=$(jq -r --arg n "$name" --argjson bs "$(jq -c --arg n "$name" '[.mesh_object_groups[]|select(.mesh_object_name==$n)][0].bounding_sphere' "$W/mx.json" | tr -d "$CR")" '
+          [ .objects[] | select(.name==$n) | .positions[0].data.Vector3[]
+            | ((.[0]-$bs.center.x)|.*.) + ((.[1]-$bs.center.y)|.*.) + ((.[2]-$bs.center.z)|.*.) ]
+          | max | sqrt' "$W/mesh.json" 2>/dev/null | tr -d "$CR")
+        r=$(printf '%s' "$out" | cut -f4)
+        awk -v r="$r" -v n="$need" 'BEGIN{exit !(r + 0.001 < n)}' \
+            && bad="$bad ${name}:sphere-r=${r}-but-geometry-reaches-${need}"
+    done < <(awk -F'|' '/^[a-z_]+\|/' tools/merge-weapons.sh)
+    if [ -n "$bad" ]; then
+        echo "  FAIL a bounding sphere does not contain its mesh (the renderer will cull it):"
+        printf '       %s\n' $bad; rc=1
+    else
+        echo "  ok  every weapon's sphere encloses all of its subindices"
+    fi
+fi
+
 echo; echo "== no motion shows two weapons at once =="
 # Only what is INSIDE the motion arrays, which is the inverse of the extraction above.
 dupes=$(printf '%s' "$WEAPONS_BLOCK" | tr '\n' ' ' | grep -oE '&\[[^]]*\]' \
@@ -240,7 +355,7 @@ MODELDIR=pikachu-moveset/mod/fighter/pikachu/model/body/c00
 # what is checked.
 "$T" "$MODEL/model.numdlb" "$W/mmodl.json" >/dev/null 2>&1
 "$T" "$MODEL/model.numatb" "$W/mmatl.json" >/dev/null 2>&1
-while IFS='|' read -r name dir mesh material bone parent sphere radius; do
+while IFS='|' read -r name dir mesh material bone parent sphere radius realise; do
     case "${name:-}" in '' | \#*) continue ;; esac
     mats=$(jq -r --arg n "$name" '[.entries[]|select(.mesh_object_name==$n)|.material_label]|unique|.[]' \
            "$W/mmodl.json" 2>/dev/null | tr -d "$CR")

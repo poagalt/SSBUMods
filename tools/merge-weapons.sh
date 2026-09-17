@@ -53,7 +53,7 @@ TABLE="
 chrom_sword|chrom/model/sword|fal_RShape|pasted__met_chrom_001|Sword|HaveR|0,0,4.5|7.0
 cloud_sword|cloud/model/fusionsword|fusionsword1_VIS_O_OBJShape|def_cloud_004|fusionsword1|HaveR|0,6.26053,0|10.0666
 mythra_sword|elight/model/esword|lightsword_VIS_O_OBJShape|alp_light_002|Sword1|HaveR|0,0,4.29851|6.57543
-palutena_staff|palutena/model/body|staff_group_VIS_O_OBJShape|metal_palutena_002_a|Stick|HaveR|0.0275341,-0.65733,0.0205462|10.1638
+palutena_staff|palutena/model/body|staff_group_VIS_O_OBJShape|metal_palutena_002_a|Stick|HaveR|0.0275341,-0.65733,0.0205462|10.1638|HaveL
 corrin_sword|kamui/model/body|Kamui_Weapon_VIS_O_OBJShape|def_sword_001|HaveR|HandR|-0.000500202,5.6193275,-0.0007674639|7.7049875
 "
 
@@ -70,7 +70,7 @@ base_bones=$(jq '.bones | length' cur_nusktb.json)
 base_meshes=$(jq '.objects | length' cur_numshb.json)
 
 printf '%-16s %-9s %-7s %s\n' WEAPON BONE MESH SOURCE
-while IFS='|' read -r name dir mesh material bone parent sphere radius; do
+while IFS='|' read -r name dir mesh material bone parent sphere radius realise; do
     case "${name:-}" in '' | \#*) continue ;; esac
 
     src=""
@@ -315,7 +315,36 @@ while IFS='|' read -r name dir mesh material bone parent sphere radius; do
         [ -n "$BAKEM" ] && [ "$BAKEM" != "null" ] || { echo "$name: cannot compute bake matrix" >&2; exit 1; }
     fi
 
-    jq --arg n "$name" --arg m "$mesh" --arg pb "$bone" --argjson bake "$bake" \
+    # `realise` IS WHERE THE BONE ACTUALLY LIVES ON PIKACHU, AND IT EXISTS BECAUSE GRAFTED BONES
+    # ARE NOT RELIABLY IN THE RUNTIME TRANSFORM CHAIN.
+    #
+    # Proven by `telemetry::mirror_probe` with two controls in the log. `handr`, a vanilla bone,
+    # reads IDENTICALLY in both facings on every frame -- so the probe's frame math is right and
+    # the pose is the same. Against that, `sword`, `sword1` and `stick` differ between facings in
+    # all three components including Y, which no facing can change, and `sword`/`sword1`/
+    # `fusionsword1` report byte-identical values to each other. And `sword2` -- Chrom's blade tip,
+    # which his animation drives and this mod never grafts -- comes back as the exact NEGATION of
+    # `haver_from_top`, which is algebraically the fighter origin. So a missing bone returns the
+    # origin rather than failing, and appended bones read like memory past the end of an array
+    # sized for Pikachu's vanilla bone count.
+    #
+    # Four of the five weapons no longer care, because the bake above puts them on `HaveR`.
+    # Palutena's staff cannot be baked -- her hand is nearly static from frame 6 while the staff
+    # traces a full circle, so the sweep IS `Stick`'s own track -- so instead `add-bones.sh`
+    # REPURPOSES the vanilla `HaveL`: reparents it under `HaveR` and gives it Stick's bind
+    # transform, and the shipped animation's `Stick` track is renamed onto it. `HaveL` then
+    # occupies exactly Stick's frame, on a bone the runtime owns.
+    #
+    # That makes the rename LOSSLESS, which is why `tools/bone-remap.sed` can do the hitbox side
+    # with no transform at all -- the thing it was emptied for being unable to do. It was lossy
+    # before because it mapped to `haver` and discarded Stick's [0,-2.2,0]; mapping to a bone that
+    # HAS that offset discards nothing.
+    #
+    # `HaveL` is safe to repurpose: nothing in the shipped model is weighted to it, it is a leaf
+    # with no children, and its only role is as the left-hand item attachment. The cost is that an
+    # item held in the left hand would follow the right, which this moveset never does.
+    bindbone="${realise:-$bone}"
+    jq --arg n "$name" --arg m "$mesh" --arg pb "$bindbone" --argjson bake "$bake" \
        --argjson M "${BAKEM:-null}" --slurpfile s src_numshb.json '
       def pt($v; $M): [ range(0;3) as $j
           | ( reduce range(0;3) as $k (0; . + $v[$k]*$M[$k][$j]) ) + $M[3][$j] ];
@@ -361,11 +390,47 @@ while IFS='|' read -r name dir mesh material bone parent sphere radius; do
         )
     ' cur_numatb.json > next_numatb.json
 
-    cx=${sphere%%,*}; rest=${sphere#*,}; cy=${rest%%,*}; cz=${rest##*,}
-    jq --arg n "$name" --argjson cx "$cx" --argjson cy "$cy" --argjson cz "$cz" \
-       --argjson r "$radius" '
+    # ==== THE BOUNDING SPHERE IS COMPUTED FROM THE SHIPPED GEOMETRY, NOT COPIED FROM A TABLE ====
+    #
+    # THIS IS WHAT "FACING LEFT" WAS. `numshexb`'s bounding sphere is what the renderer CULLS
+    # against, so a sphere in the wrong place makes the mesh vanish or mis-sort depending on where
+    # it happens to be relative to the view -- which is exactly a bug that appears swinging one way
+    # and not the other. Playtest: "chrom's sword still doesn't appear correctly when pikachu jabs
+    # to the left", "mythra's sword doesn't animate correctly when ftilting/dash attacking to the
+    # left", and both of those survived binding the meshes to `HaveR`.
+    #
+    # The `sphere` and `radius` columns were hand-entered from each source model, in the SOURCE
+    # bone's frame -- and the mesh does not end up in that frame. Measured against the actual
+    # shipped vertices:
+    #
+    #     chrom_sword     declared (0,0,4.5)  r7.00   actual (0.03,3.83,-2.11) r>=5.58   WRONG
+    #     mythra_sword    declared (0,0,4.3)  r6.58   actual (0,4.3,0)         r>=6.58   WRONG, y/z swapped
+    #     cloud_sword     declared (0,6.26,0) r10.07  actual (0,6.26,0)        r>=10.06  ok
+    #     corrin_sword    declared (0,5.62,0) r7.70   actual (0,5.60,0)        r>=7.68   ok
+    #     palutena_staff  declared (0.03,-0.66,0.02)  actual the same                    ok
+    #
+    # The two that were wrong are exactly the two the playtest reported; the two that were right
+    # were never mentioned. So it is computed now, over EVERY subindex of the mesh -- the group is
+    # keyed by mesh NAME, so it has to enclose all of them -- and the radius is the true enclosing
+    # radius, the largest distance from the centre to any vertex, not half the longest bbox extent.
+    #
+    # The table columns are left in place because `check-weapons.sh` uses them to assert that the
+    # computed sphere still encloses the geometry, and because they record what the source model
+    # declared. They are no longer the source of truth.
+    SPHERE=$(jq -c --arg n "$name" '
+      [ .objects[] | select(.name == $n) | .positions[0].data.Vector3[] ] as $V
+      | ( [ $V[][0] ] ) as $X | ( [ $V[][1] ] ) as $Y | ( [ $V[][2] ] ) as $Z
+      | { x: (($X|min) + ($X|max)) / 2,
+          y: (($Y|min) + ($Y|max)) / 2,
+          z: (($Z|min) + ($Z|max)) / 2 } as $c
+      | { center: $c,
+          radius: ( [ $V[] | ((.[0]-$c.x)*(.[0]-$c.x) + (.[1]-$c.y)*(.[1]-$c.y) + (.[2]-$c.z)*(.[2]-$c.z)) ] | max | sqrt ) }
+    ' next_numshb.json | tr -d '\r')
+    [ -n "$SPHERE" ] && [ "$SPHERE" != "null" ] || { echo "$name: cannot compute bounding sphere" >&2; exit 1; }
+
+    jq --arg n "$name" --argjson bs "$SPHERE" '
       .mesh_object_groups += [{
-        bounding_sphere: { center: { x: $cx, y: $cy, z: $cz }, radius: $r },
+        bounding_sphere: $bs,
         mesh_object_full_name: $n,
         mesh_object_name: $n,
         entry_flags: [ { draw_model: true, cast_shadow: true } ]

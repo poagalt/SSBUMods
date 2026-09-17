@@ -194,10 +194,25 @@ skipped=0
 #
 # Hashed in ONE batch rather than per file. A `sha1sum` process per file is 86 process spawns on
 # Windows, which is slower than reading the 6.4 MB.
+#
+# THE `*` IS NOT DECORATION, AND MISSING IT MADE THIS WHOLE MECHANISM INERT.
+#
+# `sha1sum` on Git Bash reports in BINARY mode, so it prints `<hash> *<path>` -- the asterisk is
+# the mode marker. The old `sed 's/^\([0-9a-f]*\)  */\1 /'` collapsed the double space and left
+# the asterisk, so `read -r h p` got `p = "*fighter/..."`, every `HASH[$f]` lookup missed, and the
+# signature fell through to its `nohash` default. All 639 manifest entries read `<size>:nohash`.
+#
+# WHAT THAT COST: with no hash, "has this file changed" was decided on SIZE ALONE, so any edit
+# that does not change the byte count was never re-uploaded. That is not a corner case -- it is
+# exactly what editing floats in a binary looks like. It hid the `numshexb` bounding-sphere fix:
+# same 4592 bytes, different sphere centres, card left holding the old file while the local tree
+# and every gate said the fix was in. Found only by pulling the bytes back and comparing md5.
+#
+# `[ *]\?` accepts either mode marker, so this is right in text mode too.
 declare -A HASH=()
 while read -r h p; do
     HASH["$p"]="$h"
-done < <(sha1sum "${FILES[@]}" 2>/dev/null | sed 's/^\([0-9a-f]*\)  */\1 /')
+done < <(sha1sum "${FILES[@]}" 2>/dev/null | sed 's/^\([0-9a-f]\{40\}\) [ *]\?/\1 /')
 declare -A SENT=()
 # SIZES IN ONE `stat`, NOT ONE PER FILE. A process spawn under Git Bash on Windows costs tens of
 # milliseconds, and this loop plus the verifier below were spending about ninety seconds of a
