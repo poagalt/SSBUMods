@@ -64,6 +64,30 @@ cd "$WORK"
 for f in numshb numdlb numatb nusktb numshexb; do
     "$T" "$PIK/model.$f" "cur_$f.json" >/dev/null
 done
+
+# ==== AND `model.nusrcmdlb`, WHICH IS A SECOND MESH LIST THIS TOOL WAS NOT MAINTAINING ====
+#
+# FOUND BY READING A MOD THAT WORKS. "George over diddy kong (GAMEPLAY)" replaces Diddy's body
+# model and mirrors correctly in both facings, and its `model/body/c00` ships `model.numshb`,
+# `model.numdlb`, `model.numatb`, `model.numshexb`, `model.nuhlpb`, `model.xmb` AND
+# `model.nusrcmdlb` -- while conspicuously shipping NO `model.nusktb` at all. This tool shipped
+# five files and not that one.
+#
+# `nusrcmdlb` is a MODL file: same `HBSS`/`LDOM` magic as `.numdlb`, and `ssbh_data_json` parses it
+# once the extension says so. Pikachu's has FORTY entries, one per mesh object with its material --
+# `CameraHit_VIS_O_OBJShape` appears three times, once per subindex, exactly as in `numdlb`. Our
+# `numdlb` has fifty-one.
+#
+# So the shipped model had a per-mesh table ELEVEN ENTRIES SHORT, with vanilla's copy being read
+# against a mesh list we had grown. That is the same shape as the `entry_flags` defect fixed just
+# before it, and per-mesh state read past the end of an array is exactly the kind of fault that
+# behaves differently in one view than another.
+#
+# `ssbh_data_json` dispatches on the file EXTENSION, so the round trip goes through a `.numdlb`
+# name in the work directory and is renamed on the way out.
+cp "$PIK/model.nusrcmdlb" "src_as.numdlb"
+"$T" "src_as.numdlb" "cur_nusrcmdlb.json" >/dev/null
+base_srcmdl=$(jq '.entries | length' cur_nusrcmdlb.json)
 cp "$PIK/model.adjb" "$OUT/model.adjb"
 
 base_bones=$(jq '.bones | length' cur_nusktb.json)
@@ -162,59 +186,25 @@ while IFS='|' read -r name dir mesh material bone parent sphere radius realise; 
     # sub 2 (the 6,876-vertex bulk of the blade) needs nine: Sword1 plus Sword_lightA, B, C, D,
     # E1, E2, F1, F2. Taking sub 0's three left six of the nine ungrafted, so even the bones the
     # grafted geometry was weighted to were missing.
-    jq --argjson anchor "$pidx" --arg m "$mesh" --arg b "$bone" \
-       --slurpfile sm src_numshb.json --slurpfile sk src_nusktb.json '
-      . as $doc
-      | ( ( [ $sm[0].objects[] | select(.name == $m) | (.bone_influences // [])[] | .bone_name ] )
-          + [$b] )
-      | unique as $want
-      | [ $sk[0].bones[] | select(.name | IN($want[])) ] as $graft
-      | reduce $graft[] as $g ($doc;
-          if ([.bones[].name] | index($g.name)) != null then .
-          else
-            ( if ($g.parent_index == null or $g.parent_index < 0) then ""
-              else ($sk[0].bones[$g.parent_index].name // "") end ) as $pname
-            | ( [.bones[].name] | index($pname) ) as $found
-            | .bones += [ $g | .parent_index = (if $found == null then $anchor else $found end) ]
-          end
-        )
-    ' cur_nusktb.json > next_nusktb.json
-
-    # EVERY SUBINDEX IS GRAFTED, AND TAKING ONLY THE FIRST WAS THE BUG.
+    # NO BONE IS GRAFTED ANY MORE, AND THAT IS THE POINT.
     #
-    # This block used to say "SUBINDEX 0 ONLY ... the game's own LOD and variant slots. Taking the
-    # first is what `set_mesh_visibility` can address by name and is the highest-detail one."
-    # Both halves of that are false, and the playtest reports were the two weapons it broke.
+    # Every weapon now renders and hits on a bone Pikachu already owns: four are baked onto
+    # `HaveR`, and Palutena's staff is realised on the vanilla `HaveL`. Nothing references
+    # `Sword`, `Sword1`, `fusionsword1`, `Stick` or the nine `Sword_light*` bones, so grafting them
+    # adds twelve bones that only create risk -- the playtest is consistent that appended bones
+    # misbehave, and `tools/reach/src/bin/rebase.rs` carries the evidence.
     #
-    # THEY ARE NOT LOD SLOTS. LOD is a separate mesh NAME with a `_low` suffix -- the same files
-    # carry `lightsword_lowShape`, `staff_group_lowShape`, `body_lowShape`. Several subindices
-    # under ONE name are MATERIAL SPLITS: one draw call per material, each with its own entry in
-    # `model.numdlb`. Mythra's four are `alp_light_002`, `def_light_004`, `def_light_005`,
-    # `def_light_006`.
+    # IT ALSO REMOVES A COLLISION THIS FILE'S OWN HEADER DOCUMENTS. `add-bones.sh` wants CHROM's
+    # `Sword1` for his jab hitboxes; this tool grafted MYTHRA's, which is a different bone with the
+    # same name, and it ran first while add-bones is idempotent -- so Mythra's won:
     #
-    # AND SUBINDEX 0 IS NOT THE HIGHEST DETAIL. Measured, per subindex, in vertex indices:
+    #     chrom  Sword1  [-0.185,-0.494,-0.85] [-0.983,0.106,0.152] [0.014,0.863,-0.505]
+    #     elight Sword1  [0,1,0]               [-1,0,0]             [0,0,1]
+    #     SHIPPED        [0,1,0]               [-1,0,0]             [0,0,1]   <- Mythra's
     #
-    #     mythra  lightsword_VIS_O_OBJShape   1320 /  936 / 6876 /  912    sub 0 is 13%
-    #     corrin  Kamui_Weapon_VIS_O_OBJShape 11964 /  168 / 2976         sub 0 is 79%
-    #     palutena staff_group_VIS_O_OBJShape  2442 /  684                sub 0 is 78%
-    #     chrom   fal_RShape                  single subindex
-    #     cloud   fusionsword1_VIS_O_OBJShape  single subindex
-    #
-    # That table is the whole diagnosis. The two weapons that worked in game are exactly the two
-    # with one subindex; the two that were reported broken are exactly the two with more, and
-    # 13% of a blade is "Mythra sword doesn't appear, but if I go frame-by-frame I can see very
-    # small slivers where the middle of the sword would be" -- the playtest was describing sub 0.
-    #
-    # THE MATERIALS COME FROM THE SOURCE `numdlb`, NOT FROM THE TABLE. The table's `material`
-    # column can only name one, which is how three of Mythra's four went missing without a word.
-    # It is kept as an ASSERTION against subindex 0 below, so a stale table fails loudly instead
-    # of being quietly overridden.
-    #
-    # `parent_bone_name` is overridden ONLY for a rigid mesh, and it has to be: chrom's source
-    # mesh single-binds to `Sword`, which no animation drives, while the table names `Sword1`,
-    # which his jab animates. A SKINNED mesh keeps its own weights and an empty parent, which is
-    # how the game authored it -- and forcing one rigid reinterprets model-space vertices as
-    # bone-local and collapses the blade.
+    # Harmless while the bone is animated, because the track replaces the bind transform outright,
+    # which is why `check-hitboxes.sh` still measured chrom's jab at 0.00. A latent trap all the
+    # same, and grafting nothing closes it rather than ordering two tools carefully.
     # ==== BIND TO `HaveR` AND BAKE THE BONE OUT, WHENEVER THE BONE IS NOT ANIMATED ====
     #
     # THE EVIDENCE THIS EXISTS FOR. Playtest, with all five swords finally visible: "chrom's sword
@@ -266,6 +256,64 @@ while IFS='|' read -r name dir mesh material bone parent sphere radius realise; 
     done
     bake=0
     if [ "$animated" = "0" ] && [ "$bone" != "HaveR" ]; then bake=1; fi
+
+    if [ "$bake" = "1" ] || [ -n "${realise:-}" ]; then
+        cp cur_nusktb.json next_nusktb.json
+    else
+    jq --argjson anchor "$pidx" --arg m "$mesh" --arg b "$bone" \
+       --slurpfile sm src_numshb.json --slurpfile sk src_nusktb.json '
+      . as $doc
+      | ( ( [ $sm[0].objects[] | select(.name == $m) | (.bone_influences // [])[] | .bone_name ] )
+          + [$b] )
+      | unique as $want
+      | [ $sk[0].bones[] | select(.name | IN($want[])) ] as $graft
+      | reduce $graft[] as $g ($doc;
+          if ([.bones[].name] | index($g.name)) != null then .
+          else
+            ( if ($g.parent_index == null or $g.parent_index < 0) then ""
+              else ($sk[0].bones[$g.parent_index].name // "") end ) as $pname
+            | ( [.bones[].name] | index($pname) ) as $found
+            | .bones += [ $g | .parent_index = (if $found == null then $anchor else $found end) ]
+          end
+        )
+    ' cur_nusktb.json > next_nusktb.json
+    fi
+
+    # EVERY SUBINDEX IS GRAFTED, AND TAKING ONLY THE FIRST WAS THE BUG.
+    #
+    # This block used to say "SUBINDEX 0 ONLY ... the game's own LOD and variant slots. Taking the
+    # first is what `set_mesh_visibility` can address by name and is the highest-detail one."
+    # Both halves of that are false, and the playtest reports were the two weapons it broke.
+    #
+    # THEY ARE NOT LOD SLOTS. LOD is a separate mesh NAME with a `_low` suffix -- the same files
+    # carry `lightsword_lowShape`, `staff_group_lowShape`, `body_lowShape`. Several subindices
+    # under ONE name are MATERIAL SPLITS: one draw call per material, each with its own entry in
+    # `model.numdlb`. Mythra's four are `alp_light_002`, `def_light_004`, `def_light_005`,
+    # `def_light_006`.
+    #
+    # AND SUBINDEX 0 IS NOT THE HIGHEST DETAIL. Measured, per subindex, in vertex indices:
+    #
+    #     mythra  lightsword_VIS_O_OBJShape   1320 /  936 / 6876 /  912    sub 0 is 13%
+    #     corrin  Kamui_Weapon_VIS_O_OBJShape 11964 /  168 / 2976         sub 0 is 79%
+    #     palutena staff_group_VIS_O_OBJShape  2442 /  684                sub 0 is 78%
+    #     chrom   fal_RShape                  single subindex
+    #     cloud   fusionsword1_VIS_O_OBJShape  single subindex
+    #
+    # That table is the whole diagnosis. The two weapons that worked in game are exactly the two
+    # with one subindex; the two that were reported broken are exactly the two with more, and
+    # 13% of a blade is "Mythra sword doesn't appear, but if I go frame-by-frame I can see very
+    # small slivers where the middle of the sword would be" -- the playtest was describing sub 0.
+    #
+    # THE MATERIALS COME FROM THE SOURCE `numdlb`, NOT FROM THE TABLE. The table's `material`
+    # column can only name one, which is how three of Mythra's four went missing without a word.
+    # It is kept as an ASSERTION against subindex 0 below, so a stale table fails loudly instead
+    # of being quietly overridden.
+    #
+    # `parent_bone_name` is overridden ONLY for a rigid mesh, and it has to be: chrom's source
+    # mesh single-binds to `Sword`, which no animation drives, while the table names `Sword1`,
+    # which his jab animates. A SKINNED mesh keeps its own weights and an empty parent, which is
+    # how the game authored it -- and forcing one rigid reinterprets model-space vertices as
+    # bone-local and collapses the blade.
 
     nsub=$(jq --arg m "$mesh" '[.objects[] | select(.name == $m)] | length' src_numshb.json)
     sub0mat=$(jq -r --arg m "$mesh" '
@@ -378,6 +426,15 @@ while IFS='|' read -r name dir mesh material bone parent sphere radius realise; 
       | .entries += [ $es[] | .mesh_object_name = $n ]
     ' cur_numdlb.json > next_numdlb.json
 
+    # THE SAME ENTRIES INTO `nusrcmdlb`, because it is the same kind of list and the game reads
+    # both. Identical filter, different file -- if these two ever disagree the shipped model has a
+    # mesh the source list does not know about, which is the state that shipped for weeks.
+    jq --arg n "$name" --arg m "$mesh" --slurpfile d src_numdlb.json '
+      ( [ $d[0].entries[] | select(.mesh_object_name == $m) ]
+        | sort_by(.mesh_object_subindex) ) as $es
+      | .entries += [ $es[] | .mesh_object_name = $n ]
+    ' cur_nusrcmdlb.json > next_nusrcmdlb.json
+
     # Every material any subindex uses, appended only if Pikachu does not already carry that label
     # -- two weapons from one fighter would otherwise duplicate it and the game rejects duplicate
     # labels. `reduce` because there are now several per weapon and each has to see the result of
@@ -450,13 +507,24 @@ while IFS='|' read -r name dir mesh material bone parent sphere radius realise; 
       }]
     ' cur_numshexb.json > next_numshexb.json
 
-    for f in numshb numdlb numatb nusktb numshexb; do mv "next_$f.json" "cur_$f.json"; done
+    for f in numshb numdlb numatb nusktb numshexb nusrcmdlb; do mv "next_$f.json" "cur_$f.json"; done
     printf '%-16s %-9s %-7s %s\n' "$name" "$bone" "ok" "${src#$ROOT/}"
 done <<< "$TABLE"
 
 for f in numshb numdlb numatb nusktb numshexb; do
     "$T" "cur_$f.json" "$OUT/model.$f" >/dev/null
 done
+# Out through a `.numdlb` name, because ssbh_data_json chooses its writer by extension too.
+"$T" "cur_nusrcmdlb.json" "out_as.numdlb" >/dev/null
+mv -f "out_as.numdlb" "$OUT/model.nusrcmdlb"
+# THE TWO MESH LISTS MUST AGREE, and this is the assertion rather than the hope. A `nusrcmdlb`
+# shorter than `numdlb` is the state that shipped for weeks.
+n_dlb=$(jq '.entries | length' cur_numdlb.json)
+n_src=$(jq '.entries | length' cur_nusrcmdlb.json)
+if [ "$n_dlb" != "$n_src" ]; then
+    echo "REFUSING: numdlb has $n_dlb entries and nusrcmdlb has $n_src -- they describe the same meshes" >&2
+    exit 1
+fi
 
 echo
 echo "skeleton: $(jq '.bones | length' cur_nusktb.json) bones (Pikachu alone has $base_bones)"

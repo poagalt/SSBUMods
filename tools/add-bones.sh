@@ -28,10 +28,22 @@ mkdir -p "$W"
 "$T" "$SKEL" "$W/pika.json" >/dev/null
 
 # bone | source skeleton json | why
-WANT="
-Sword1 | $ROOT/work/fk/chrom_skel.json    | Chrom jab hitboxes ride the sword
-Stick  | $ROOT/work/fk/palutena_skel.json | Palutena n-air hitboxes ride the staff
-"
+#
+# EMPTY, BECAUSE NO HITBOX RIDES A GRAFTED BONE ANY MORE. Chrom's jab is rebased onto `haver` by
+# `tools/reach/src/bin/rebase.rs` -- exact for him, measured 0.00, because `Sword1` does not move
+# relative to the hand across his three live frames -- and Palutena's n-air rides the vanilla
+# `HaveL` that the block at the bottom of this file reparents into `Stick`'s frame.
+#
+# The playtest is what decided it, and it separates the two cases cleanly: "the hitbox on cloud
+# back air is fine both directions (unlike the other swords)". Cloud's ride `haver` and `top`, both
+# vanilla; Chrom's rode `sword1` and Palutena's `stick`, both grafted. A bone Pikachu owns behaves
+# and an appended one does not.
+#
+# Leaving the list here rather than deleting the mechanism: a future port whose hitboxes ride a
+# bone that genuinely cannot be rebased -- one that moves relative to the hand across its live
+# window, the way Palutena's staff does -- would need either a row here or the `realise` treatment,
+# and the second is now the better answer.
+WANT=""
 
 cp "$W/pika.json" "$W/out.json"
 added=0

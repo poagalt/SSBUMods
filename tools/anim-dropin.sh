@@ -68,11 +68,27 @@ PIKA_SCALE=$(awk -F'\t' '$1=="pikachu"{print $3}' "$SCALES")
 # So: keep a track only if the thing it animates exists. Nothing that has any effect is removed,
 # which is what makes this safe to do to all 74 files at once.
 BONES_JSON="$W/pika-bones.json"
+# The realised-bone pairs, from merge-weapons.sh's `realise` column: a source bone that is not
+# in Pikachu's skeleton and the vanilla bone put into its frame instead. `from` is lowercased for
+# matching, `to` keeps the table's spelling, `to_lc` is for dropping the target's own track.
+REALISE_JSON="$W/realise.json"
 MESHES_JSON="$W/pika-meshes.json"
 MODEL="$ROOT/pikachu-moveset/mod/fighter/pikachu/model/body/c00"
 "$T" "$MODEL/model.nusktb" "$W/_skel.json" >/dev/null
 "$T" "$MODEL/model.numshb" "$W/_mesh.json" >/dev/null
 jq -c '[.bones[].name | ascii_downcase] | unique' "$W/_skel.json" > "$BONES_JSON"
+{ printf '['
+  rfirst=1
+  while IFS='|' read -r _n _d _m _mat wbone _p _sp _r wreal; do
+      [ -z "${wreal:-}" ] && continue
+      [ "$rfirst" = 1 ] && rfirst=0 || printf ','
+      printf '{"from":"%s","to":"%s","to_lc":"%s"}' \
+          "$(printf '%s' "$wbone" | tr 'A-Z' 'a-z')" \
+          "$wreal" \
+          "$(printf '%s' "$wreal" | tr 'A-Z' 'a-z')"
+  done < <(awk -F'|' '/^[a-z_]+\|/' "$ROOT/tools/merge-weapons.sh")
+  printf ']'
+} > "$REALISE_JSON"
 jq -c '[.objects[].name | ascii_downcase] | unique' "$W/_mesh.json" > "$MESHES_JSON"
 echo "  pikachu has $(jq -r 'length' "$BONES_JSON") bones and $(jq -r 'length' "$MESHES_JSON") meshes; foreign tracks will be dropped"
 
@@ -306,11 +322,34 @@ while IFS='|' read -r fighter anim neut label; do
         # A Transform group whose nodes all vanish is kept as an empty group rather than removed:
         # the file format allows it, and removing a group changes the group ordering that
         # `Visibility` and `Material` indices are read against.
-        jq -c --slurpfile b "$BONES_JSON" --slurpfile m "$MESHES_JSON" '
-          ($b[0]) as $bones | ($m[0]) as $meshes
+        # A REALISED BONE IS RENAMED BEFORE THE TRIM, NOT AFTER, and doing it after cost a build.
+        #
+        # Palutena's n-air drives `Stick`, a bone Pikachu deliberately does NOT have -- her staff
+        # and its hitboxes ride the vanilla `HaveL`, which `add-bones.sh` reparents under `HaveR`
+        # and gives Stick's bind transform so the two frames coincide exactly. The track therefore
+        # has to move from `Stick` to `HaveL`.
+        #
+        # That started as a separate step AFTER this one, and this trim ate the track first: a
+        # `Stick` track names a bone the skeleton lacks, which is precisely what "foreign" means
+        # here. The rename reported "0 animations repointed", the staff shipped with a
+        # one-keyframe `HaveL` inherited from the source, and `check-hitboxes.sh` caught it as
+        # `nair_palutena is 14.03 world units off`. Renaming inside the same filter, before the
+        # select, is the only ordering that cannot lose it.
+        #
+        # The pairs come from `merge-weapons.sh`'s `realise` column, so they cannot drift from what
+        # the skeleton and the merge actually did. The target's own track is dropped first: the
+        # source has a one-keyframe `HaveL` of its own and two nodes with one name would leave the
+        # engine reading whichever it saw last.
+        jq -c --slurpfile b "$BONES_JSON" --slurpfile m "$MESHES_JSON" --slurpfile r "$REALISE_JSON" '
+          ($b[0]) as $bones | ($m[0]) as $meshes | ($r[0]) as $realise
           | .groups |= map(
               if .group_type == "Transform" then
-                .nodes |= map(select((.name | ascii_downcase) as $n | ($bones | index($n)) != null))
+                .nodes |= ( [ .[] | . as $n
+                              | select(($realise | any(.to_lc == ($n.name | ascii_downcase))) | not) ]
+                            | [ .[] | . as $n
+                                | (($realise | map(select(.from == ($n.name | ascii_downcase))) | first) // null) as $mm
+                                | if $mm != null then ($n | .name = $mm.to) else $n end ] )
+                | .nodes |= map(select((.name | ascii_downcase) as $n | ($bones | index($n)) != null))
               elif .group_type == "Visibility" or .group_type == "Material" then
                 .nodes |= map(select((.name | ascii_downcase) as $n | ($meshes | index($n)) != null))
               else . end

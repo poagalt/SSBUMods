@@ -70,7 +70,15 @@ else
         case "${name:-}" in '' | \#*) continue ;; esac
         miss=""
         jq -e --arg n "$name" '[.objects[].name]|index($n)'            "$W/mesh.json" >/dev/null || miss="$miss mesh"
-        jq -e --arg b "$bone" '[.bones[].name]|index($b)'              "$W/bone.json" >/dev/null || miss="$miss bone:$bone"
+        # THE BIND BONE, NOT THE TABLE'S SOURCE BONE. Since every weapon is either baked onto
+        # `HaveR` or realised on a vanilla bone, the source bone deliberately is NOT in the
+        # skeleton any more -- it is `Sword`, `Sword1`, `fusionsword1` or `Stick`, and grafting
+        # none of them is the point. What must exist is whatever the mesh actually binds to, read
+        # off the model rather than derived a second time here.
+        bb=$(jq -r --arg n "$name" '[.objects[]|select(.name==$n)][0].parent_bone_name' "$W/mesh.json" 2>/dev/null | tr -d "$CR")
+        if [ -n "${bb:-}" ]; then
+            jq -e --arg b "$bb" '[.bones[].name]|index($b)' "$W/bone.json" >/dev/null || miss="$miss bindbone:$bb"
+        fi
         jq -e --arg n "$name" '[.entries[].mesh_object_name]|index($n)' "$W/modl.json" >/dev/null || miss="$miss modl"
         jq -e --arg m "$material" '[.entries[].material_label]|index($m)' "$W/matl.json" >/dev/null || miss="$miss matl:$material"
         jq -e --arg n "$name" '[.mesh_object_groups[].mesh_object_name]|index($n)' "$W/mx.json" >/dev/null || miss="$miss meshex"
@@ -197,8 +205,13 @@ if [ -f "$MODEL/model.numshb" ]; then
             fi
             i=$((i+1))
         done
-        jq -e --arg b "$bone" '[.bones[].name]|index($b)' "$W/bone.json" >/dev/null 2>&1 \
-            || bad="$bad ${name}:bone-${bone}-absent"
+        # The BIND bone, for the same reason as the block above: the table's source bone is
+        # deliberately absent from the skeleton now.
+        bb2=$(jq -r --arg n "$name" '[.objects[]|select(.name==$n)][0].parent_bone_name' "$W/mesh.json" 2>/dev/null | tr -d "$CR")
+        if [ -n "${bb2:-}" ]; then
+            jq -e --arg b "$bb2" '[.bones[].name]|index($b)' "$W/bone.json" >/dev/null 2>&1 \
+                || bad="$bad ${name}:bindbone-${bb2}-absent"
+        fi
     done < <(awk -F'|' '/^[a-z_]+\|/' tools/merge-weapons.sh)
     if [ -n "$bad" ]; then
         echo "  FAIL mesh/bone binding is wrong:"; printf '       %s\n' $bad; rc=1

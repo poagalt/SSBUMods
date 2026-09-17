@@ -76,7 +76,36 @@ use std::collections::HashMap;
 /// does NOT drive: it reads the transform per frame out of the shipped `.nuanmb` and falls back to
 /// the skeleton's bind. If such a case appears, one entry here handles it. What must not happen
 /// again is rebasing a bone the animation already drives.
-const REBASE: &[(&str, &str)] = &[];
+// CHROM'S JAB IS BACK ON THE LIST, AND THE PLAYTEST IS WHY.
+//
+// This was emptied on the strength of a measurement: hitboxes on `stick` measured 0.00 against
+// Palutena's own skeleton while the rebased version measured 18.53, so rebasing looked like the
+// error. That measurement was right and the conclusion drawn from it was too narrow -- it compared
+// the FILE against the source, and the file was never the problem.
+//
+// The playtest separates them cleanly, and it is the most useful report this project has had:
+//
+//     "The hitbox on cloud back air is fine both directions (unlike the other swords)."
+//
+//     cloud bair     hitboxes on `haver` and `top`   -- both VANILLA   -> fine both directions
+//     corrin uair    hitboxes on `haver` and `top`   -- both VANILLA   -> never reported
+//     mythra dash    hitboxes on `top`               -- VANILLA        -> hitbox not reported
+//     chrom jab      hitboxes on `sword1`            -- GRAFTED        -> broken
+//     palutena nair  hitboxes on `stick`             -- GRAFTED        -> broken, now on `havel`
+//
+// A hitbox on a bone Pikachu owns behaves; a hitbox on an appended bone does not. That is the same
+// conclusion `telemetry::mirror_probe` reaches from the other side, with `handr` reading identically
+// in both facings while the grafted bones differ in Y.
+//
+// SO THE 18.53 WAS THE WRONG TRADE FOR PALUTENA AND THE RIGHT ONE FOR CHROM. Her n-air keeps its
+// hitboxes live for nineteen frames while the staff sweeps, so no single offset can follow it --
+// which is why she gets the `HaveL` realisation instead, an exact per-frame answer. Chrom's jab
+// hitboxes live three frames and `Sword1` does not move relative to the hand across them, so a
+// static offset IS exact for him: this pass measured 0.00 on his jab both times it ran.
+//
+// `tools/check-hitboxes.sh` is the guard. If this rebase ever stops being exact for chrom it fails
+// at the normal 0.05 tolerance, because the 18.6 exemption that used to hide exactly this is gone.
+const REBASE: &[(&str, &str)] = &[("Sword1", "HaveR")];
 
 #[derive(Clone, Copy)]
 struct M34 {

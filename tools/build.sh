@@ -130,10 +130,8 @@ bash "$ROOT/tools/anim-dropin.sh" 2>&1 | grep -v "^Parse:" | tail -1
 
 # BEFORE the costume mirror, because the mirror copies c00 to the other seven and would otherwise
 # spread the un-renamed track.
-echo; echo "== 3a. move Palutena's Stick track onto the vanilla HaveL =="
-bash "$ROOT/tools/rename-stick-track.sh"
 
-echo; echo "== 3b. ship those animations for every costume, not just c00 =="
+echo; echo "== 3a. ship those animations for every costume, not just c00 =="
 bash "$ROOT/tools/mirror-costumes.sh"
 
 # The shipped motion_list was previously built by hand from RESTORE.md; regenerating it here
