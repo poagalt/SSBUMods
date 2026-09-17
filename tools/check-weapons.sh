@@ -316,6 +316,36 @@ if [ -f "$MODEL/model.numshb" ]; then
     fi
 fi
 
+echo; echo "== every numshexb group has one entry_flags per subindex =="
+# `entry_flags` IS INDEXED BY SUBINDEX, so a short array is an out-of-bounds read of the render
+# flags -- `draw_model` and `cast_shadow` taken from whatever sits after it in memory. Flags read
+# from adjacent memory show up in one view and not another, which is what "still broken facing
+# left" looked like after the bone and the bounding sphere had both been fixed.
+#
+# A CLEAN INVARIANT, NOT A TOLERANCE: all 40 of Pikachu's own groups obey it, and `CameraHit` is
+# the proof that the count is not always one -- three subindices, three flags. The merge emitted a
+# single element per weapon while `mythra_sword` has four subindices, `corrin_sword` three and
+# `palutena_staff` two, which is the defect the subindex change introduced and this catches.
+#
+# Joined on `mesh_object_full_name`, because `mesh_object_name` is the SHORT name in vanilla
+# (`Pikachu_LEye` for `Pikachu_LEye_VIS_O_OBJShape`) and joining on it silently matches nothing.
+if [ -f "$MODEL/model.numshb" ]; then
+    out=$(jq -r --slurpfile me "$W/mesh.json" '
+      [ .mesh_object_groups[] as $g
+        | { n: $g.mesh_object_name,
+            f: ($g.entry_flags|length),
+            s: ([ $me[0].objects[] | select(.name == $g.mesh_object_full_name) ] | length) } ]
+      | map(select(.s > 0)) | map(select(.f != .s))
+      | if length == 0 then "OK" else map("\(.n): \(.f) flag(s) for \(.s) subindex(es)") | join(" ") end
+    ' "$W/mx.json" 2>/dev/null | tr -d "$CR")
+    if [ "$out" = "OK" ]; then
+        echo "  ok  every group's entry_flags count equals its mesh's subindex count"
+    else
+        echo "  FAIL entry_flags is indexed by subindex and these are short:"
+        printf '       %s\n' $out; rc=1
+    fi
+fi
+
 echo; echo "== no motion shows two weapons at once =="
 # Only what is INSIDE the motion arrays, which is the inverse of the extraction above.
 dupes=$(printf '%s' "$WEAPONS_BLOCK" | tr '\n' ' ' | grep -oE '&\[[^]]*\]' \

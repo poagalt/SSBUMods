@@ -428,12 +428,25 @@ while IFS='|' read -r name dir mesh material bone parent sphere radius realise; 
     ' next_numshb.json | tr -d '\r')
     [ -n "$SPHERE" ] && [ "$SPHERE" != "null" ] || { echo "$name: cannot compute bounding sphere" >&2; exit 1; }
 
-    jq --arg n "$name" --argjson bs "$SPHERE" '
+    # ONE `entry_flags` ELEMENT PER SUBINDEX, which is the game's own convention and was the third
+    # thing the subindex change broke.
+    #
+    # `entry_flags` is indexed BY SUBINDEX, so a group with one element and four subindices makes
+    # the game read `draw_model` and `cast_shadow` out of bounds for subindices 1..3 -- per-mesh
+    # render flags taken from whatever sits after the array. Flags read from adjacent memory are
+    # exactly the kind of fault that shows up in one view and not another, which is what "still
+    # broken facing left" looked like after the bone and the bounding sphere had both been fixed.
+    #
+    # Verified against vanilla rather than assumed: all 40 of Pikachu's own groups have exactly as
+    # many `entry_flags` as the mesh has subindices, and `CameraHit` is the proof that it is not
+    # always one -- three subindices, three flags. Ours had one apiece while `mythra_sword` has
+    # four subindices, `corrin_sword` three and `palutena_staff` two.
+    jq --arg n "$name" --argjson bs "$SPHERE" --argjson nsub "$nsub" '
       .mesh_object_groups += [{
         bounding_sphere: $bs,
         mesh_object_full_name: $n,
         mesh_object_name: $n,
-        entry_flags: [ { draw_model: true, cast_shadow: true } ]
+        entry_flags: [ range(0; $nsub) | { draw_model: true, cast_shadow: true } ]
       }]
     ' cur_numshexb.json > next_numshexb.json
 
