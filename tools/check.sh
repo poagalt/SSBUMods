@@ -147,6 +147,85 @@ EOF
   fi
 fi
 
+echo; echo "== 3d. config.json declares exactly the paths it should, under the right keys =="
+# THE FILE MOST IMPLICATED IN THIS PROJECT'S LOAD HANGS, and until now nothing checked it.
+#
+# Its own generator's header names the failure modes: "an undeclared file simply never loads, and
+# a declared file that is absent injects a bogus entry into the search filesystem, which is a
+# plausible cause of the load crashes this project has been chasing". Both are checked here, plus
+# two more that were each found the hard way.
+#
+#   * A DECLARED PATH THAT VANILLA ALREADY HAS is not a new addition, it is a same-name
+#     replacement, and declaring it attaches a duplicate entry to a directory that already lists
+#     it. 308 of 577 declarations were in this state the moment the mod began shipping more than
+#     one costume, because gen-config.sh was asking `extracted/` -- a PARTIAL mirror with 5 of
+#     c01's 338 motion files -- instead of the archive map.
+#
+#   * A PATH DECLARED UNDER THE WRONG COSTUME KEY is on the card, declared, verified by size, and
+#     invisible to the costume it belongs to. `new-dir-files` maps a DIRECTORY to files to add to
+#     it, and a c05 Pikachu loads `fighter/pikachu/c05`; 210 c01..c07 paths were declared under
+#     the `c00` key.
+#
+# The archive map is the oracle where available, for the same reason gen-config.sh uses it.
+CFG="$ROOT/pikachu-moveset/mod/config.json"
+ARCMAP="$ROOT/work/acquire/arc-paths.txt"
+if [ ! -f "$CFG" ]; then
+  echo "  FAIL no config.json -- run tools/gen-config.sh"; rc=1
+elif ! jq -e . "$CFG" >/dev/null 2>&1; then
+  echo "  FAIL config.json is not valid JSON"; rc=1
+else
+  # EVERY `jq -r` HERE IS PIPED THROUGH `tr -d '\r'`, and leaving it out made this gate lie.
+  # This jq writes CRLF, so a path comes back as `...nutexb<CR>`, `[ -f ]` looks for a file whose
+  # name ends in a carriage return and says no -- reporting all 268 shipped files as absent -- and
+  # the two `comm` checks below found no overlap with anything and reported OK. A gate that fails
+  # on a correct tree and passes on a broken one is worse than no gate. See the long note in
+  # tools/ship-textures.sh.
+  ndecl=$(jq -r '[."new-dir-files"[]?[]]|length' "$CFG" | tr -d '\r')
+  # 1. every declared path is a real file in the tree
+  absent=$(jq -r '."new-dir-files"[]?[]' "$CFG" | tr -d '\r' | while read -r p; do
+             [ -f "$ROOT/pikachu-moveset/mod/$p" ] || echo "$p"; done)
+  if [ -n "$absent" ]; then
+    echo "  FAIL declared but NOT shipped (bogus search-filesystem entries):"
+    printf '       %s\n' $absent | head -10; rc=1
+  else
+    echo "  ok  all $ndecl declared path(s) are real files in the mod tree"
+  fi
+  # 2. every declared path sits under the costume its key names
+  wrongkey=$(jq -r '."new-dir-files"|to_entries[]|.key as $k|($k|sub("fighter/pikachu/";"")) as $c
+                    |.value[]|select((.|test("/"+$c+"/"))|not)|"\($k) <- \(.)"' "$CFG" | tr -d '\r')
+  if [ -n "$wrongkey" ]; then
+    echo "  FAIL declared under a key whose costume it does not belong to:"
+    printf '       %s\n' "$wrongkey" | head -10; rc=1
+  else
+    echo "  ok  every declared path lives under its key's costume directory"
+  fi
+  # 3+4. nothing over- or under-declared, against the real archive
+  if [ -s "$ARCMAP" ]; then
+    van=$(mktemp); dec=$(mktemp); shp=$(mktemp)
+    grep '^fighter/pikachu/' "$ARCMAP" | sort -u > "$van"
+    jq -r '."new-dir-files"[]?[]' "$CFG" | tr -d '\r' | sort -u > "$dec"
+    ( cd "$ROOT/pikachu-moveset/mod" && find . -type f | sed 's|^\./||' ) \
+      | grep '^fighter/pikachu/' | sort -u > "$shp"
+    over=$(comm -12 "$dec" "$van")
+    under=$(comm -23 "$shp" "$van" | comm -23 - "$dec")
+    if [ -n "$over" ]; then
+      echo "  FAIL declared but vanilla ALREADY has it (same-name replacement, needs no entry):"
+      printf '       %s\n' $over | head -6; rc=1
+    else
+      echo "  ok  no declaration duplicates a path vanilla already has"
+    fi
+    if [ -n "$under" ]; then
+      echo "  FAIL shipped, absent from vanilla, and NOT declared -- it will never load:"
+      printf '       %s\n' $under | head -6; rc=1
+    else
+      echo "  ok  every shipped path vanilla lacks is declared"
+    fi
+    rm -f "$van" "$dec" "$shp"
+  else
+    echo "  ..  no archive map at work/acquire/arc-paths.txt -- over/under-declaration unchecked"
+  fi
+fi
+
 echo; echo "== 3f. a cloned article ships its own model and motion =="
 
 # THIS IS THE CHECK THAT WOULD HAVE PREVENTED A CRASH. The clone was enabled with NONE of the
@@ -351,6 +430,12 @@ bash "$ROOT/tools/check-blastradius.sh" || rc=1
 
 echo; echo "== 4c. hand-written code uses no other fighter's constants =="
 bash "$ROOT/tools/check-status.sh" || rc=1
+
+# 4c checks WHICH constants are named; this checks what they are WORTH. Both are needed: naming
+# Pikachu's own constant is no help if the number behind it came from a wrong row in a
+# third-party table.
+echo; echo "== 4m. the constant values the plugin compiles in match the game's own =="
+bash "$ROOT/tools/check-luaconst.sh" || rc=1
 
 echo; echo "== 4e. every new status is fully registered and actually used =="
 bash "$ROOT/tools/check-statusgraph.sh" || rc=1

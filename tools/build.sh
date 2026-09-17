@@ -128,6 +128,9 @@ fi
 echo; echo "== 3. ship the source animations, scale-compensated =="
 bash "$ROOT/tools/anim-dropin.sh" 2>&1 | grep -v "^Parse:" | tail -1
 
+echo; echo "== 3a. ship those animations for every costume, not just c00 =="
+bash "$ROOT/tools/mirror-costumes.sh"
+
 # The shipped motion_list was previously built by hand from RESTORE.md; regenerating it here
 # means a change to the FAF/flag table or to synth cannot silently fail to reach the console.
 echo; echo "== 3b. rebuild motion_list.bin (FAF, intangibility, flags, synthesised entries) =="

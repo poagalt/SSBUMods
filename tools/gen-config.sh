@@ -41,33 +41,80 @@ OUT="$MOD/config.json"
 # Keep this in step with merge-weapons.sh's TABLE; tools/check-weapons.sh fails if they disagree.
 ALIASES=""
 
+# THE ORACLE IS THE ARCHIVE MAP, NOT THE LOCAL EXTRACTION, and using the extraction mis-declared
+# 308 paths the moment the mod started shipping more than one costume.
+#
+# `extracted/fighter/pikachu` is a PARTIAL mirror: it has all 338 motion files for c00 and FIVE
+# for c01, because models and per-costume animations were never pulled (see
+# docs/the-data-analysis.md -- the extraction is complete for params, motion lists and skeletons
+# and deliberately skipped the rest). Testing "does vanilla have this path" against it therefore
+# answers NO for 44 of the 75 animations in each of c01..c07 -- files vanilla certainly does have
+# -- and declared 308 same-name replacements as new additions.
+#
+# `work/acquire/arc-paths.txt` is the real thing: all 590,711 paths in the archive. Asking it makes
+# the distinction this file's header describes actually correct rather than approximately correct.
+# The extraction stays as a fallback so a clone without the map still builds, and which oracle was
+# used is printed, because the two do not agree and a silent difference of 308 entries is exactly
+# the kind of thing that has hung a fight load here before.
+ARCMAP="$ROOT/work/acquire/arc-paths.txt"
+VANLIST=$(mktemp); SHIPPED=$(mktemp); trap 'rm -f "$VANLIST" "$SHIPPED"' EXIT
+if [ -s "$ARCMAP" ]; then
+    ORACLE="archive map ($(grep -c '^fighter/pikachu/' "$ARCMAP") vanilla pikachu path(s))"
+    grep '^fighter/pikachu/' "$ARCMAP" | sort -u > "$VANLIST"
+else
+    ORACLE="local extraction -- PARTIAL, may over-declare; pull work/acquire/arc-paths.txt"
+    ( cd "$VAN" && find . -type f | sed 's|^\./|fighter/pikachu/|' ) | sort -u > "$VANLIST"
+fi
+
 cd "$MOD"
+find . -type f | sed 's|^\./||' | grep '^fighter/pikachu/' | sort -u > "$SHIPPED"
 # Files shipped under fighter/pikachu that vanilla does not have at the same path.
 NEW=()
-while IFS= read -r f; do
-    rel="${f#./}"
-    case "$rel" in fighter/pikachu/*) ;; *) continue ;; esac
-    sub="${rel#fighter/pikachu/}"
-    [ -e "$VAN/$sub" ] || NEW+=("$rel")
-done < <(find . -type f | sort)
+while IFS= read -r rel; do
+    [ -n "$rel" ] && NEW+=("$rel")
+done < <(comm -23 "$SHIPPED" "$VANLIST")
 
 {
     echo '{'
     echo '    "new-dir-files": {'
-    echo '        "fighter/pikachu/c00": ['
-    first=1
-    while IFS='|' read -r target _src; do
-        [ -z "${target// }" ] && continue
-        case "$target" in "#"*) continue ;; esac
-        [ "$first" = 1 ] && first=0 || echo ','
-        printf '            "%s"' "$target"
-    done <<< "$ALIASES"
-    for p in "${NEW[@]}"; do
-        [ "$first" = 1 ] && first=0 || echo ','
-        printf '            "%s"' "$p"
+    # ONE KEY PER COSTUME, BECAUSE THE KEY *IS* THE DIRECTORY THE GAME LOADS.
+    #
+    # `new-dir-files` maps an arc DIRECTORY to the extra file paths to add to it. A Pikachu in
+    # costume 5 loads `fighter/pikachu/c05`, so a `.../motion/body/c05/x.nuanmb` declared under
+    # the `fighter/pikachu/c00` key is added to the directory a c00 Pikachu loads and to nowhere
+    # else -- it would simply never resolve for the costume it belongs to.
+    #
+    # Everything was under the single c00 key while the mod shipped only c00, and that was
+    # correct. The moment `mirror-costumes.sh` began shipping c01..c07 it silently became 210
+    # declarations attached to the wrong directory: the files would be on the card, declared,
+    # verified, and still invisible to seven of the eight costumes.
+    #
+    # The costume comes from the path's own `c0N` component rather than from a list, so a future
+    # `c08` or a `model/<article>/c03` needs no change here. A shipped path with no costume
+    # component at all is an error worth failing on: there is no directory to attach it to.
+    keyfirst=1
+    for c in $(printf '%s\n' "${NEW[@]}" | grep -oE '/c[0-9]{2}/' | tr -d '/' | sort -u); do
+        [ "$keyfirst" = 1 ] && keyfirst=0 || echo ','
+        printf '        "fighter/pikachu/%s": [\n' "$c"
+        first=1
+        # Aliases are c00-only by construction: they name a target path under c00.
+        if [ "$c" = "c00" ]; then
+            while IFS='|' read -r target _src; do
+                [ -z "${target// }" ] && continue
+                case "$target" in "#"*) continue ;; esac
+                [ "$first" = 1 ] && first=0 || echo ','
+                printf '            "%s"' "$target"
+            done <<< "$ALIASES"
+        fi
+        for p in "${NEW[@]}"; do
+            case "$p" in *"/$c/"*) ;; *) continue ;; esac
+            [ "$first" = 1 ] && first=0 || echo ','
+            printf '            "%s"' "$p"
+        done
+        echo
+        printf '        ]'
     done
     echo
-    echo '        ]'
     echo '    },'
     echo '    "share-to-added": {'
     # GROUPED BY SOURCE, because `share-to-added` is a JSON OBJECT and two aliases sharing one
@@ -97,3 +144,4 @@ done < <(find . -type f | sort)
 
 n_alias=$(printf '%s\n' "$ALIASES" | grep -v '^#' | grep -c '|' || true)
 echo "  wrote config.json: ${#NEW[@]} shipped new path(s) + $n_alias alias(es)"
+echo "    oracle: $ORACLE"
