@@ -327,6 +327,78 @@ while IFS='|' read -r name dir mesh material bone parent sphere radius realise; 
     fi
 done < <(awk -F'|' '/^[a-z_]+\|/' tools/merge-weapons.sh)
 
+echo; echo "== the skeleton matches the game's own structure around the hold bones =="
+# THE ONE STRUCTURAL DEVIATION FROM NATIVE THAT THIS PROJECT EVER MADE, NOW ASSERTED AGAINST.
+#
+# `add-bones.sh` used to reparent Pikachu's vanilla `HaveL` from `HandL` to `HaveR` so it could
+# stand in for Palutena's `Stick`. Every native skeleton checked -- Corrin's, Palutena's and
+# vanilla Pikachu's -- parents `HaveL` to `HandL`; ours was the only one in the game that hung the
+# LEFT hand's item socket off the RIGHT hand's. Meanwhile the probe found both `HaveR` and `HaveL`
+# in the wrong place facing left while `HandR`, one link up the same chain, was correct on every
+# frame. Corrin's Yato is single-bound to `HaveR` in his own body model and works in the retail
+# game, so the bone is a legitimate mesh parent and was never the fault -- the child we hung on it
+# is the only thing that differed.
+#
+# So this checks the two facts that keep us on the game's own structure:
+#   - `HaveL` hangs off `HandL`, as it does in every fighter.
+#   - every bone a weapon binds to matches its SOURCE skeleton's parent and bind transform, so a
+#     grafted bone occupies the frame the game authored for it rather than an invented one.
+if [ -f "$MODEL/model.nusktb" ]; then
+    hlp=$(jq -r '(.bones|to_entries) as $bs | $bs[] | select(.value.name=="HaveL")
+           | (if .value.parent_index==null then "ROOT" else $bs[.value.parent_index].value.name end)' \
+          "$W/bone.json" 2>/dev/null | tr -d "$CR")
+    if [ "$hlp" = "HandL" ]; then
+        echo "  ok  HaveL is parented to HandL, as it is in every fighter in the game"
+    else
+        echo "  FAIL HaveL is parented to ${hlp:-none}, not HandL -- no native skeleton does that;"
+        echo "       see the header of tools/add-bones.sh for what it cost"
+        rc=1
+    fi
+
+    bad=""
+    # Vanilla Pikachu's own bone list, to tell a graft from a bone he already had.
+    "$T" extracted/fighter/pikachu/model/body/c00/model.nusktb "$W/vanillabone.json"         >/dev/null 2>&1 || echo '{"bones":[]}' > "$W/vanillabone.json"
+    while IFS='|' read -r name dir mesh material bone parent sphere radius realise; do
+        case "${name:-}" in '' | \#*) continue ;; esac
+        # The bind bone lives in the SOURCE MODEL's skeleton for a weapon model, or the source
+        # fighter's own for a body-model weapon. Both roots, same order merge-weapons.sh uses.
+        ssk=""
+        for sroot in extracted/fighter work/arc-weapons/fighter; do
+            [ -f "$sroot/$dir/c00/model.nusktb" ] && ssk="$sroot/$dir/c00/model.nusktb" && break
+        done
+        [ -n "$ssk" ] || { bad="$bad ${name}:no-source-skeleton"; continue; }
+        # GRAFTED BONES ONLY. A weapon may bind to a bone PIKACHU ALREADY OWNS -- Corrin's Yato
+        # single-binds to `HaveR`, exactly as it does in his own body model -- and such a bone must
+        # keep PIKACHU's frame, not the source's. Asserting otherwise failed Corrin for being
+        # correct: his bind bone is `HaveR`, and Pikachu's `HaveR` transform is of course not
+        # Kamui's. Only a bone the merge appended has to carry its source's bind transform.
+        if jq -e --arg b "$bone" '[.bones[]|select(.name==$b)]|length==1'              "$W/vanillabone.json" >/dev/null 2>&1; then
+            continue
+        fi
+        "$T" "$ssk" "$W/ssk.json" >/dev/null 2>&1 || { bad="$bad ${name}:source-skeleton-unparsable"; continue; }
+
+        # Present in both, or there is nothing to compare.
+        for side in src ours; do
+            j=$([ "$side" = src ] && echo "$W/ssk.json" || echo "$W/bone.json")
+            n=$(jq -r --arg b "$bone" '[.bones[]|select(.name==$b)]|length' "$j" | tr -d "$CR")
+            [ "$n" = "1" ] || bad="$bad ${name}:${bone}-appears-${n}-times-in-${side}"
+        done
+        case "$bad" in *"${name}:"*) continue ;; esac
+
+        # The bind TRANSFORM must be the source's, to the last bit ssbh_data round-trips.
+        st=$(jq -c --arg b "$bone" '[.bones[]|select(.name==$b)][0].transform' "$W/ssk.json" | tr -d "$CR")
+        ot=$(jq -c --arg b "$bone" '[.bones[]|select(.name==$b)][0].transform' "$W/bone.json" | tr -d "$CR")
+        [ "$st" = "$ot" ] || bad="$bad ${name}:${bone}-bind-transform-differs-from-source"
+    done < <(awk -F'|' '/^[a-z_]+\|/' tools/merge-weapons.sh)
+    if [ -n "$bad" ]; then
+        echo "  FAIL a weapon's bind bone does not match the frame its source authored:"
+        printf '       %s\n' $bad
+        rc=1
+    else
+        echo "  ok  every weapon's bind bone carries its source skeleton's own bind transform"
+    fi
+fi
+
 echo; echo "== every weapon's bounding sphere encloses its own geometry =="
 # THE CULLING VOLUME, AND IT IS WHAT "FACING LEFT" TURNED OUT TO BE.
 #
