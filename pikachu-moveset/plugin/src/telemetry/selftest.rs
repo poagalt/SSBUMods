@@ -103,15 +103,23 @@ pub unsafe fn run(boma: *mut BattleObjectModuleAccessor, entry: usize, status_co
     // alongside says so rather than leaving the next reader to re-derive it. It is still worth
     // logging: a value other than 1.0 would mean something is rescaling him, which would make
     // every hitbox measurement in the project wrong at once.
-    // THE COSTUME SLOT, BECAUSE THE MOD ONLY SHIPS c00.
+    // THE COSTUME SLOT, WHICH NO LONGER DECIDES WHETHER THE MOVESET WORKS.
     //
-    // Every added animation is declared under `fighter/pikachu/c00` in config.json, so on any
-    // other slot they simply are not there and the moveset half-works in a way that looks like a
-    // code bug. One number rules that in or out, and it had to be guessed at from the outside
-    // twice.
+    // This used to read "the mod ships c00 ONLY -- any other colour has no added animations at
+    // all", and it was true and worth announcing: every added animation was declared under
+    // `fighter/pikachu/c00`, so on any other slot the moveset half-worked in a way that looked
+    // exactly like a code bug, and it had to be guessed at from the outside twice.
+    //
+    // `tools/mirror-costumes.sh` ships the animations for all eight now and `gen-config.sh`
+    // declares each under its OWN costume key, so the moves work on every colour. What is still
+    // c00-only is the MODEL -- the grafted weapons -- because each costume's body model carries
+    // its own textures and mirroring c00's would turn every Pikachu default yellow. So the number
+    // still matters, for a narrower reason: on a non-c00 slot the moves are right and Chrom's jab
+    // swings no sword.
     sink::diag(format!(
         "[rat] SELFTEST p{entry} color=c{:02} scale={:.4} base={:.4} owner={:.4} status_kind_count={status_count:#x} \
-         (the mod ships c00 ONLY -- any other colour has no added animations at all; \
+         (animations ship for all 8 colours; the grafted WEAPONS are c00-only, so a non-c00 slot \
+         plays every move correctly with no sword visible; \
          scale is the RUNTIME multiplier and reads 1.0, NOT the 0.96 fighter_param scale)",
         WorkModule::get_int(boma, *FIGHTER_INSTANCE_WORK_ID_INT_COLOR),
         PostureModule::scale(boma),
