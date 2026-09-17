@@ -230,37 +230,91 @@ the parity gap recorded above; whether it also restores the zoom is a playtest q
 
 ## The clone, and the three articles waiting behind it
 
-`src/articles/mod.rs` holds a two-step experiment. **STEP 2 HAS NEVER ACTUALLY BEEN RUN, and this
-section said it had passed.** The correction matters because the whole Ptooie transcription was
-about to be built on it.
+**STEP 2 HAS NOW RUN, AND IT FAILS.** Pikachu does not load with the cloned article appended. The
+game crashes on entry to the training arena, `work/crash-0917b.log`:
 
-What is confirmed is that the call *installs*. Nine boots logged
+    Type:           Data Abort
+    Address:        0000000000000138
+    Fault Address:  0000000000000000
+    Thread Name:    TaskWorker2
+    ReturnAddress[06]:  smashline + 0x2a68c (fighter_initialize_object_data + 0x2c)
 
-    [rat] articles: clone_weapon returned index 0 -- article id should be 0x6
+Every other frame in that trace is `cross2_Release.nss` -- the game's own weapon-creation path,
+entered through smashline's fighter-init hook. Byte-for-byte the same signature as the two crashes
+in early September that were blamed on the clone and then excused.
 
-with no crash and no fault, so `clone_weapon` itself is sound and the article index is 0x6 as
-predicted. That is step 2's *first half*.
+**What makes this one a result rather than a third anecdote is that the excuses are all gone.**
+Each of the three things that stood between the clone and a verdict has been eliminated and
+verified separately:
 
-Step 2 asks a different question -- "does Pikachu load?" -- and the answer is **unknown**:
+| suspected confounder | state now |
+|---|---|
+| zero-byte `d03speciallwstart.nuanmb` on the card | repaired; `deploy.sh` verifies by size, 98/98 |
+| `share-to-added` hanging every load | fixed at b2469ae; 0 aliases, all 12 textures shipped |
+| spikeball assets never shipped (`gen-article-assets.sh`'s own diagnosis) | 24 files shipped AND all 24 declared |
+| a `vl.prc` declaring a param object with no weapon | retired from the card |
 
-| boots | clone | fighter object alive | SELFTEST lines |
-|---|---|---|---|
-| `listen-boot`, `listen3`, `playtest-130602` (x3), `playtest-134418`, `listen2` b1, `playtest-132809` b1 | **on** | **0 of 9** | 0 |
-| `listen2` b2, `playtest-132809` b2 | off | 2 of 2 | 4 each |
-| `work/pt2.log` .. `work/pt40.log` | off | 40 of 40 | 4 each |
+and the control is not one boot but forty-two: `work/pt2.log` through `work/pt40.log` all load with
+`CLONE_ENABLED=false`. Clone off, 42 of 42. Clone on, 0 of 10, three of them crashing at the same
+address.
 
-0-for-9 reads like a verdict, and it is not one, because **every clone-on boot on record predates
-the fix for a bug that was hanging every load regardless.** The clone-on logs are stamped
-2026-09-14 13:27-14:34 local; `share-to-added cannot read the vanilla arc` (b2469ae) landed at
-17:52 the same day. During that window a load either hung or did not, for reasons that had nothing
-to do with articles -- so those nine boots carry no information about the clone, in either
-direction. `clone_weapon returned index 0` was read as the whole of step 2 passing; it is the half
-that happens before the fighter is built.
+So the clone is the cause, and `gen-article-assets.sh`'s header is wrong where it says the missing
+assets explain the crash -- they are present now and it still crashes.
 
-The cost of the error was nearly a 14-status transcription resting on an untested premise. Ptooie,
-the rope, the parachute and the dragon hand are **not yet known to be unblocked** -- one boot with
-`CLONE_ENABLED = true` on a card with real textures settles it, and that is the cheapest
-outstanding experiment in the project.
+### What was ruled out next, and what is left
+
+`clone_weapon`'s second parameter is named `original_article_id`, and the obvious reading is that
+we pass the wrong thing: we pass `WEAPON_KIND_PACKUN_SPIKEBALL` (`0x1E8`, 488) while
+`FIGHTER_PACKUN_GENERATE_ARTICLE_SPIKEBALL` is `0x0`. **That reading is wrong.**
+`vendor/sl_api.rs:325` uses it as `LOWERCASE_WEAPON_NAMES.get(original_article_id)`, and that table
+is `StaticArrayAccessor::new(0x5186bd0, 0x267)` -- 615 entries, while `WEAPON_KIND_*` runs 0..615
+across 616 constants. It is indexed by weapon KIND, so `0x1E8` is correct and the `.unwrap()` on
+line 325 legitimately succeeded. The call is right.
+
+What the append actually does (`sl_weapons.rs:151-175`) is copy Piranha Plant's article descriptor
+verbatim into a new list, leak it, and point Pikachu's `static_article_info` at it. The descriptor
+is found -- a miss panics with "Failed to append article table" and no panic appeared -- so the
+fighter data is built, and the null deref is in the game's USE of it.
+
+`NEW_AGENTS` being empty was the next guess and it is also wrong. `sl_api.rs:358` pushes the agent
+unconditionally, keyed on the weapon kind, carrying `owner_id`, `owner_name_ffi` and
+`new_name_ffi`; `use_original_code` is stored on it, not a condition for it. So the three
+`weapon_*_hook` rewrites have their data and the path-name rewriting is not the hole.
+
+**What the fault address says, and it narrows this a long way.** `Address: 0x138` with
+`Fault Address: 0x0` is a read of `something->field_0x138` where `something` was NULL -- an
+absent OBJECT, not a bad function pointer, which an instruction-fetch abort would look different
+from. So the game asked for the weapon instance behind this descriptor, got nothing back, and read
+a field off it anyway. That is a plausible consequence of the one hole already written down in
+`gen-article-assets.sh`: a cloned article resolves under the OWNER's costume slot, and while
+`fighter/pikachu/{model,motion}/spikeball/c00` now ships, **vanilla has no
+`fighter/pikachu/spikeball` at any slot** and there is nothing to fall back to.
+
+The Kirby path in the same file is the useful contrast. At `sl_weapons.rs:365` it builds
+deliberately DISABLED descriptors -- `max_count: 0`, `on_init_callback` and `on_fini_callback`
+both transmuted from `0u64` -- for articles Kirby must not have. So the descriptor's two callbacks
+are function pointers the game will call, and the fighter path copies Piranha Plant's verbatim.
+Whether they are packun-specific is not yet established and is worth establishing, because
+`fighter_initialize_object_data` is exactly when an `on_init_callback` would fire.
+
+`update_weapon_count` is not the answer on its own, which is worth recording since
+`src/articles/mod.rs` named it as the next thing to read. There are two consumers.
+`sl_weapons.rs:145` runs while `new_descriptors` still holds only the fighter's ORIGINAL articles
+-- the clone is pushed afterwards at line 153 -- so it cannot touch a cloned article's
+`max_count`. The second, `sl_weapons.rs:378`, does run after the pushes and would work, but it is
+in the Kirby-copy function, not the one that appends our article.
+
+**The next step needs no console.** The frames above `[06]` are all `cross2_Release.nss`, which is
+`main`, and the stack trace gives module-relative offsets -- `+0x33a07bc`, `+0x3a640c`,
+`+0x3af458`, `+0x6875c4`, `+0x3a761c`, `+0x6081fc`. `bash tools/decomp.sh main 0x33a07bc ...`
+reads the game's own weapon-creation path and shows what returns null.
+
+### The three articles are blocked, not cancelled
+
+Ptooie, the rope, the parachute and the dragon hand all need a real article, and the mesh graft
+cannot substitute for any of them. `the-ptooie.md` holds the whole transcription source -- 28
+functions, status map, confirmed hashes -- and none of it is wasted; it is just not writable into
+a shipping move until an article can exist. `CLONE_ENABLED` is `false` again so the mod loads.
 
 If Pikachu loads with the spikeball appended, all four constants exist and the remaining work is
 three rows in `tools/gen-article-assets.sh` and three `clone_weapon` calls:

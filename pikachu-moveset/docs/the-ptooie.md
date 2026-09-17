@@ -4,10 +4,17 @@ Everything needed to transcribe Piranha Plant's neutral special onto Pikachu, re
 than inferred. Nothing here is a plan; it is the reference sheet the Rust gets written from, in
 the same form `specials/whip/mod.rs` cites Incineroar.
 
-**This is not yet a green light.** The experiment in `src/articles/mod.rs` -- step 2, does Pikachu
-load with the cloned article appended? -- has never actually been run. See "The clone, and the
-three articles waiting behind it" in `the-weapons.md`. The whole tree below is worth nothing until
-one boot answers that, which is why the assets and the flag shipped before any of it was written.
+**THIS IS BLOCKED, AND NOT BY ANYTHING BELOW.** The experiment in `src/articles/mod.rs` -- step 2,
+does Pikachu load with the cloned article appended? -- has now run, and it fails: Data Abort at
+`0x138` off a null base, thread `TaskWorker2`, inside the game's own weapon-creation path
+(`work/crash-0917b.log`). Clone off loads 42 of 42; clone on, 0 of 10. All three previously
+suspected confounders are eliminated and verified, so the clone itself is the cause. See "The
+clone, and the three articles waiting behind it" in `the-weapons.md` for the full narrowing and
+the next step, which needs no console.
+
+Nothing in this file is wasted by that -- it is the source, and the source does not change. But
+none of it can become a shipping move until an article can exist, so do not start writing the
+Rust: `clone_weapon` installs and then the fighter never builds.
 
 ## How the source was recovered
 

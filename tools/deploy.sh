@@ -235,14 +235,49 @@ mark "mod folder"
 
 # Files the mod used to ship and must no longer be present. Uploading cannot remove anything, so
 # a file dropped from the mod folder would otherwise linger and keep overriding vanilla --
-# `vl.prc` declared a 21st article param with no weapon behind it. Explicit rather than a diff of
-# the remote tree, so this can never delete something unrelated.
-# vl.prc is back here because the param_special_s override is disabled -- it null-dereferenced in
-# smashline load_fighter_effects on fighter load. See tools/gen-vlprc.sh. The loop SKIPs anything
-# still present in the mod tree, so this stays correct if the override is ever re-enabled.
+# `vl.prc` declared a 21st article param with no weapon behind it.
+#
+# TWO SOURCES, AND THE HAND-WRITTEN ONE ALONE WAS NOT ENOUGH.
+#
+# This used to be the RETIRED list below and nothing else, justified as "explicit rather than a
+# diff of the remote tree, so this can never delete something unrelated". That reasoning is sound
+# about safety and silent about coverage, and coverage is where it failed. Turning the article
+# clone off removed 24 spikeball files from the mod tree, gen-config.sh correctly stopped
+# declaring them, and all 24 stayed on the card -- shipped-but-undeclared, which is the exact
+# state gen-config.sh's header calls unreachable. It had to be cleared by hand twice.
+#
+# That is the parallel-list failure mode gen-config.sh names as the cause of three earlier
+# defects (throw_f, DONKEY, topscale's MAP), so it gets the same fix: compute it.
+#
+# THE MANIFEST IS THE RIGHT SOURCE, and it costs no FTP at all. It is rewritten only after a
+# successful verification, so at THIS point in the run it still describes what is on the card --
+# anything in it the mod tree no longer has is a file this script put there and no longer ships.
+# A remote diff would need a recursive walk of directories the local tree does not know about,
+# and the listing machinery below is already fighting sys-ftpd stalls for the ones it does.
+#
+# The loop SKIPs anything still present in the mod tree, so both sources stay correct if a file
+# comes back -- which is why vl.prc can sit in RETIRED permanently.
 RETIRED="
 fighter/pikachu/param/vl.prc
 "
+# A FLOOR ON THE TREE SIZE, because this source is computed and the hand-written one was not.
+# With a missing or half-built mod tree every manifest entry would read as retired and this would
+# delete the install. 50 is well under the real 98 and well above any partial build.
+STALE=""
+n_local=$(find "$MOD" -type f 2>/dev/null | wc -l)
+if [ "$n_local" -lt 50 ]; then
+    echo
+    echo "== NOT retiring anything: the mod tree has only $n_local file(s) =="
+    echo "   Under 50 means a missing or half-built tree, where every manifest entry reads as"
+    echo "   retired. Build first; nothing was deleted."
+elif [ -f "$MANIFEST" ]; then
+    while IFS=$'\t' read -r _msig mpath; do
+        if [ -n "${mpath:-}" ] && [ ! -f "$MOD/$mpath" ]; then
+            STALE="$STALE$mpath
+"
+        fi
+    done < "$MANIFEST"
+fi
 echo
 echo "== retiring files the mod no longer ships =="
 while read -r f; do
@@ -256,7 +291,8 @@ while read -r f; do
         *550*) echo "already gone" ;;
         *)     echo "deleted" ;;
     esac
-done <<< "$RETIRED"
+done <<< "$RETIRED
+$STALE"
 mark "retire"
 fi
 
