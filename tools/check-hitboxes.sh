@@ -28,38 +28,29 @@ while IFS= read -r line; do
     fi
     worst=$(echo "$line" | sed -n 's/.*worst \([0-9.]*\) world units.*/\1/p')
     [ -z "$worst" ] && { echo "FAIL: $name produced no measurement"; fail=1; continue; }
-    # A MOVE WHOSE ANCHOR BONE DOES NOT EXIST AT RUNTIME CANNOT BE EXACT, AND ITS ERROR IS
-    # RECORDED RATHER THAN WAIVED.
+    # EVERY MOVE IS GATED AT THE SAME TOLERANCE NOW, AND `nair_palutena`'S EXEMPTION IS GONE.
     #
-    # `tools/reach rebase` moves Chrom's jab and Palutena's n-air off the grafted `Sword1` and
-    # `Stick`, because `telemetry::mirror_probe` proved those bones are not in the runtime
-    # skeleton's transform chain -- they read nowhere near their own parent and differently in each
-    # facing, while `haver` beside them reads identically both ways. Chrom's jab comes out at 0.00
-    # because `Sword1` never moves relative to the hand. Palutena's does not: she animates `Stick`
-    # with 460 keyframes and her n-air's hitboxes stay live for nineteen frames while the staff
-    # sweeps, so NO static offset on any bone Pikachu has can follow it.
+    # It used to be recorded at 18.6, reasoned like this: `telemetry::mirror_probe` "proved" the
+    # grafted `Sword1` and `Stick` are not in the runtime skeleton's transform chain, so
+    # `tools/reach rebase` moved their hitboxes onto a bone Pikachu already has -- and Palutena
+    # animates `Stick` with 460 keyframes while her n-air's hitboxes stay live for nineteen
+    # frames, so no static offset could follow the sweep. Hence 18.53 world units, asserted as the
+    # best achievable.
     #
-    # So the number is asserted at what it measures today. It is not a tolerance and not an
-    # exemption: if a future change makes it worse, this fails, and if the graft is ever made to
-    # work at runtime it should go back to 0.00 and this entry should be deleted.
+    # THE PREMISE WAS FALSE AND THE REBASE WAS THE WHOLE ERROR. Those bones ARE driven at runtime:
+    # the staff mesh is rigid on `Stick` and visibly sweeps in game. `mirror_probe` was not
+    # reading the render transform, which is why its readings looked like a broken chain. Emptying
+    # `REBASE` puts the hitboxes back on `stick`/`sword1` -- the anchors the source's own ACMD
+    # names -- and the deviation is 0.00 across 96 hitbox-frames with no other move regressing.
     #
-    # The midpoint of the hitbox's live window was tried as a way to halve it and measured WORSE
-    # (19.22), because the staff does not sweep monotonically.
-    ceiling="$TOL"
-    case "$name" in
-        nair_palutena) ceiling=18.6 ;;
-    esac
-    if awk -v w="$worst" -v t="$ceiling" 'BEGIN{exit !(w > t)}'; then
-        if [ "$ceiling" = "$TOL" ]; then
-            echo "FAIL: $name is $worst world units off the source character (tolerance $TOL)"
-        else
-            echo "FAIL: $name is $worst world units off, worse than the recorded $ceiling for a"
-            echo "      move whose source anchor bone does not exist at runtime"
-        fi
+    # So this does what the block's own last paragraph asked for: "if the graft is ever made to
+    # work at runtime it should go back to 0.00 and this entry should be deleted." Deleting it
+    # matters more than tidiness. While the 18.6 ceiling stood, a regression back to the rebased
+    # anchors would have printed a reassuring `note` instead of failing -- which is exactly how
+    # the 18.53 build passed this check and shipped.
+    if awk -v w="$worst" -v t="$TOL" 'BEGIN{exit !(w > t)}'; then
+        echo "FAIL: $name is $worst world units off the source character (tolerance $TOL)"
         fail=1
-    elif [ "$ceiling" != "$TOL" ]; then
-        echo "  note $name is $worst world units off (recorded ceiling $ceiling): its hitboxes ride"
-        echo "       a grafted bone that does not exist at runtime, so no static anchor is exact"
     fi
 
     # RADIUS IS GATED SEPARATELY, and only where the answer is known.

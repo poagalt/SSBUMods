@@ -1524,6 +1524,35 @@ static mut LARIAT_OFF_MAX: [f32; 8] = [0.0; 8];
 /// If the capture has gone, Pikachu swings at nothing and the animation looks perfectly correct --
 /// which is what "misses mario entirely" describes.
 ///
+/// AND THE HITBOX GEOMETRY IS NOT THE BUG, WHICH IS WORTH STATING BECAUSE IT WAS ABOUT TO BE.
+///
+/// The reading above -- 7.29-radius sphere on `arml`, victim 13.26 away at closest approach --
+/// is correct, and it was then written up as "the lariat's real defect is hitbox geometry, not
+/// timing". That inference does not follow, and `hbtrace` settles it against Incineroar's own
+/// skeleton rather than against intuition:
+///
+///     game_specialslariat (gaogaen, scale 1) -- 11 active hitbox-frames
+///          f  id bone            REFERENCE x/y/z            OURS x/y/z     dev
+///          9   0 arml        -1.37  10.59   2.97   -1.37  10.59   2.97    0.00
+///         ..  ..                     ..                        ..         0.00
+///         19   0 arml        -0.26  12.59  -7.20   -0.26  12.59  -7.20    0.00
+///       mean deviation 0.00, worst 0.00 world units at f17 id0 arml (n=11)
+///
+/// Every frame is MEASURED, not skipped: `arml` is a bone Pikachu has, and hbtrace prints
+/// "bone absent from one skeleton" / "NOT MEASURED" when it is not (see its guards). So our
+/// hitbox sits exactly where Incineroar's sits, to two decimal places, for the whole live window.
+///
+/// WHAT THE TRACE ALSO SHOWS is why the move feels wrong anyway: the swing is mostly in Z, from
+/// +2.97 to -7.20, while x stays between -3.35 and -0.26. It is a hitbox that passes THROUGH
+/// Pikachu rather than out in front of him, reaching about 7 units either side. A victim beyond
+/// that is not hit, and `LARIAT_HIT_OFF`'s every-hit-at-+7.08 is that edge.
+///
+/// So "the victim is too far through Pikachu before it lands" is a faithful reproduction of
+/// Incineroar's own move on a body a fraction of his size. That is what "exact range from the
+/// source character" produces here, and changing it would be inventing a number. If it is ever
+/// to be changed, that is a deliberate design decision to depart from the source and belongs in
+/// an ADR -- not a bug fix.
+///
 /// The rate is still printed, because ruling it out from a log beats ruling it out from a reading,
 /// and because the per-frame `off`/`link`/`cap` columns are what will actually decide this.
 static mut LARIAT_RATE: [f32; 8] = [0.0; 8];

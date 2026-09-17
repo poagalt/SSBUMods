@@ -132,8 +132,15 @@ if [ -f "$MODEL/model.numshb" ]; then
     bad=""
     while IFS='|' read -r name dir mesh material bone parent sphere radius; do
         case "${name:-}" in '' | \#*) continue ;; esac
-        pb=$(jq -r --arg n "$name" '.objects[]|select(.name==$n)|.parent_bone_name' "$W/mesh.json" 2>/dev/null)
-        [ "$pb" = "$bone" ] || bad="$bad ${name}:bound-to-${pb:-none}-not-${bone}"
+        nin=$(jq -r --arg n "$name" '.objects[]|select(.name==$n)|.bone_influences|length' "$W/mesh.json" 2>/dev/null)
+        if [ "${nin:-0}" = "0" ]; then
+            # RIGID: the single bind must be the table's bone.
+            pb=$(jq -r --arg n "$name" '.objects[]|select(.name==$n)|.parent_bone_name' "$W/mesh.json" 2>/dev/null)
+            [ "$pb" = "$bone" ] || bad="$bad ${name}:rigid-bound-to-${pb:-none}-not-${bone}"
+        else
+            # SKINNED: no parent bone, and the table's bone must be one of its influences.
+            jq -e --arg n "$name" --arg b "$bone" '.objects[]|select(.name==$n)|.bone_influences|map(.bone_name)|index($b)' "$W/mesh.json" >/dev/null 2>&1 || bad="$bad ${name}:skinned-but-${bone}-not-among-its-influences"
+        fi
         jq -e --arg b "$bone" '[.bones[].name]|index($b)' "$W/bone.json" >/dev/null 2>&1 \
             || bad="$bad ${name}:bone-${bone}-absent"
     done < <(awk -F'|' '/^[a-z_]+\|/' tools/merge-weapons.sh)

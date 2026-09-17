@@ -92,8 +92,8 @@ animation track, so it sits at bind pose relative to its parent — which is why
 Corrin's up-air that is merely wrong, so it keeps no weapon rather than the wrong one. For the rope
 it is worse than nothing: a straight bar between Pikachu and wherever the victim happens to be.
 
-The answer for all three is a real article, and `clone_weapon` is now proven — see the last section
-of this file.
+The answer for all three is a real article. `clone_weapon` is proven to INSTALL but not yet proven
+to let the fighter load — see the last section of this file for what is and is not established.
 
 ## The rope is not a policy choice, and ADR 0004 is not what I said it was
 
@@ -116,8 +116,10 @@ positioning that decides whether a lariat connects — is engine-common code thi
 for one reason: there is no rope. A real rope would hand all of it back to the game.
 
 That is also the answer to "this problem may have its roots in the article issue". It does — and the
-route to a real article is `clone_weapon`, **which no longer crashes**: two boots logged
-`clone_weapon returned index 0` cleanly. The mesh graft still cannot substitute, because the rope's
+route to a real article is `clone_weapon`, which **installs cleanly**: nine boots logged
+`clone_weapon returned index 0` with no fault. Whether a fighter then LOADS is still untested.
+
+The mesh graft still cannot substitute, because the rope's
 whole job is to be a moving link between two objects and a grafted bone has no animation track.
 What the rope needs now is the clone plus the victim side, not a mechanism that does not exist.
 
@@ -228,14 +230,37 @@ the parity gap recorded above; whether it also restores the zoom is a playtest q
 
 ## The clone, and the three articles waiting behind it
 
-`src/articles/mod.rs` held a two-step experiment, and STEP 2 HAS PASSED. Two separate boots logged
+`src/articles/mod.rs` holds a two-step experiment. **STEP 2 HAS NEVER ACTUALLY BEEN RUN, and this
+section said it had passed.** The correction matters because the whole Ptooie transcription was
+about to be built on it.
+
+What is confirmed is that the call *installs*. Nine boots logged
 
     [rat] articles: clone_weapon returned index 0 -- article id should be 0x6
 
-with no crash and no fault. The clone was never the blocker it was recorded as; the
-`fighter_initialize_object_data` null deref that got blamed on it twice was the zero-byte
-`d03speciallwstart.nuanmb` the card was holding at the time, exactly as the note in
-`src/articles/mod.rs` suspected. Ptooie, the rope, the parachute and the dragon hand are unblocked.
+with no crash and no fault, so `clone_weapon` itself is sound and the article index is 0x6 as
+predicted. That is step 2's *first half*.
+
+Step 2 asks a different question -- "does Pikachu load?" -- and the answer is **unknown**:
+
+| boots | clone | fighter object alive | SELFTEST lines |
+|---|---|---|---|
+| `listen-boot`, `listen3`, `playtest-130602` (x3), `playtest-134418`, `listen2` b1, `playtest-132809` b1 | **on** | **0 of 9** | 0 |
+| `listen2` b2, `playtest-132809` b2 | off | 2 of 2 | 4 each |
+| `work/pt2.log` .. `work/pt40.log` | off | 40 of 40 | 4 each |
+
+0-for-9 reads like a verdict, and it is not one, because **every clone-on boot on record predates
+the fix for a bug that was hanging every load regardless.** The clone-on logs are stamped
+2026-09-14 13:27-14:34 local; `share-to-added cannot read the vanilla arc` (b2469ae) landed at
+17:52 the same day. During that window a load either hung or did not, for reasons that had nothing
+to do with articles -- so those nine boots carry no information about the clone, in either
+direction. `clone_weapon returned index 0` was read as the whole of step 2 passing; it is the half
+that happens before the fighter is built.
+
+The cost of the error was nearly a 14-status transcription resting on an untested premise. Ptooie,
+the rope, the parachute and the dragon hand are **not yet known to be unblocked** -- one boot with
+`CLONE_ENABLED = true` on a card with real textures settles it, and that is the cheapest
+outstanding experiment in the project.
 
 If Pikachu loads with the spikeball appended, all four constants exist and the remaining work is
 three rows in `tools/gen-article-assets.sh` and three `clone_weapon` calls:
