@@ -110,6 +110,21 @@ bash "$ROOT/tools/add-bones.sh" | tail -1
 echo; echo "== 2b. ship a cloned article's model and motion files (gated on CLONE_ENABLED) =="
 bash "$ROOT/tools/gen-article-assets.sh"
 
+# GUARDED ON THE MERGED MODEL, because the merge is not a build step. `merge-weapons.sh` reads
+# files pulled off the running console into `work/arc-weapons`, which no fresh clone has, so the
+# merged model is a local artefact and its absence is normal rather than an error here --
+# `check-weapons.sh` is the thing that reports it and prints the command.
+#
+# It runs in the build anyway because the alternative was hand-copying: the twelve textures for the
+# first four weapons were copied by hand, and when the merge started grafting every subindex the
+# set silently needed thirteen more.
+echo; echo "== 2c. ship the textures the grafted weapons' materials reference =="
+if [ -f "$ROOT/pikachu-moveset/mod/fighter/pikachu/model/body/c00/model.numdlb" ]; then
+    bash "$ROOT/tools/ship-textures.sh"
+else
+    echo "  no merged model -- skipped (run tools/merge-weapons.sh to build one)"
+fi
+
 echo; echo "== 3. ship the source animations, scale-compensated =="
 bash "$ROOT/tools/anim-dropin.sh" 2>&1 | grep -v "^Parse:" | tail -1
 

@@ -22,9 +22,17 @@
 //
 // -- those shapes come from each article's own `model.nuanmb`, which nothing here plays. Grafting
 // them would show rigid geometry in a pose, which for the rope in particular is worse than showing
-// nothing: a straight bar between Pikachu and wherever the victim was. Corrin's up-air therefore
-// keeps no weapon rather than the wrong one, and the rope and parachute are recorded in
-// `docs/the-weapons.md` with what they would actually need.
+// nothing: a straight bar between Pikachu and wherever the victim was. The rope and the parachute
+// are recorded in `docs/the-weapons.md` with what they would actually need.
+//
+// CORRIN WAS ON THAT LIST AND SHOULD NEVER HAVE BEEN. This header used to end "Corrin's up-air
+// therefore keeps no weapon rather than the wrong one", citing `kamui/dragonhand` above -- and the
+// dragon hand is a DIFFERENT MOVE. `attack_air_hi` is a plain Yato slash, and the Yato is
+// `Kamui_Weapon_VIS_O_OBJShape` inside `kamui/model/body`: rigid, no influences, single-bound to
+// `HaveR`. Pikachu already HAS `HaveR`, so it is the only one of the five that grafts without
+// adding a bone at all -- the easiest of the set, recorded for a year as the impossible one.
+// Playtest: "you didn't mention corrin's sword in your visual bugs - that sword also isn't
+// appearing visually."
 use {
     smash::{
         lua2cpp::*,
@@ -57,6 +65,10 @@ const WEAPONS: &[(&str, &[&str])] = &[
         "palutena_staff",
         &["attack_air_n", "catch", "catch_dash", "catch_turn", "catch_wait", "catch_attack"],
     ),
+    // Corrin's Yato -- his up-air, the one move of his this moveset ports (`uair_corrin` in
+    // tools/moves.tsv). Its hitboxes already ride `haver`, which is Pikachu's own bone, so only
+    // the mesh was ever missing.
+    ("corrin_sword", &["attack_air_hi"]),
 ];
 
 /// SHOWN FOR THE WHOLE MOTION, not only the hitbox-active frames.

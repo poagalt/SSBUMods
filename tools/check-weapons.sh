@@ -22,6 +22,9 @@ ROOT="$(cd "$(dirname "$0")/.." && pwd)"; cd "$ROOT"
 T="$ROOT/vendor/ssbh_lib/ssbh_data_json.exe"
 MODEL=pikachu-moveset/mod/fighter/pikachu/model/body/c00
 W=$(mktemp -d); trap 'rm -rf "$W"' EXIT
+# A literal carriage return, because this jq writes CRLF and word-splitting keeps the CR. See the
+# long note in tools/ship-textures.sh -- it cost an hour there before the bytes were read with od.
+CR=$(printf '\r')
 rc=0
 
 # The three lists, each read from its own file rather than restated here.
@@ -130,17 +133,36 @@ echo; echo "== every mesh binds to the bone its move's animation drives =="
 # So: the mesh's bind bone must be exactly the table's bone, and that bone must be in the skeleton.
 if [ -f "$MODEL/model.numshb" ]; then
     bad=""
+    # TESTED PER SUBINDEX, because a graft is no longer one mesh object. merge-weapons.sh appends
+    # EVERY subindex of the source mesh -- `mythra_sword` is four objects, `corrin_sword` three,
+    # `palutena_staff` two -- and asking for `.bone_influences|length` across all of them returns
+    # "0\n0\n0", which is not equal to "0", so every multi-subindex weapon fell into the SKINNED
+    # branch and failed a test written for a mesh that has weights. Rigid and skinned subindices
+    # can both exist under one name, so each is checked on its own.
     while IFS='|' read -r name dir mesh material bone parent sphere radius; do
         case "${name:-}" in '' | \#*) continue ;; esac
-        nin=$(jq -r --arg n "$name" '.objects[]|select(.name==$n)|.bone_influences|length' "$W/mesh.json" 2>/dev/null)
-        if [ "${nin:-0}" = "0" ]; then
-            # RIGID: the single bind must be the table's bone.
-            pb=$(jq -r --arg n "$name" '.objects[]|select(.name==$n)|.parent_bone_name' "$W/mesh.json" 2>/dev/null)
-            [ "$pb" = "$bone" ] || bad="$bad ${name}:rigid-bound-to-${pb:-none}-not-${bone}"
-        else
-            # SKINNED: no parent bone, and the table's bone must be one of its influences.
-            jq -e --arg n "$name" --arg b "$bone" '.objects[]|select(.name==$n)|.bone_influences|map(.bone_name)|index($b)' "$W/mesh.json" >/dev/null 2>&1 || bad="$bad ${name}:skinned-but-${bone}-not-among-its-influences"
+        nsub=$(jq -r --arg n "$name" '[.objects[]|select(.name==$n)]|length' "$W/mesh.json" 2>/dev/null | tr -d "$CR")
+        if [ "${nsub:-0}" = "0" ]; then
+            bad="$bad ${name}:absent-from-shipped-mesh"
         fi
+        i=0
+        while [ "$i" -lt "${nsub:-0}" ]; do
+            nin=$(jq -r --arg n "$name" --argjson i "$i" \
+                  '[.objects[]|select(.name==$n)][$i]|.bone_influences|length' "$W/mesh.json" 2>/dev/null | tr -d "$CR")
+            if [ "${nin:-0}" = "0" ]; then
+                # RIGID: the single bind must be the table's bone.
+                pb=$(jq -r --arg n "$name" --argjson i "$i" \
+                     '[.objects[]|select(.name==$n)][$i]|.parent_bone_name' "$W/mesh.json" 2>/dev/null | tr -d "$CR")
+                [ "$pb" = "$bone" ] || bad="$bad ${name}#${i}:rigid-bound-to-${pb:-none}-not-${bone}"
+            else
+                # SKINNED: no parent bone, and the table's bone must be one of its influences.
+                jq -e --arg n "$name" --argjson i "$i" --arg b "$bone" \
+                   '[.objects[]|select(.name==$n)][$i]|.bone_influences|map(.bone_name)|index($b)' \
+                   "$W/mesh.json" >/dev/null 2>&1 \
+                   || bad="$bad ${name}#${i}:skinned-but-${bone}-not-among-its-influences"
+            fi
+            i=$((i+1))
+        done
         jq -e --arg b "$bone" '[.bones[].name]|index($b)' "$W/bone.json" >/dev/null 2>&1 \
             || bad="$bad ${name}:bone-${bone}-absent"
     done < <(awk -F'|' '/^[a-z_]+\|/' tools/merge-weapons.sh)
@@ -175,18 +197,29 @@ echo; echo "== every material's textures actually resolve =="
 # So the invariant is resolvability, not a mechanism: a referenced texture must be a real file in
 # the mod tree or an alias whose source is one. `#replace_cubemap` is a built-in and needs neither.
 MODELDIR=pikachu-moveset/mod/fighter/pikachu/model/body/c00
+# READ OFF THE MERGED MODEL, NOT THE SOURCE, AND FOR EVERY MATERIAL RATHER THAN THE TABLE'S ONE.
+#
+# This used to take the TABLE's single `material` column and look its textures up in the SOURCE
+# fighter's numatb. Both halves were wrong once merge-weapons.sh began grafting every subindex.
+# The table can only name one material, so Mythra's `def_light_004/005/006` and Palutena's
+# `metal_palutena_002_aube` and Corrin's `def_sword_002/003` were never checked at all -- thirteen
+# textures that the shipped materials reference and nothing verified. And checking against the
+# source numatb makes the gate depend on a source tree that need not be present.
+#
+# The merged `model.numdlb` maps the graft's own mesh name to every material it actually uses, and
+# the merged `model.numatb` holds those materials. That is what the game will read, so that is
+# what is checked.
+"$T" "$MODEL/model.numdlb" "$W/mmodl.json" >/dev/null 2>&1
+"$T" "$MODEL/model.numatb" "$W/mmatl.json" >/dev/null 2>&1
 while IFS='|' read -r name dir mesh material bone parent sphere radius; do
     case "${name:-}" in '' | \#*) continue ;; esac
-    src=""
-    for root in extracted/fighter work/arc-weapons/fighter; do
-        [ -f "$root/$dir/c00/model.numatb" ] && src="$root/$dir/c00" && break
-    done
-    if [ -z "$src" ]; then
-        echo "  ..  $name: source numatb not on disk, cannot check its textures"
-        continue
+    mats=$(jq -r --arg n "$name" '[.entries[]|select(.mesh_object_name==$n)|.material_label]|unique|.[]' \
+           "$W/mmodl.json" 2>/dev/null | tr -d "$CR")
+    if [ -z "$mats" ]; then
+        echo "  FAIL $name has no material entry in the merged numdlb"; rc=1; continue
     fi
-    "$T" "$src/model.numatb" "$W/src.json" >/dev/null 2>&1
-    for tex in $(jq -r --arg m "$material" '.entries[]|select(.material_label==$m)|.textures[]?|.data' "$W/src.json" 2>/dev/null | grep -v '^#'); do
+    for material in $mats; do
+    for tex in $(jq -r --arg m "$material" '.entries[]|select(.material_label==$m)|.textures[]?|.data' "$W/mmatl.json" 2>/dev/null | tr -d "$CR" | grep -v '^#'); do
         if [ -f "$MODELDIR/${tex}.nutexb" ]; then
             :
         elif grep -q "/${tex}\.nutexb|" tools/gen-config.sh; then
@@ -195,6 +228,7 @@ while IFS='|' read -r name dir mesh material bone parent sphere radius; do
         else
             echo "  FAIL $name material $material references $tex.nutexb -- not shipped and not aliased"; rc=1
         fi
+    done
     done
 done < <(awk -F'|' '/^[a-z_]+\|/' tools/merge-weapons.sh)
 [ $rc -eq 0 ] && echo "  ok  every referenced texture is a real file in the shipped model directory"
