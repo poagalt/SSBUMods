@@ -102,16 +102,64 @@ done <<< "$WANT"
 STICKSRC="$ROOT/work/fk/palutena_skel.json"
 if [ -f "$STICKSRC" ]; then
     hidx=$(jq '[.bones|to_entries[]|select(.value.name=="HaveR")][0].key' "$W/out.json")
-    before=$(jq -r '(.bones|to_entries) as $bs | $bs[] | select(.value.name=="HaveL")
+    hlchk_before=$(jq -r '(.bones|to_entries) as $bs | $bs[] | select(.value.name=="HaveL")
                     | $bs[.value.parent_index].value.name' "$W/out.json")
-    jq --argjson p "$hidx" --slurpfile s "$STICKSRC" '
+    # AND IT IS MOVED TO THE END OF THE BONE LIST, because reparenting it in place created a
+    # FORWARD REFERENCE and that is very likely why the staff was still wrong facing left.
+    #
+    # `HaveL` is bone 17 and `HaveR` is bone 22, so "HaveL's parent is HaveR" means a bone whose
+    # parent has a HIGHER index. If the engine resolves the skeleton in a single forward pass --
+    # which is the usual way -- bone 17 is computed before bone 22 exists this frame, so the staff
+    # would hang off a ONE-FRAME-STALE `HaveR`. A frame of lag is invisible while the hand is
+    # still and catastrophic across a facing flip, where the stale matrix belongs to the OTHER
+    # direction. "Works to the right, still broken to the left" is exactly that shape.
+    #
+    # Vanilla does contain forward references -- `UplipL1` at 41 parented to `UplipL1_offset` at
+    # 55, and nine more like it -- but every one is an `_offset` helper pair, which `model.nuhlpb`
+    # drives through a separate constraint mechanism. They do not establish that an ordinary bone
+    # may point forward, so this does not rely on it.
+    #
+    # The two vanilla bones that already sit after `HaveR` and are unused leaves were both
+    # rejected: `Throw` (36) is where the engine puts a thrown victim, and `Mouth` (37) anchors
+    # mouth effects. Moving `HaveL` costs nothing by comparison -- nothing is skinned to it, it has
+    # no children, and every reference to it anywhere is BY NAME.
+    #
+    # Every other bone keeps its relative order; indices above 17 shift down by one and every
+    # `parent_index` is remapped with them. The check below asserts that each bone's parent still
+    # resolves to the same NAME it did before the move, which is the whole correctness condition.
+    jq --slurpfile s "$STICKSRC" '
       ( [ $s[0].bones[] | select(.name == "Stick") ][0].transform ) as $st
-      | .bones = [ .bones[]
-          | if .name == "HaveL" then (.parent_index = $p | .transform = $st) else . end ]
+      | .bones as $old
+      | ( [ $old | to_entries[] | select(.value.name == "HaveL") ][0].key ) as $li
+      | ( [ $old[] | .name ] ) as $names
+      # old index -> name, so the remap can be asserted by name afterwards.
+      | ( [ $old | to_entries[] | select(.value.name != "HaveL") | .value ] ) as $rest
+      | ( [ $old | to_entries[] | select(.value.name == "HaveL") | .value ][0] ) as $hl
+      # new index of an old index: drop one if it was past the removed slot.
+      # `null`, NOT `-1`, FOR THE ROOT. `parent_index` deserialises as `Option<usize>` -- UNSIGNED
+      # -- so `-1` is not a representable value. Emitting it made ssbh_data_json fail to parse the
+      # skeleton, fall through to another format, and panic with `missing field "entries"`, which
+      # names a MODL field and points nowhere near the real cause. The write never happened and
+      # `add-bones` aborted after printing its success lines, so the shipped skeleton silently kept
+      # the vanilla `HaveL` the whole time. Vanilla writes `null` for `Trans`; so does this.
+      | def newidx($i): if $i == null then null elif $i > $li then $i - 1 else $i end;
+        ( [ $rest[] | .parent_index = newidx(.parent_index) ] ) as $fixed
+      | ( [ $fixed | to_entries[] | select(.value.name == "HaveR") ][0].key ) as $hr
+      | .bones = ( $fixed + [ $hl | .parent_index = $hr | .transform = $st ] )
     ' "$W/out.json" > "$W/next.json" && mv "$W/next.json" "$W/out.json"
-    after=$(jq -r '(.bones|to_entries) as $bs | $bs[] | select(.value.name=="HaveL")
+    # THE REMAP IS ASSERTED, NOT TRUSTED: every bone's parent must still be the same NAME.
+    hlchk_before=$(jq -r '.bones as $B | [ $B[] | "\(.name)<-\(if .parent_index>=0 then $B[.parent_index].name else "ROOT" end)" ] | sort | join(",")' "$W/pika.json")
+    hlchk_after=$(jq -r '.bones as $B | [ $B[] | select(.name != "HaveL") | "\(.name)<-\(if .parent_index>=0 then $B[.parent_index].name else "ROOT" end)" ] | sort | join(",")' "$W/out.json")
+    hlchk_ref=$(jq -r '.bones as $B | [ $B[] | select(.name != "HaveL") | "\(.name)<-\(if .parent_index>=0 then $B[.parent_index].name else "ROOT" end)" ] | sort | join(",")' "$W/pika.json")
+    if [ "$hlchk_after" != "$hlchk_ref" ]; then
+        echo "  REFUSING: moving HaveL changed some other bone's parent -- the index remap is wrong" >&2
+        exit 1
+    fi
+    fwd=$(jq -r '[ .bones | to_entries[] | select(.value.parent_index != null and .value.parent_index >= .key) | .value.name ] | length' "$W/out.json")
+    echo "  ok  index remap preserves every other parent; $fwd forward reference(s) remain (vanilla has 10 _offset pairs)"
+    hlchk_after=$(jq -r '(.bones|to_entries) as $bs | $bs[] | select(.value.name=="HaveL")
                    | $bs[.value.parent_index].value.name' "$W/out.json")
-    echo "  ~ HaveL reparented $before -> $after, bind transform taken from palutena Stick"
+    echo "  ~ HaveL moved to the end of the bone list, reparented onto HaveR, bind transform from palutena Stick"
     added=$((added+1))
 else
     echo "  !! no $STICKSRC -- HaveL NOT repurposed, Palutena's staff will ride a grafted bone" >&2
