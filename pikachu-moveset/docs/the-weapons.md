@@ -267,7 +267,7 @@ three rows in `tools/gen-article-assets.sh` and three `clone_weapon` calls:
 
 | article | weapon kind | donor's own id | assets in the arc |
 |---|---|---|---|
-| Ptooie's spiked ball | `WEAPON_KIND_PACKUN_SPIKEBALL` | `0x3` (packun) | 14 model, 10 motion |
+| Ptooie’s spiked ball | `WEAPON_KIND_PACKUN_SPIKEBALL` | `0x0` (packun) | 14 model, 10 motion |
 | Incineroar's ropes | `WEAPON_KIND_GAOGAEN_ROPE` **and** `_ROPE2` | `0x0`, `0x1` | 14 model, 6 motion |
 | G&W's parachute | `WEAPON_KIND_GAMEWATCH_PARACHUTE` | — | 16 model (incl. `model.nuanmb`), 6 motion |
 | Corrin's dragon hand | `WEAPON_KIND_KAMUI_DRAGONHAND` | — | 19 model (incl. `model.nuanmb`), 26 motion |
