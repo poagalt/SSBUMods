@@ -254,8 +254,33 @@ while IFS='|' read -r name dir mesh material bone parent sphere radius realise; 
         n=$(jq -r --arg b "$bone" '[.. | objects | select(.name? == $b)] | length' "$a" 2>/dev/null | tr -d '\r')
         if [ "${n:-0}" != "0" ]; then animated=1; break; fi
     done
+    # ==== THE BAKE IS OFF. THE PLAYTEST RETIRED IT, TWICE. ====
+    #
+    # The idea was that binding every mesh to `HaveR` would be either a no-op (if grafted bones
+    # work) or a fix (if they do not), so it could not make anything worse. That reasoning was
+    # wrong, and the evidence is a straight read of what each state produced:
+    #
+    #   BEFORE the bake   every mesh on its own grafted bone. All five swords APPEAR. Cloud and
+    #                     Corrin correct in both directions. Chrom and Mythra wrong facing left.
+    #                     Palutena wrong both ways.
+    #   WITH the bake     Cloud's back air goes visually wrong. Chrom and Mythra still wrong left.
+    #   WITH the bake computed to the model ROOT instead of the bone
+    #                     Chrom and both Mythra moves wrong in BOTH directions, Corrin wrong left,
+    #                     Palutena wrong right. "Almost every sword move broken."
+    #
+    # Cloud is the control that settles it: he was CORRECT on a grafted bone and went wrong when
+    # baked onto `HaveR`, with a bake matrix that is provably the identity for him -- so the only
+    # thing that changed was which bone he binds to. A grafted bone is therefore NOT the thing that
+    # breaks a mesh, and moving meshes off them cost two working weapons.
+    #
+    # So every mesh binds to the bone its source model binds it to, which is where this started and
+    # the only configuration in which anything was ever fully correct. `realise` still applies --
+    # Palutena's staff goes on the vanilla `HaveL`, which is the one change that made a broken
+    # weapon work in one direction.
+    #
+    # The derivation above is kept because it is a real measurement of which bones the ported moves
+    # animate, and `check-weapons.sh` reads it to decide which bind to expect.
     bake=0
-    if [ "$animated" = "0" ] && [ "$bone" != "HaveR" ]; then bake=1; fi
 
     if [ "$bake" = "1" ] || [ -n "${realise:-}" ]; then
         cp cur_nusktb.json next_nusktb.json
@@ -329,30 +354,13 @@ while IFS='|' read -r name dir mesh material bone parent sphere radius realise; 
     # `p = v . M`. (rebase.rs's `bind` proves that convention against a real animated quaternion
     # rather than assuming it.)
     #
-    # THE MATRIX IS THE FULL CHAIN TO THE MODEL ROOT, NOT THE BONE'S LOCAL TRANSFORM, and getting
-    # that wrong is what put Chrom's Falchion in the wrong hand.
-    #
-    # These weapons live in their own model -- `chrom/model/sword`, `cloud/model/fusionsword`,
-    # `elight/model/esword` -- which the game attaches to the fighter by SNAPPING THE MODEL'S ROOT
-    # to the parent bone. So the frame a vertex has to end up in is the WEAPON MODEL'S ROOT frame,
-    # which means composing every transform from the mesh's bone up to the root, not just one.
-    #
-    # CHROM'S OWN RIG PROVES IT. His sword model is `HaveR` -> `Sword`, and `Sword`'s local
-    # rotation is exactly the TRANSPOSE of `HaveR`'s -- so `world(Sword)` computes to the identity
-    # to four decimals. The artists deliberately made the blade's mesh frame equal the model root
-    # frame. Baking `Sword`'s local transform therefore applied a large rotation that should not be
-    # there at all; the correct answer for Chrom is vertices UNCHANGED, bound to `HaveR`.
-    #
-    # AND THE ONE WEAPON THAT WORKS CONFIRMS IT FROM THE OTHER SIDE. Corrin's sword is the only one
-    # that is NOT a separate model -- `Kamui_Weapon_VIS_O_OBJShape` lives in `kamui/model/body`,
-    # single-bound to `HaveR`, a real body bone Pikachu also has. It gets no transform at all, and
-    # it is the only weapon never reported broken. Chrom, Cloud and Mythra are exactly the three
-    # that come from separate weapon models, and exactly the three reported broken.
-    #
-    #   RIGID  mesh: `world(B)` in the source rig -- every transform from B up to the root.
-    #   SKINNED mesh: IDENTITY. Its vertices are already in the source rig's MODEL space, which IS
-    #          the root frame, so there is nothing to compose. The previous
-    #          `inverse(world(HaveR))` was undoing a transform the attachment never applies.
+    #   RIGID  mesh: its vertices are already in bone B's local frame, and B's parent IS `HaveR`,
+    #          so B's own local transform is exactly the map into `HaveR`'s frame.
+    #   SKINNED mesh: its vertices are in the source rig's MODEL space, so the map is the INVERSE
+    #          of `HaveR`'s world transform in that rig. This is the step the earlier attempt
+    #          missed -- "stripping the weights and single-binding" collapsed Mythra's blade
+    #          because it rebound model-space vertices to `Sword1` and let the chain transform
+    #          them a second time, rather than converting them into the target bone's frame first.
     BAKEM=""
     if [ "$bake" = "1" ]; then
         nin0=$(jq -r --arg m "$mesh" '[.objects[]|select(.name==$m)][0].bone_influences|length' src_numshb.json | tr -d '\r')
@@ -372,9 +380,9 @@ while IFS='|' read -r name dir mesh material bone parent sphere radius realise; 
                   [$t[0],$t[1],$t[2],1] ];
           .bones as $B
           | if ($skinned|tonumber) == 0
-            then ( [ $B | to_entries[] | select(.value.name == $b) ][0].key ) as $i
-                 | world($B; $i)
-            else [[1,0,0,0],[0,1,0,0],[0,0,1,0],[0,0,0,1]]
+            then ( [ $B[] | select(.name == $b) ][0].transform )
+            else ( [ $B | to_entries[] | select(.value.name == "HaveR") ][0].key ) as $h
+                 | invrt(world($B; $h))
             end
         ' src_nusktb.json | tr -d '\r')
         [ -n "$BAKEM" ] && [ "$BAKEM" != "null" ] || { echo "$name: cannot compute bake matrix" >&2; exit 1; }

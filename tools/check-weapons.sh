@@ -175,18 +175,17 @@ if [ -f "$MODEL/model.numshb" ]; then
             [ "${na:-0}" != "0" ] && { animated=1; break; }
         done
         want="$bone"
-        [ "$animated" = "0" ] && want="HaveR"
+        # `want` is unused now that the bake is gone; the per-subindex tests below decide.
         i=0
         while [ "$i" -lt "${nsub:-0}" ]; do
             nin=$(jq -r --arg n "$name" --argjson i "$i" \
                   '[.objects[]|select(.name==$n)][$i]|.bone_influences|length' "$W/mesh.json" 2>/dev/null | tr -d "$CR")
-            if [ "$animated" = "0" ]; then
-                # BAKED: rigid, single-bound to HaveR, and no weights left over.
-                pb=$(jq -r --arg n "$name" --argjson i "$i" \
-                     '[.objects[]|select(.name==$n)][$i]|.parent_bone_name' "$W/mesh.json" 2>/dev/null | tr -d "$CR")
-                [ "$pb" = "HaveR" ] || bad="$bad ${name}#${i}:unanimated-so-should-bake-to-HaveR-but-is-${pb:-none}"
-                [ "${nin:-0}" = "0" ] || bad="$bad ${name}#${i}:baked-but-still-has-${nin}-influence(s)"
-            elif [ "${nin:-0}" = "0" ]; then
+            # THERE IS NO BAKE ANY MORE, so the expected bind is simply where the source model
+            # binds the mesh -- or the `realise` bone where the table names one. The playtest
+            # retired the bake: see the long note in merge-weapons.sh. Cloud was CORRECT on his
+            # grafted `fusionsword1` and went wrong once baked onto `HaveR`, with a bake matrix
+            # that is provably the identity for him, so the bind was the only thing that changed.
+            if [ "${nin:-0}" = "0" ]; then
                 # RIGID AND ANIMATED: the single bind must be the bone the mesh is REALISED on --
                 # the table's `realise` column where it has one, the source bone otherwise. For
                 # Palutena that is the vanilla `HaveL`, which `add-bones.sh` has put in Stick's
