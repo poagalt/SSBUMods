@@ -42,6 +42,26 @@ key() {
         find "$ROOT/tools/reach/src" "$ROOT/tools/motion-patch/src" "$ROOT/tools/prc-tool/src" \
              -name '*.rs' -type f -print0 2>/dev/null
         printf '%s\0' "$ROOT/pikachu-moveset/mod/fighter/pikachu/motion/body/c00/motion_list.bin"
+        # THE SHIPPED FK DUMPS, WHICH ARE THE PARITY HARNESS'S ACTUAL INPUT AND WERE MISSING.
+        #
+        # `hbtrace` reads `work/fk/pikachu_shipped_skel.json` for the skeleton and
+        # `work/fk/shipped_<stem>.json` for each animation. Those ARE the OURS side of every hitbox
+        # comparison. Neither was in the key, so a change to the shipped skeleton or to any shipped
+        # animation left `check-hitboxes` printing "cached (nothing this check reads has changed
+        # since it last passed)" when the most important thing it reads had changed.
+        #
+        # Found while baking Mythra's sword, which took the skeleton from 88 bones to 79 and back
+        # and re-trimmed all 74 animations. The cache hit anyway. It turned out to be a legitimate
+        # hit -- forced with CHECK_NOCACHE=1, parity came back OK at 38 moves and 460 hitbox-frames
+        # -- but the key could not have known that, and "the check that proves the hitboxes are
+        # right, skipped on a build that rewrote the skeleton" is not a risk worth 24 seconds.
+        #
+        # Only the SHIPPED dumps, not all of `work/fk/`: the source-fighter dumps are 140MB of game
+        # data that cannot change within a session, while these are 19MB and hash in 0.17s.
+        find "$ROOT/work/fk" -maxdepth 1 -type f \
+             -name 'shipped_*.json' -print0 2>/dev/null
+        find "$ROOT/work/fk" -maxdepth 1 -type f \
+             -name 'pikachu_shipped_skel.json' -print0 2>/dev/null
         printf '%s\0' "$ROOT/tools/moves.tsv" "$ROOT/tools/scales.tsv" "$ROOT/tools/ported-motions.txt"
         for a in "$@"; do
             [ -f "$a" ] && printf '%s\0' "$a"

@@ -280,9 +280,83 @@ while IFS='|' read -r name dir mesh material bone parent sphere radius realise; 
     #
     # The derivation above is kept because it is a real measurement of which bones the ported moves
     # animate, and `check-weapons.sh` reads it to decide which bind to expect.
-    bake=0
+    #
+    # ==== EXCEPT FOR A SKINNED SOURCE MESH, WHERE NOT BAKING IS PROVABLY WRONG. ====
+    #
+    # The retirement above is sound for a RIGID source mesh, and it is worth writing down exactly
+    # why, because "the graft's frame might be wrong" was a live suspicion for weeks and it is now
+    # closed by algebra rather than by another playtest.
+    #
+    # A rigid weapon mesh single-binds to a bone B one level under the weapon MODEL's own `HaveR`,
+    # which is the frame the engine aligns with the fighter's hand. Natively, then
+    #
+    #     v_world = v . world_w(B) . world_w(HaveR)^-1 . world_pika(HaveR)
+    #
+    # and since `world_w(B) = local_w(B) . world_w(HaveR)`, the middle terms cancel and this is
+    # EXACTLY `v . local_w(B) . world_pika(HaveR)` -- which is what grafting B under Pikachu's
+    # `HaveR` with its own local transform and single-binding the mesh to it computes. Chrom and
+    # Cloud are both of that shape (chrom/model/sword is Root->HaveR->Sword,
+    # cloud/model/fusionsword is Root->HaveR->fusionsword1), so their grafts are algebraically
+    # identical to the native attachment. The bake is a true no-op for them, and the playtest
+    # showed it made Cloud worse anyway, so it stays off.
+    #
+    # A SKINNED mesh does not reduce. Skinning computes
+    #
+    #     v_world = v . Wbind_pika(B)^-1 . W_pika(B)
+    #
+    # which substitutes PIKACHU's bind pose for the weapon model's hand frame. Those are different
+    # matrices, and what is left is the bone's DEVIATION from Pikachu's bind pose rather than its
+    # absolute pose -- so the mesh renders near the model origin and drifts as the arm moves
+    # instead of sitting in the hand. Measured on Mythra's blade tip: the native formula puts it
+    # at (3.347, 2.014, 10.409), which is 10.86 units from Pikachu's `HaveR` and so exactly the
+    # blade's own length; the shipped skinning puts it at (-0.019, 0.000, 10.874), a 3.951-unit
+    # error at bind pose and a growing one in motion.
+    #
+    # WHY THE BAKE IS EXACT HERE AND NOT MERELY BETTER. Two facts, both checked rather than
+    # assumed:
+    #   - Every one of Mythra's skin weights is exactly 1.0 -- 4 subindices over 9 influence bones,
+    #     `Sword1` and `Sword_lightA..F2`. There is no blending to lose.
+    #   - NO shipped Mythra animation drives `Sword1` or any light bone. `c00attackdash` and
+    #     `c01attacks3s` carry 43 Transform tracks each and not one names them, so the whole sword
+    #     is rigid relative to `HaveR` for the entire move.
+    # That is also why ONE bake matrix is valid for vertices weighted to nine different bones: at
+    # bind pose `inverse(world_esword(HaveR))` maps all of them into the hand frame correctly, and
+    # bind pose is the only pose they are ever in.
+    #
+    # AND THE EARLIER PLAYTEST DID NOT TEST THIS. "With the bake, Chrom and Mythra still wrong
+    # left" was measured when the bake was GLOBAL and when Chrom's jab was shipping with 51
+    # Transform tracks naming bones Pikachu does not have -- see `tools/check-anim-tracks.sh`.
+    # Both weapons were confounded. This is the narrow case instead: bake the one mesh whose
+    # construction is provably wrong, and leave the four that provably match native alone.
+    nin0=$(jq -r --arg m "$mesh" '[.objects[]|select(.name==$m)][0].bone_influences|length' \
+             src_numshb.json | tr -d '\r')
+    if [ "${nin0:-0}" != "0" ] && [ "$animated" = "0" ]; then
+        bake=1
+        echo "  $name: source mesh is SKINNED ($nin0 influence bones) and no shipped animation drives $bone -- baking into HaveR's frame, exactly"
+    else
+        bake=0
+    fi
 
-    if [ "$bake" = "1" ] || [ -n "${realise:-}" ]; then
+    # THE BAKE DOES NOT REMOVE THE BONES, AND MAKING IT DO SO BROKE THE BUILD.
+    #
+    # A baked mesh does not NEED its source bones -- its vertices are in `HaveR`'s frame and it
+    # single-binds there -- but "does not need" is not "must remove", and removing them has a cost
+    # that took a failed build to find. Baking Mythra dropped `Sword1` and her eight light bones,
+    # nine bones, and `Sword1` is the bone CHROM's jab animates. `anim-dropin.sh` then correctly
+    # trimmed his `Sword1` track as foreign, and `rebase.rs` -- which reads that track to move his
+    # hitboxes onto `haver`, and prefers the animation over the bind pose precisely because the
+    # animation is the truth -- lost its input and panicked with
+    # "Sword1 not in work/bones/out.json".
+    #
+    # Whose `Sword1` it is never mattered for Chrom: `rebase.rs` takes the TRACK, not the bind
+    # transform, so Mythra's esword bind pose was never read on his behalf. What matters is only
+    # that a bone by that name exists, so the trim keeps his track.
+    #
+    # So the bake now governs the MESH alone. The bones are grafted either way, which also keeps
+    # the skeleton at the 88 bones every other configuration was measured against -- and bone count
+    # and ordering have broken working weapons twice in this project, so holding them still while
+    # changing one mesh is the point.
+    if [ -n "${realise:-}" ]; then
         cp cur_nusktb.json next_nusktb.json
     else
     jq --argjson anchor "$pidx" --arg m "$mesh" --arg b "$bone" \

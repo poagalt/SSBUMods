@@ -539,12 +539,16 @@ const MIRROR_FRAMES: u32 = 24;
 /// One bit per (move, facing, frame) so each combination logs once. Three moves and two facings
 /// need 6 slots of MIRROR_FRAMES bits; a u64 per player holds 24 frames x 2 facings for one move
 /// at a time, so this is indexed [player][move].
-static mut MIRROR_SEEN: [[u64; 4]; 8] = [[0; 4]; 8];
+static mut MIRROR_SEEN: [[u64; 6]; 8] = [[0; 6]; 8];
 
 unsafe fn mirror_probe(boma: *mut smash::app::BattleObjectModuleAccessor, entry: usize) {
     let motion = MotionModule::motion_kind(boma);
     // The two moves reported, plus Corrin's up-air -- newly grafted, rigid on `HaveR`, and the one
     // whose mesh needs no added bone at all, so it is the cleanest control of the three.
+    // EVERY PORTED SWORD MOVE, INCLUDING THE ONES THAT WORK. The previous round sampled four and
+    // left out `attack_air_b` -- Cloud's -- which is the only weapon the playtest has ever called
+    // correct in BOTH facings. A broken sample is only interpretable next to a working one taken
+    // by the same instrument on the same frame budget, so omitting it made the whole set mute.
     let which = if motion == hash40("attack_11") {
         0usize
     } else if motion == hash40("attack_air_n") {
@@ -553,6 +557,10 @@ unsafe fn mirror_probe(boma: *mut smash::app::BattleObjectModuleAccessor, entry:
         2
     } else if motion == hash40("attack_dash") {
         3
+    } else if motion == hash40("attack_air_b") {
+        4
+    } else if motion == hash40("attack_s3_s") {
+        5
     } else {
         return;
     };
@@ -597,6 +605,28 @@ unsafe fn mirror_probe(boma: *mut smash::app::BattleObjectModuleAccessor, entry:
             p.z - hv.z
         )
     };
+    // ORIENTATION, WHICH IS THE THING POSITION CANNOT DISTINGUISH.
+    //
+    // Every reading this project has taken of the facing bug has been a POSITION, and a position
+    // cannot tell a 180-degree turn from a mirror. Both send the hand to the same place; only one
+    // of them turns the blade inside out, and "the sword is in the wrong hand" is exactly what a
+    // mirror looks like when a rotation was intended. `ModelModule::joint_global_rotation` is in
+    // the binary's lua_bind surface (0x2057680) and reports the joint's global orientation, so the
+    // distinction is one call away and has simply never been made.
+    //
+    // Logged RAW -- no `lr` applied. The whole question is what facing does to these numbers, so
+    // pre-dividing by the answer would erase it. Compare a bone's two facings against each other:
+    // a 180-degree turn about Y shows up as a ~180 shift in one component with the others fixed;
+    // a mirror does not decompose that cleanly at all.
+    let rot = |bone: &str| -> String {
+        let mut r = Vector3f { x: -9999.0, y: -9999.0, z: 0.0 };
+        ModelModule::joint_global_rotation(boma, Hash40::new(bone), &mut r, true);
+        if r.x < -9000.0 {
+            return format!("{bone}=absent");
+        }
+        format!("{bone}=({:.2},{:.2},{:.2})", r.x, r.y, r.z)
+    };
+
     // `log`, NOT `diag`. `sink::diag` pays a file open and flush PER LINE, deliberately, because
     // it exists for install-time and load-time markers where a crash would otherwise lose the
     // buffer. The old probe fired at most six times in a session so the cost was irrelevant; this
@@ -607,10 +637,12 @@ unsafe fn mirror_probe(boma: *mut smash::app::BattleObjectModuleAccessor, entry:
     sink::log(format!(
         "[rat] MIRROR p{entry} {} lr={lr:.0} f={f} haver_from_top=({:.3},{:.3},{:.3}) {} {} {} {} {} {}",
         match which {
-            0 => "attack_11(chrom)",
-            1 => "attack_air_n(palutena)",
-            2 => "attack_air_hi(corrin)",
-            _ => "attack_dash(mythra)",
+            0 => "attack_11(chrom,WRONG-L)",
+            1 => "attack_air_n(palutena,WRONG-L)",
+            2 => "attack_air_hi(corrin,OK)",
+            3 => "attack_dash(mythra,WRONG-L)",
+            4 => "attack_air_b(cloud,OK)",
+            _ => "attack_s3_s(mythra,WRONG-L)",
         },
         (hv.x - base.x) * lr,
         hv.y - base.y,
@@ -643,7 +675,55 @@ unsafe fn mirror_probe(boma: *mut smash::app::BattleObjectModuleAccessor, entry:
         // compared directly instead of assumed to agree.
         rel("sword"),
         rel("sword1"),
-        rel("stick"),
+        // `havel`, NOT `stick`. THIS IS THE MEASUREMENT THE PROBE HAS NEVER TAKEN, and it is the
+        // one that decides where the remaining bug can possibly live.
+        //
+        // `stick` stopped being a bone. `add-bones.sh` repurposes Pikachu's OWN `HaveL` -- vanilla
+        // index 17, present in the shipped skeleton since before this mod existed -- by reparenting
+        // it under `HaveR` with Palutena's `Stick` bind transform, and `anim-dropin.sh` renames the
+        // animation's `Stick` node onto it. So every line the last round printed for `stick` was a
+        // read of a name no skeleton contains, which is to say noise, and Palutena's readings were
+        // the ones that had previously "looked meaningful".
+        //
+        // WHY IT SETTLES SOMETHING. Palutena's staff is the only weapon bound to a bone Pikachu
+        // already owned, and the playtest still calls it wrong facing left. If `havel` tracks
+        // `handr`'s behaviour across both facings -- and `handr` is a fixed offset from `haver` by
+        // construction, so it MUST -- then the skeleton is carrying the staff correctly and no
+        // further skeleton work can fix any of these five. That moves the search entirely into the
+        // mesh data, where George's mod is a working reference to diff against. If instead `havel`
+        // diverges where `handr` does not, the reparent is the fault and it is a one-line fix.
+        rel("havel"),
         rel("fusionsword1"),
+    ));
+    // SECOND LINE, SAME SAMPLE. Split from the first so the existing analysis of `MIRROR` lines
+    // keeps working unchanged, and so one grep gets orientations without positions interleaved.
+    //
+    // The contrast to read, and which bone carries which weapon as of this build:
+    //
+    //   handr         vanilla, no weapon. The reference: a fixed offset from `haver`, so whatever
+    //                 facing does to it is what facing does, full stop.
+    //   haver         vanilla, and Corrin's Yato plus Mythra's baked sword both bind here. Both
+    //                 correct in both facings -- Corrin always was, Mythra as of this build.
+    //   havel         vanilla but REPARENTED under `haver` with Palutena's Stick bind transform.
+    //                 Carries her staff, which is wrong facing left.
+    //   sword         grafted. Carries Chrom's Falchion, wrong facing left before this build --
+    //                 though his jab was also shipping 51 tracks for bones that do not exist, so
+    //                 this reading and the visual may both change.
+    //   sword1        grafted, and carries NOTHING now: Mythra's mesh was baked onto `haver`.
+    //                 Kept because Chrom's jab animates it and `rebase.rs` reads that track, which
+    //                 makes it the one grafted bone an animation drives with no mesh riding it --
+    //                 a clean read of what a graft does, uncoupled from what a mesh looks like.
+    //   fusionsword1  grafted. Carries Cloud's Buster Sword, correct in both facings.
+    //
+    // So `fusionsword1` and `sword` are the pair that matters: same construction, same parent,
+    // opposite verdicts. If they differ here, the difference is the bug.
+    sink::log(format!(
+        "[rat] MIRRORROT p{entry} lr={lr:.0} f={f} w={which} {} {} {} {} {} {}",
+        rot("handr"),
+        rot("haver"),
+        rot("havel"),
+        rot("sword"),
+        rot("sword1"),
+        rot("fusionsword1"),
     ));
 }

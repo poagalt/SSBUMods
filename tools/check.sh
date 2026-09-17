@@ -440,6 +440,13 @@ bash "$ROOT/tools/check-luaconst.sh" || rc=1
 echo; echo "== 4e. every new status is fully registered and actually used =="
 bash "$ROOT/tools/check-statusgraph.sh" || rc=1
 
+# A SHIPPED ANIMATION MUST NOT DRIVE A BONE PIKACHU DOES NOT HAVE. The trim in anim-dropin.sh
+# was bypassed for every source fighter whose scale equalled Pikachu's -- see the header of
+# check-anim-tracks.sh -- and nothing asserted its output, so two animations shipped for months
+# with a source fighter's whole hand in them.
+echo; echo "== 4n. no shipped animation drives a bone the skeleton lacks =="
+bash "$ROOT/tools/check-anim-tracks.sh" || rc=1
+
 echo; echo "== 5. character select rename is present and correctly encoded =="
 bash "$ROOT/tools/check-name.sh" || rc=1
 

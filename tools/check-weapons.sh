@@ -174,8 +174,37 @@ if [ -f "$MODEL/model.numshb" ]; then
             na=$(jq -r --arg b "$bone" '[.. | objects | select(.name? == $b)] | length' "$a" 2>/dev/null | tr -d "$CR")
             [ "${na:-0}" != "0" ] && { animated=1; break; }
         done
-        want="$bone"
-        # `want` is unused now that the bake is gone; the per-subindex tests below decide.
+        # IS THIS WEAPON BAKED? The same two-part test merge-weapons.sh makes, recomputed here
+        # from the SOURCE model rather than read from it, so a drift between the two shows up as a
+        # failure instead of being rubber-stamped.
+        #
+        # The bake is no longer global and no longer off; it applies to exactly the meshes whose
+        # unbaked construction is provably wrong -- a SKINNED source mesh, whose skinning would
+        # substitute Pikachu's bind pose for the weapon model's hand frame. Mythra's sword is the
+        # only one in the table. See the derivation in merge-weapons.sh.
+        # BOTH ROOTS, in merge-weapons.sh's own order. Only Chrom's sword model is under
+        # `extracted/`; the other four were pulled off the running console into
+        # `work/arc-weapons/`, because the arc dump this repo ships predates them. Looking in one
+        # place reported four of the five weapons' sources "unreadable" and then silently decided
+        # that none of them was baked -- so the gate failed Mythra for being bound where she is
+        # supposed to be bound.
+        srcnin=0
+        srcmesh=""
+        for sroot in extracted/fighter work/arc-weapons/fighter; do
+            if [ -f "$sroot/$dir/c00/model.numshb" ]; then
+                srcmesh="$sroot/$dir/c00/model.numshb"
+                break
+            fi
+        done
+        if [ -n "$srcmesh" ] && "$T" "$srcmesh" "$W/srcmesh.json" >/dev/null 2>&1; then
+            srcnin=$(jq -r --arg m "$mesh" '[.objects[]|select(.name==$m)][0].bone_influences|length' "$W/srcmesh.json" 2>/dev/null | tr -d "$CR")
+        else
+            bad="$bad ${name}:source-mesh-unreadable-under-extracted-or-arc-weapons-for-${dir}"
+        fi
+        baked=0
+        if [ "${srcnin:-0}" != "0" ] && [ "$animated" = "0" ]; then
+            baked=1
+        fi
         i=0
         while [ "$i" -lt "${nsub:-0}" ]; do
             nin=$(jq -r --arg n "$name" --argjson i "$i" \
@@ -191,10 +220,22 @@ if [ -f "$MODEL/model.numshb" ]; then
                 # Palutena that is the vanilla `HaveL`, which `add-bones.sh` has put in Stick's
                 # exact frame, so binding there is the same geometry on a bone the runtime owns.
                 # The block above asserts the two frames really do coincide.
-                expect="${realise:-$bone}"
+                # A BAKED MESH BINDS TO `HaveR` AND NOTHING ELSE. Its vertices have been moved
+                # into that frame, so binding them anywhere else transforms them a second time.
+                if [ "$baked" = "1" ]; then
+                    expect="HaveR"
+                else
+                    expect="${realise:-$bone}"
+                fi
                 pb=$(jq -r --arg n "$name" --argjson i "$i" \
                      '[.objects[]|select(.name==$n)][$i]|.parent_bone_name' "$W/mesh.json" 2>/dev/null | tr -d "$CR")
                 [ "$pb" = "$expect" ] || bad="$bad ${name}#${i}:rigid-bound-to-${pb:-none}-not-${expect}"
+            elif [ "$baked" = "1" ]; then
+                # A BAKED WEAPON MUST NOT SHIP ANY SKINNED SUBINDEX. The bake clears the weights
+                # and single-binds to `HaveR`; a surviving weight means the bake did not run on
+                # this subindex, and that subindex alone would render in the wrong frame -- which
+                # is how three of Mythra's four went missing once before, silently.
+                bad="$bad ${name}#${i}:baked-but-still-skinned-with-${nin}-influences"
             else
                 # SKINNED: no parent bone, and the table's bone must be one of its influences.
                 jq -e --arg n "$name" --argjson i "$i" --arg b "$bone" \

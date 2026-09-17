@@ -199,7 +199,23 @@ donkey    | e01throwflw.nuanmb        | -    | cargo throw down (new file)
 
 # The script itself is part of every stamp: change the jq filters or the drop-in table and every
 # cached animation must be rebuilt.
+#
+# AND SO IS THE SKELETON, WHICH IT WAS NOT, AND THAT IS THE SAME HOLE TWICE.
+#
+# The trim below drops every Transform track whose target is absent from Pikachu's skeleton, so its
+# output depends on the BONE LIST as much as on the source animation. The stamp did not include it,
+# so changing the skeleton left all 74 animations "unchanged and skipped" and the trim never re-ran.
+#
+# Caught the first time it mattered. Baking Mythra's sword removed her nine sword bones, taking the
+# skeleton from 88 bones to 79 -- and `Sword1` with it, which CHROM's jab animates. His shipped
+# animation kept driving a bone that no longer existed, and the build reported a clean
+# "74 unchanged and skipped" while doing it. `tools/check-anim-tracks.sh` found it because it reads
+# the shipped bytes instead of trusting this cache; the cache is what should not have needed it.
+#
+# The meshes and the realise pairs go in for the same reason: the Visibility and Material trim
+# reads the mesh-name list, and the rename reads the pairs.
 SELFSIG="$(sha1sum "$0" | cut -d" " -f1)"
+SELFSIG="$SELFSIG:$(cat "$BONES_JSON" "$MESHES_JSON" "$REALISE_JSON" | sha1sum | cut -d" " -f1)"
 
 # EVERY INPUT TO THE CACHE CHECK, GATHERED IN THREE PROCESSES RATHER THAN FIVE PER ANIMATION.
 #
@@ -256,124 +272,141 @@ while IFS='|' read -r fighter anim neut label; do
         continue
     fi
 
-    if awk -v r="$ratio" 'BEGIN{exit !(r > 0.9995 && r < 1.0005)}' && [ "$neut" = "-" ]; then
-        cp "$s" "$DST/$anim"
-        printf "  %-26s <- %-10s ratio %s  %s\n" "$anim" "$fighter" "$ratio" "$label"
-    else
-        "$T" "$s" "$W/$stem.in.json" >/dev/null
-        jq --argjson r "$ratio" '
-          .groups |= map(
-            if .group_type == "Transform" then
-              .nodes |= map(
-                if (.name | ascii_downcase) == "rot" then
-                  .tracks |= map(
-                    .values.Transform |= map(
-                      .scale.x *= $r | .scale.y *= $r | .scale.z *= $r
-                    | .translation.x *= $r | .translation.y *= $r | .translation.z *= $r
-                    )
-                  )
-                else . end
+    # THE ~1.0 FAST PATH IS GONE. IT WAS NOT AN OPTIMISATION, IT WAS A HOLE.
+    #
+    # It read: if the scale ratio is within 0.0005 of 1.0 and nothing needs neutralising, `cp` the
+    # source animation across verbatim and skip the JSON round trip. The reasoning was that with no
+    # scaling to apply there is nothing to do -- and that was true when the only thing this script
+    # did was scale `Rot`. It stopped being true when the FOREIGN-TRACK TRIM was added below, and
+    # the trim is unconditional work: it has nothing to do with the ratio.
+    #
+    # WHAT IT COST, measured rather than supposed. Chrom's `scale` param is 0.9600 and Pikachu's is
+    # 0.9600, so his ratio is exactly 1.0000 -- he is the ONLY source fighter in this moveset that
+    # lands on the fast path. His jab therefore shipped with every one of Chrom's own bones still
+    # in it: 96 Transform tracks against an 88-bone skeleton, 51 of them naming bones Pikachu does
+    # not have (fingerl12, fingerl13, fingerl20 ...). An audit of all 74 shipped animations found
+    # exactly two with foreign tracks, and the other is `g02cliffattack`, also from a 0.9600
+    # fighter. Every animation that took the slow path has zero.
+    #
+    # AND IT SKIPPED THE SHIPPED DUMP. `cp` never wrote `work/fk/shipped_<stem>.json`, which is the
+    # OURS side that `hbtrace` prefers -- so for the one animation with the defect, the harness was
+    # measuring a file that was not what shipped, and could not have seen it.
+    #
+    # The cost of removing it is close to nothing: the stamp cache above already skips any
+    # animation whose inputs have not moved, so this only runs on a genuine change, at about 0.7s.
+    "$T" "$s" "$W/$stem.in.json" >/dev/null
+    jq --argjson r "$ratio" '
+      .groups |= map(
+        if .group_type == "Transform" then
+          .nodes |= map(
+            if (.name | ascii_downcase) == "rot" then
+              .tracks |= map(
+                .values.Transform |= map(
+                  .scale.x *= $r | .scale.y *= $r | .scale.z *= $r
+                | .translation.x *= $r | .translation.y *= $r | .translation.z *= $r
+                )
               )
             else . end
-          )' "$W/$stem.in.json" > "$W/$stem.out.json"
+          )
+        else . end
+      )' "$W/$stem.in.json" > "$W/$stem.out.json"
 
-        rotx() { jq -r '[.groups[]|select(.group_type=="Transform")|.nodes[]|select((.name|ascii_downcase)=="rot")|.tracks[0].values.Transform[0].scale.x]|.[0] // "none"' "$1"; }
-        before=$(rotx "$W/$stem.in.json"); after=$(rotx "$W/$stem.out.json")
-        if [ "$before" = "none" ]; then
-            echo "  REFUSING $anim: no Rot node to scale -- would ship uncompensated" >&2
-            exit 1
-        fi
-        if awk -v r="$ratio" 'BEGIN{exit !(r < 0.9995 || r > 1.0005)}' && [ "$before" = "$after" ]; then
-            echo "  REFUSING $anim: Rot scale unchanged ($before) -- the jq filter did not apply" >&2
-            exit 1
-        fi
-
-        if [ "$neut" != "-" ]; then
-            for b in $(echo "$neut" | tr ',' ' '); do
-                jq --arg b "$b" '
-                  ([.groups[] | select(.group_type=="Transform") | .nodes[0]] | .[0]) as $tpl
-                  | ($tpl.tracks[0].values.Transform | length) as $nf
-                  | .groups |= map(
-                      if .group_type == "Transform" then
-                        .nodes |= ( map(select((.name|ascii_downcase) != ($b|ascii_downcase)))
-                                    + [ $tpl
-                                        | .name = $b
-                                        | .tracks[0].values.Transform =
-                                            [ range($nf) | {
-                                                scale:       {x:1.0, y:1.0, z:1.0},
-                                                rotation:    {x:0.0, y:0.0, z:0.0, w:1.0},
-                                                translation: {x:0.0, y:0.0, z:0.0}
-                                              } ] ] )
-                      else . end )' "$W/$stem.out.json" > "$W/$stem.neut.json"
-                got=$(jq -r --arg b "$b" '[.groups[]|select(.group_type=="Transform")|.nodes[]|select((.name|ascii_downcase)==($b|ascii_downcase))]|length' "$W/$stem.neut.json")
-                if [ "$got" != "1" ]; then
-                    echo "  REFUSING $anim: neutralising $b produced $got nodes, expected 1" >&2
-                    exit 1
-                fi
-                mv "$W/$stem.neut.json" "$W/$stem.out.json"
-                neutralised=$((neutralised+1))
-            done
-        fi
-        # DROP EVERY TRACK WHOSE TARGET PIKACHU DOES NOT HAVE. Last, so the scale pass and the
-        # neutralisation pass above are unaffected by it -- neutralisation ADDS identity tracks
-        # for bones Pikachu has and the source lacks, which is the mirror image of this and has
-        # to happen first or its new node would be examined before it exists.
-        #
-        # A Transform group whose nodes all vanish is kept as an empty group rather than removed:
-        # the file format allows it, and removing a group changes the group ordering that
-        # `Visibility` and `Material` indices are read against.
-        # A REALISED BONE IS RENAMED BEFORE THE TRIM, NOT AFTER, and doing it after cost a build.
-        #
-        # Palutena's n-air drives `Stick`, a bone Pikachu deliberately does NOT have -- her staff
-        # and its hitboxes ride the vanilla `HaveL`, which `add-bones.sh` reparents under `HaveR`
-        # and gives Stick's bind transform so the two frames coincide exactly. The track therefore
-        # has to move from `Stick` to `HaveL`.
-        #
-        # That started as a separate step AFTER this one, and this trim ate the track first: a
-        # `Stick` track names a bone the skeleton lacks, which is precisely what "foreign" means
-        # here. The rename reported "0 animations repointed", the staff shipped with a
-        # one-keyframe `HaveL` inherited from the source, and `check-hitboxes.sh` caught it as
-        # `nair_palutena is 14.03 world units off`. Renaming inside the same filter, before the
-        # select, is the only ordering that cannot lose it.
-        #
-        # The pairs come from `merge-weapons.sh`'s `realise` column, so they cannot drift from what
-        # the skeleton and the merge actually did. The target's own track is dropped first: the
-        # source has a one-keyframe `HaveL` of its own and two nodes with one name would leave the
-        # engine reading whichever it saw last.
-        jq -c --slurpfile b "$BONES_JSON" --slurpfile m "$MESHES_JSON" --slurpfile r "$REALISE_JSON" '
-          ($b[0]) as $bones | ($m[0]) as $meshes | ($r[0]) as $realise
-          | .groups |= map(
-              if .group_type == "Transform" then
-                .nodes |= ( [ .[] | . as $n
-                              | select(($realise | any(.to_lc == ($n.name | ascii_downcase))) | not) ]
-                            | [ .[] | . as $n
-                                | (($realise | map(select(.from == ($n.name | ascii_downcase))) | first) // null) as $mm
-                                | if $mm != null then ($n | .name = $mm.to) else $n end ] )
-                | .nodes |= map(select((.name | ascii_downcase) as $n | ($bones | index($n)) != null))
-              elif .group_type == "Visibility" or .group_type == "Material" then
-                .nodes |= map(select((.name | ascii_downcase) as $n | ($meshes | index($n)) != null))
-              else . end
-            )' "$W/$stem.out.json" > "$W/$stem.trim.json"
-        # REFUSE RATHER THAN SHIP A POSELESS ANIMATION. `Trans` and `Rot` are the root of the
-        # chain -- Trans carries the root motion the game consumes to move the fighter, Rot the
-        # scale compensation this script just applied -- so an animation that lost either of them
-        # would play as a T-pose that does not travel, silently.
-        kept=$(jq -r '[.groups[]|select(.group_type=="Transform")|.nodes[].name|ascii_downcase] | length' "$W/$stem.trim.json")
-        roots=$(jq -r '[.groups[]|select(.group_type=="Transform")|.nodes[].name|ascii_downcase]|map(select(.=="trans" or .=="rot"))|length' "$W/$stem.trim.json")
-        if [ "$kept" -lt 2 ] || [ "$roots" -lt 2 ]; then
-            echo "  REFUSING $anim: trimming left $kept transform track(s) and $roots root(s) -- need Trans and Rot" >&2
-            exit 1
-        fi
-        mv "$W/$stem.trim.json" "$W/$stem.out.json"
-        trimmed=$((trimmed+1))
-
-        "$T" "$W/$stem.out.json" "$DST/$anim" >/dev/null
-        # Keep a dump of exactly what we ship, so tools/trace-all.sh measures the real thing.
-        cp "$W/$stem.out.json" "$ROOT/work/fk/shipped_$stem.json"
-        printf "  %-26s <- %-10s ratio %s (Rot %s -> %s)%s  %s\n" "$anim" "$fighter" "$ratio" \
-               "$before" "$after" "$([ "$neut" != "-" ] && echo " +neut $neut")" "$label"
-        scaled=$((scaled+1))
+    rotx() { jq -r '[.groups[]|select(.group_type=="Transform")|.nodes[]|select((.name|ascii_downcase)=="rot")|.tracks[0].values.Transform[0].scale.x]|.[0] // "none"' "$1"; }
+    before=$(rotx "$W/$stem.in.json"); after=$(rotx "$W/$stem.out.json")
+    if [ "$before" = "none" ]; then
+        echo "  REFUSING $anim: no Rot node to scale -- would ship uncompensated" >&2
+        exit 1
     fi
+    if awk -v r="$ratio" 'BEGIN{exit !(r < 0.9995 || r > 1.0005)}' && [ "$before" = "$after" ]; then
+        echo "  REFUSING $anim: Rot scale unchanged ($before) -- the jq filter did not apply" >&2
+        exit 1
+    fi
+
+    if [ "$neut" != "-" ]; then
+        for b in $(echo "$neut" | tr ',' ' '); do
+            jq --arg b "$b" '
+              ([.groups[] | select(.group_type=="Transform") | .nodes[0]] | .[0]) as $tpl
+              | ($tpl.tracks[0].values.Transform | length) as $nf
+              | .groups |= map(
+                  if .group_type == "Transform" then
+                    .nodes |= ( map(select((.name|ascii_downcase) != ($b|ascii_downcase)))
+                                + [ $tpl
+                                    | .name = $b
+                                    | .tracks[0].values.Transform =
+                                        [ range($nf) | {
+                                            scale:       {x:1.0, y:1.0, z:1.0},
+                                            rotation:    {x:0.0, y:0.0, z:0.0, w:1.0},
+                                            translation: {x:0.0, y:0.0, z:0.0}
+                                          } ] ] )
+                  else . end )' "$W/$stem.out.json" > "$W/$stem.neut.json"
+            got=$(jq -r --arg b "$b" '[.groups[]|select(.group_type=="Transform")|.nodes[]|select((.name|ascii_downcase)==($b|ascii_downcase))]|length' "$W/$stem.neut.json")
+            if [ "$got" != "1" ]; then
+                echo "  REFUSING $anim: neutralising $b produced $got nodes, expected 1" >&2
+                exit 1
+            fi
+            mv "$W/$stem.neut.json" "$W/$stem.out.json"
+            neutralised=$((neutralised+1))
+        done
+    fi
+    # DROP EVERY TRACK WHOSE TARGET PIKACHU DOES NOT HAVE. Last, so the scale pass and the
+    # neutralisation pass above are unaffected by it -- neutralisation ADDS identity tracks
+    # for bones Pikachu has and the source lacks, which is the mirror image of this and has
+    # to happen first or its new node would be examined before it exists.
+    #
+    # A Transform group whose nodes all vanish is kept as an empty group rather than removed:
+    # the file format allows it, and removing a group changes the group ordering that
+    # `Visibility` and `Material` indices are read against.
+    # A REALISED BONE IS RENAMED BEFORE THE TRIM, NOT AFTER, and doing it after cost a build.
+    #
+    # Palutena's n-air drives `Stick`, a bone Pikachu deliberately does NOT have -- her staff
+    # and its hitboxes ride the vanilla `HaveL`, which `add-bones.sh` reparents under `HaveR`
+    # and gives Stick's bind transform so the two frames coincide exactly. The track therefore
+    # has to move from `Stick` to `HaveL`.
+    #
+    # That started as a separate step AFTER this one, and this trim ate the track first: a
+    # `Stick` track names a bone the skeleton lacks, which is precisely what "foreign" means
+    # here. The rename reported "0 animations repointed", the staff shipped with a
+    # one-keyframe `HaveL` inherited from the source, and `check-hitboxes.sh` caught it as
+    # `nair_palutena is 14.03 world units off`. Renaming inside the same filter, before the
+    # select, is the only ordering that cannot lose it.
+    #
+    # The pairs come from `merge-weapons.sh`'s `realise` column, so they cannot drift from what
+    # the skeleton and the merge actually did. The target's own track is dropped first: the
+    # source has a one-keyframe `HaveL` of its own and two nodes with one name would leave the
+    # engine reading whichever it saw last.
+    jq -c --slurpfile b "$BONES_JSON" --slurpfile m "$MESHES_JSON" --slurpfile r "$REALISE_JSON" '
+      ($b[0]) as $bones | ($m[0]) as $meshes | ($r[0]) as $realise
+      | .groups |= map(
+          if .group_type == "Transform" then
+            .nodes |= ( [ .[] | . as $n
+                          | select(($realise | any(.to_lc == ($n.name | ascii_downcase))) | not) ]
+                        | [ .[] | . as $n
+                            | (($realise | map(select(.from == ($n.name | ascii_downcase))) | first) // null) as $mm
+                            | if $mm != null then ($n | .name = $mm.to) else $n end ] )
+            | .nodes |= map(select((.name | ascii_downcase) as $n | ($bones | index($n)) != null))
+          elif .group_type == "Visibility" or .group_type == "Material" then
+            .nodes |= map(select((.name | ascii_downcase) as $n | ($meshes | index($n)) != null))
+          else . end
+        )' "$W/$stem.out.json" > "$W/$stem.trim.json"
+    # REFUSE RATHER THAN SHIP A POSELESS ANIMATION. `Trans` and `Rot` are the root of the
+    # chain -- Trans carries the root motion the game consumes to move the fighter, Rot the
+    # scale compensation this script just applied -- so an animation that lost either of them
+    # would play as a T-pose that does not travel, silently.
+    kept=$(jq -r '[.groups[]|select(.group_type=="Transform")|.nodes[].name|ascii_downcase] | length' "$W/$stem.trim.json")
+    roots=$(jq -r '[.groups[]|select(.group_type=="Transform")|.nodes[].name|ascii_downcase]|map(select(.=="trans" or .=="rot"))|length' "$W/$stem.trim.json")
+    if [ "$kept" -lt 2 ] || [ "$roots" -lt 2 ]; then
+        echo "  REFUSING $anim: trimming left $kept transform track(s) and $roots root(s) -- need Trans and Rot" >&2
+        exit 1
+    fi
+    mv "$W/$stem.trim.json" "$W/$stem.out.json"
+    trimmed=$((trimmed+1))
+
+    "$T" "$W/$stem.out.json" "$DST/$anim" >/dev/null
+    # Keep a dump of exactly what we ship, so tools/trace-all.sh measures the real thing.
+    cp "$W/$stem.out.json" "$ROOT/work/fk/shipped_$stem.json"
+    printf "  %-26s <- %-10s ratio %s (Rot %s -> %s)%s  %s\n" "$anim" "$fighter" "$ratio" \
+           "$before" "$after" "$([ "$neut" != "-" ] && echo " +neut $neut")" "$label"
+    scaled=$((scaled+1))
     # The stamp is recorded against the output SIZE AS JUST WRITTEN, not as it was before.
     NEWSTAMP["$anim"]="${SRCHASH[$s]:-nohash}|$ratio|$neut|$SELFSIG:$(stat -c%s "$DST/$anim")"
     n=$((n+1))

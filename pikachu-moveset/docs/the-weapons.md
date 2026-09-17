@@ -95,6 +95,154 @@ it is worse than nothing: a straight bar between Pikachu and wherever the victim
 The answer for all three is a real article. `clone_weapon` is proven to INSTALL but not yet proven
 to let the fighter load — see the last section of this file for what is and is not established.
 
+## Facing left: two defects found by measurement, and what the axis of the blade says
+
+Three weapons were wrong facing left -- Chrom's jab, both Mythra moves, Palutena's n-air -- while
+Cloud's back-air and Corrin's up-air were correct in both directions. Ten rounds of reasoning from
+structure produced candidates and two regressions. What follows is what measurement produced.
+
+### First: the graft's frame is not the bug, and that is now algebra rather than a hunch
+
+A rigid weapon mesh single-binds to a bone `B` one level under the weapon MODEL's own `HaveR`,
+which is the frame the engine aligns with the fighter's hand. So natively
+
+    v_world = v . world_w(B) . world_w(HaveR)^-1 . world_pika(HaveR)
+
+and because `world_w(B) = local_w(B) . world_w(HaveR)`, the middle pair cancels, leaving exactly
+`v . local_w(B) . world_pika(HaveR)`. That is precisely what grafting `B` under Pikachu's `HaveR`
+with its own local transform and single-binding the mesh to it computes. Both source models have
+that shape -- `chrom/model/sword` is `Root->HaveR->Sword`, `cloud/model/fusionsword` is
+`Root->HaveR->fusionsword1` -- so **Chrom's and Cloud's grafts are algebraically identical to the
+native attachment.** No frame error is possible for them, which closes a suspicion that cost two
+playtests, and it agrees with what the earlier experiments already said: the pre-bake graft and the
+bone-local bake are the same geometry, and the root-chain version was worse.
+
+### Second: Chrom's jab was shipping 51 tracks for bones that do not exist
+
+`anim-dropin.sh` had a fast path -- if the source fighter's `scale` param equals Pikachu's there is
+no scale compensation to apply, so `cp` the animation across and skip the JSON round trip. Correct
+when scaling was all the script did; silently wrong once the FOREIGN-TRACK TRIM was added, because
+the trim has nothing to do with the ratio.
+
+Chrom's `scale` is 0.9600 and Pikachu's is 0.9600. **He was the only source fighter in the moveset
+sitting exactly on that fast path.** His jab therefore shipped with all 96 of his own Transform
+tracks against an 88-bone skeleton, 51 of them naming bones Pikachu does not have -- `fingerl12`,
+`fingerl13`, `fingerl20` and so on. An audit of all 74 shipped animations found exactly two with
+foreign tracks: his, and `g02cliffattack` from Ganon, also 0.9600. Every animation that took the
+slow path had zero.
+
+It also skipped the shipped dump. `cp` never wrote `work/fk/shipped_<stem>.json`, which is the OURS
+side `hbtrace` prefers -- so for the one animation carrying the defect, the harness was measuring a
+file that was not what shipped, and could not have seen it.
+
+Fixed by removing the fast path; the stamp cache above it already skips unchanged animations, so the
+cost is about 0.7s on a genuine change. `tools/check-anim-tracks.sh` now asserts the OUTPUT across
+all 74, because the build printing "0 trimmed of foreign tracks" was read for months as "nothing
+needed trimming".
+
+**The same hole existed a second time, in the cache itself.** The trim's output depends on the bone
+list as much as on the source animation, and the stamp did not include it. Baking Mythra took the
+skeleton from 88 bones to 79 and removed `Sword1` -- which CHROM's jab animates -- and all 74
+animations were still reported "unchanged and skipped". The gate caught it because it reads the
+shipped bytes; the cache is what should not have needed catching. `SELFSIG` now covers the bone
+list, the mesh list and the realise pairs.
+
+### Third: Mythra's sword was the one mesh whose construction was provably wrong
+
+Hers is the only SKINNED graft, and skinning does not reduce to the native formula. It computes
+
+    v_world = v . Wbind_pika(B)^-1 . W_pika(B)
+
+substituting PIKACHU's bind pose for the weapon model's hand frame. Those are different matrices,
+and what survives is the bone's DEVIATION from bind pose rather than its absolute pose -- so the
+mesh renders near the model origin and drifts with the arm instead of sitting in the hand. Measured
+on her blade tip: the native formula puts it at `(3.347, 2.014, 10.409)`, which is 10.86 units from
+Pikachu's `HaveR` and so exactly the blade's own length, while the shipped skinning put it at
+`(-0.019, 0.000, 10.874)` -- **3.951 units out at bind pose**, and worse in motion.
+
+The bake is EXACT here rather than merely better, for two checked reasons. Every one of her skin
+weights is exactly 1.0 (4 subindices over 9 influence bones, `Sword1` and `Sword_lightA..F2`), so
+there is no blending to lose; and NO shipped Mythra animation drives `Sword1` or any light bone --
+`c00attackdash` and `c01attacks3s` carry 43 Transform tracks each and not one names them. The whole
+sword is rigid relative to `HaveR` for the entire move, so collapsing nine bones into one constant
+matrix discards nothing. That is also why a single bake matrix serves vertices weighted to nine
+different bones: at bind pose `inverse(world_esword(HaveR))` maps all of them into the hand frame
+correctly, and bind pose is the only pose they are ever in.
+
+Verified after the fact rather than assumed: the shipped tip now sits at `(3.347, 2.014, 10.409)`,
+**0.0004 world units** from the native prediction, 10.874 from `HaveR`.
+
+The earlier "with the bake, Chrom and Mythra still wrong left" did not test this. That bake was
+GLOBAL, and it was measured while Chrom's jab was shipping those 51 foreign tracks. Both weapons
+were confounded. The bake is now per-weapon and applies only where the unbaked form is provably
+wrong; the four weapons that provably match native keep their grafts, since Cloud was CORRECT on
+grafted `fusionsword1` and went wrong when baked onto `HaveR` with a matrix that is provably the
+identity for him.
+
+### The axis of the blade, which is the strongest unexplained signal left
+
+Measured in each weapon's own bind frame, against the playtest verdicts for the state where Chrom
+and Mythra were wrong facing left and Cloud and Corrin were right:
+
+| weapon | bind | X extent | Y extent | Z extent | long axis | verdict |
+| --- | --- | --- | --- | --- | --- | --- |
+| chrom_sword | `Sword` | -1.40 .. 1.40 | -0.19 .. 0.18 | -1.83 .. 10.91 | **Z** | wrong left |
+| mythra_sword | skinned | -1.62 .. 1.62 | -0.45 .. 0.45 | -2.28 .. 10.87 | **Z** | wrong left |
+| cloud_sword | `fusionsword1` | -0.58 .. 0.58 | -3.80 .. 16.32 | -1.59 .. 1.59 | **Y** | correct |
+| corrin_sword | `HaveR` | -0.38 .. 0.38 | -2.09 .. 13.28 | -1.37 .. 1.38 | **Y** | correct |
+| palutena_staff | `HaveL` | -0.80 .. 0.85 | -10.82 .. 9.51 | -2.68 .. 2.72 | Y, centred | wrong left |
+
+**Every one of the five is X-symmetric**, so a mirror in X is invisible on all of them. The two that
+failed are the two extending along Z; the two that worked extend along Y and are near-symmetric in
+both X and Z, so they are invariant under a 180-degree rotation about Y -- which is what
+`PostureModule::rot_y_lr` is named for, and which negates X and Z and leaves Y.
+
+That is the signature of a facing rotation being applied to, or omitted from, a weapon's frame while
+the body gets the other treatment. It is a correlation over four weapons, not a mechanism, and it is
+recorded here as the lead it is. Palutena is the one that does not fit, and she is also the only
+weapon whose bind bone was replaced outright -- the vanilla `HaveL`, reparented under `HaveR` with
+Stick's bind transform -- so she has a distinct mechanism and is expected to behave differently.
+
+Worth noting for whoever picks this up: after the bake, Mythra's blade extends along local **+Y** in
+`HaveR`'s frame, `(0.000, 10.874, 0.019)` -- the same axis as Cloud and Corrin. So the bake moves her
+onto the axis of the two weapons that were never broken, which is a second and independent reason to
+expect it to help, and it makes her the clean test of the axis correlation.
+
+### The probe that answers it, and what it is missing
+
+`telemetry::mirror_probe` has only ever logged POSITIONS, and a position cannot tell a 180-degree
+turn from a mirror -- both send the hand to the same place, and only one turns the blade inside out.
+`ModelModule::joint_global_rotation` is in the binary's lua_bind surface at `0x2057680` with a clean
+`Vector3f` out-param, and had never been called. It now logs a `MIRRORROT` line per sample, raw and
+with no `lr` applied, since dividing by the answer would erase it.
+
+The probe was also reading a bone that does not exist. It logged `stick`, and `add-bones.sh` stopped
+creating `Stick` when it began repurposing the vanilla `HaveL` -- so every Palutena reading in the
+last round was a read of a name no skeleton contains, which is noise, and hers were the ones that
+had "looked meaningful". It now reads `havel`. That is the measurement that decides where the
+remaining bug can live: her staff is the only weapon bound to a bone Pikachu already owned, so if
+`havel` tracks `handr` across both facings -- and `handr` is a fixed offset from `haver` by
+construction, so it must -- then the skeleton is carrying the staff correctly and no further
+skeleton work can fix any of these.
+
+And `attack_air_b` was never sampled at all. Cloud's back-air is the only weapon the playtest has
+ever called correct in BOTH facings, and a broken sample is only interpretable next to a working one
+taken by the same instrument on the same frame budget. All six ported sword motions are sampled now.
+
+### What George's mod does, since it works on both sides
+
+`work/george` is his model directory, seven files, and the useful part is what is NOT there: **no
+`model.nusktb`.** He does not touch the skeleton at all. His graft is entries 43 and 44 of the
+numshb, appended as extra SUBINDICES of an existing `_VIS_` mesh name
+(`diddy_Eye_Ottotto_VIS_O_OBJShape`, whose subindices 0 and 1 are the real eyes on `Head`), each
+single-bound with `infl=0` -- one on `HaveR`, one on `HaveL`.
+
+Two hands is not a facing mechanism, which was the first thing it looked like. The two copies are
+1661 and 1656 vertices with different X and Z extents and an identical Y range, so it is a
+two-handed prop split across both hands, not a mirrored pair. What it does confirm is the
+construction: **rigid single-bind, appended subindices, no skeleton change** -- which is what four of
+the five weapons here already did, and which Mythra now does too.
+
 ## The rope is not a policy choice, and ADR 0004 is not what I said it was
 
 Worth stating plainly because I got it wrong twice in conversation: **ADR 0004 is "never hand a
