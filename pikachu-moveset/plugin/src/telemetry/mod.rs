@@ -605,7 +605,7 @@ unsafe fn mirror_probe(boma: *mut smash::app::BattleObjectModuleAccessor, entry:
     // buffered path flushes every 8 frames on the normal tick and costs a String push under a
     // short lock.
     sink::log(format!(
-        "[rat] MIRROR p{entry} {} lr={lr:.0} f={f} haver_from_top=({:.3},{:.3}) {} {} {}",
+        "[rat] MIRROR p{entry} {} lr={lr:.0} f={f} haver_from_top=({:.3},{:.3},{:.3}) {} {} {} {} {} {}",
         match which {
             0 => "attack_11(chrom)",
             1 => "attack_air_n(palutena)",
@@ -614,10 +614,36 @@ unsafe fn mirror_probe(boma: *mut smash::app::BattleObjectModuleAccessor, entry:
         },
         (hv.x - base.x) * lr,
         hv.y - base.y,
+        hv.z,
+        // TWO CONTROLS FIRST, BECAUSE THE INSTRUMENT ITSELF IS NOW THE SUSPECT.
+        //
+        // The previous round produced readings that cannot be true: `haver` identical to three
+        // decimals across all 24 frames of BOTH facings -- so the pose is provably the same --
+        // while `sword` differed between facings in Y, which no facing can change. Worse, `sword`
+        // and `sword1` reported byte-identical positions on every single line, and they cannot be
+        // in the same place: Chrom's jab animation has a `Sword1` track and NO `Sword` track, and
+        // `Sword`'s local translation is (0,0,0) under `HaveR`, so `Sword` must sit exactly AT
+        // `haver` and read (0,0,0) here.
+        //
+        // Either the grafted bones misbehave at runtime, or `joint_global_position` does not fail
+        // cleanly for a bone the runtime skeleton lacks and every grafted reading is noise. These
+        // two discriminate, and until they are in the log nothing else in this line means anything:
+        //
+        //   handr  a VANILLA bone, `haver`'s own parent. A fixed offset by construction, so it
+        //          must read identically in both facings. If it does not, the fault is in this
+        //          probe's frame math and not in any graft.
+        //   sword2 Chrom's blade tip. His animation DRIVES it, and this mod does not graft it, so
+        //          it is definitely absent from the skeleton. It MUST print `absent`. A number
+        //          here proves the API invents positions for missing bones, which would retract
+        //          every grafted-bone conclusion this project has drawn from it -- including
+        //          rebase.rs's original claim that the grafts are not in the transform chain.
+        rel("handr"),
+        rel("sword2"),
         // `sword` is Chrom's MESH bone and `sword1` his HITBOX bone -- both, so the two can be
         // compared directly instead of assumed to agree.
         rel("sword"),
         rel("sword1"),
         rel("stick"),
+        rel("fusionsword1"),
     ));
 }

@@ -145,12 +145,41 @@ if [ -f "$MODEL/model.numshb" ]; then
         if [ "${nsub:-0}" = "0" ]; then
             bad="$bad ${name}:absent-from-shipped-mesh"
         fi
+        # WHICH BIND IS CORRECT DEPENDS ON WHETHER THE BONE IS ANIMATED, and the same evidence
+        # merge-weapons.sh uses is recomputed here rather than trusted.
+        #
+        # A weapon whose own move never animates its bone is BAKED: the bone's transform is folded
+        # into the vertices and the mesh is single-bound to `HaveR`, which is the configuration the
+        # playtest proves works (Corrin's sword is the only one that was never reported broken, and
+        # the only one on a vanilla bone). A weapon whose bone IS animated keeps the graft, because
+        # baking would freeze the motion -- Palutena's staff is the one such case, 460 keyframes of
+        # `Stick`.
+        #
+        # Only the ANIMATION dumps count. `work/fk/<fighter>_skel.json` is the source rig and has a
+        # node for every bone by definition, so globbing it in says every bone is animated -- which
+        # is exactly the bug that left Mythra unbaked on the first run.
+        fighter="${dir%%/*}"
+        animated=0
+        for a in work/fk/${fighter}_*.json; do
+            [ -f "$a" ] || continue
+            case "$a" in *_skel.json) continue ;; esac
+            na=$(jq -r --arg b "$bone" '[.. | objects | select(.name? == $b)] | length' "$a" 2>/dev/null | tr -d "$CR")
+            [ "${na:-0}" != "0" ] && { animated=1; break; }
+        done
+        want="$bone"
+        [ "$animated" = "0" ] && want="HaveR"
         i=0
         while [ "$i" -lt "${nsub:-0}" ]; do
             nin=$(jq -r --arg n "$name" --argjson i "$i" \
                   '[.objects[]|select(.name==$n)][$i]|.bone_influences|length' "$W/mesh.json" 2>/dev/null | tr -d "$CR")
-            if [ "${nin:-0}" = "0" ]; then
-                # RIGID: the single bind must be the table's bone.
+            if [ "$animated" = "0" ]; then
+                # BAKED: rigid, single-bound to HaveR, and no weights left over.
+                pb=$(jq -r --arg n "$name" --argjson i "$i" \
+                     '[.objects[]|select(.name==$n)][$i]|.parent_bone_name' "$W/mesh.json" 2>/dev/null | tr -d "$CR")
+                [ "$pb" = "HaveR" ] || bad="$bad ${name}#${i}:unanimated-so-should-bake-to-HaveR-but-is-${pb:-none}"
+                [ "${nin:-0}" = "0" ] || bad="$bad ${name}#${i}:baked-but-still-has-${nin}-influence(s)"
+            elif [ "${nin:-0}" = "0" ]; then
+                # RIGID AND ANIMATED: the single bind must be the table's bone.
                 pb=$(jq -r --arg n "$name" --argjson i "$i" \
                      '[.objects[]|select(.name==$n)][$i]|.parent_bone_name' "$W/mesh.json" 2>/dev/null | tr -d "$CR")
                 [ "$pb" = "$bone" ] || bad="$bad ${name}#${i}:rigid-bound-to-${pb:-none}-not-${bone}"

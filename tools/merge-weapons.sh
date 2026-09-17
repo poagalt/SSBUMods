@@ -215,6 +215,58 @@ while IFS='|' read -r name dir mesh material bone parent sphere radius; do
     # which his jab animates. A SKINNED mesh keeps its own weights and an empty parent, which is
     # how the game authored it -- and forcing one rigid reinterprets model-space vertices as
     # bone-local and collapses the blade.
+    # ==== BIND TO `HaveR` AND BAKE THE BONE OUT, WHENEVER THE BONE IS NOT ANIMATED ====
+    #
+    # THE EVIDENCE THIS EXISTS FOR. Playtest, with all five swords finally visible: "chrom's sword
+    # still doesn't appear correctly when pikachu jabs to the left", "mythra's sword doesn't
+    # animate correctly when ftilting/dash attacking to the left". Corrin's is the ONLY one bound
+    # to a bone Pikachu already owns -- `HaveR` -- and Corrin's is the only one nobody reported.
+    # Four grafted-bone weapons misbehave; the one vanilla-bone weapon does not.
+    #
+    # `telemetry::mirror_probe` says the same thing from the other side, and says it in a way that
+    # cannot be explained away: `haver` reads IDENTICALLY to three decimals across all 24 frames of
+    # both facings -- so the pose is provably the same -- while `sword` differs between facings in
+    # Y, which no facing can change, and `sword` and `sword1` report byte-identical positions even
+    # though Chrom's jab animates `Sword1`, does NOT animate `Sword`, and `Sword`'s local
+    # translation is (0,0,0) so it must sit exactly AT `haver`.
+    #
+    # WHY THIS IS SAFE EITHER WAY, which is the point. If grafted bones are fine at runtime this
+    # rewrite is a mathematical no-op: a rigid mesh on bone B under `HaveR` renders at
+    # `HaveR_world . M_B . v`, and baking `M_B` into the vertices and binding to `HaveR` renders at
+    # `HaveR_world . v'` with `v' = M_B . v`. Identical. If grafted bones are NOT fine, it removes
+    # them from the render path entirely and puts these meshes in the one configuration the
+    # playtest proves works. So it cannot make anything worse, and it needs no boot to justify.
+    #
+    # THE RULE IS DERIVED, NOT DECLARED. Bake when NO animation this mod ships for that fighter
+    # names the bone -- measured out of `work/fk/`, which `anim-dropin.sh` fills:
+    #
+    #     chrom    attack_11        Sword        no track   -> bake
+    #     cloud    attack_air_b     fusionsword1 no track   -> bake
+    #     elight   attack_dash      Sword1       no track   -> bake
+    #     elight   attack_s3_*      Sword1       no track   -> bake
+    #     palutena attack_air_n     Stick        460 KEYS   -> KEEP THE GRAFT
+    #
+    # Palutena's staff is the one weapon whose bone its own move actually animates, and baking it
+    # would freeze the sweep that IS the move. So she keeps the graft and stays the open case.
+    # A future move that starts animating one of the other bones flips its row automatically,
+    # which is why this is computed instead of a column in the table.
+    # `work/fk/` HOLDS SKELETONS AS WELL AS ANIMATIONS, and globbing both made this answer wrong.
+    # `<fighter>_skel.json` is the source rig, so it contains a NODE for every bone by definition
+    # -- `elight_skel.json` has `Sword1` -- and matching it set `animated` for every weapon. Mythra
+    # was skipped when she should bake, and Palutena was kept for the wrong reason (her `Stick`
+    # really is animated, but the skeleton would have triggered it regardless). Only the animation
+    # dumps count.
+    fighter="${dir%%/*}"
+    animated=0
+    for a in "$ROOT"/work/fk/${fighter}_*.json; do
+        [ -f "$a" ] || continue
+        case "$a" in *_skel.json) continue ;; esac
+        n=$(jq -r --arg b "$bone" '[.. | objects | select(.name? == $b)] | length' "$a" 2>/dev/null | tr -d '\r')
+        if [ "${n:-0}" != "0" ]; then animated=1; break; fi
+    done
+    bake=0
+    if [ "$animated" = "0" ] && [ "$bone" != "HaveR" ]; then bake=1; fi
+
     nsub=$(jq --arg m "$mesh" '[.objects[] | select(.name == $m)] | length' src_numshb.json)
     sub0mat=$(jq -r --arg m "$mesh" '
         [.entries[] | select(.mesh_object_name == $m)] | sort_by(.mesh_object_subindex)
@@ -224,12 +276,70 @@ while IFS='|' read -r name dir mesh material bone parent sphere radius; do
         exit 1
     fi
 
-    jq --arg n "$name" --arg m "$mesh" --arg pb "$bone" --slurpfile s src_numshb.json '
+    # The matrix the bake applies, in the same row-vector convention ssbh_data stores: a bone's
+    # `transform` has its LOCAL AXES AS ROWS with the translation in row 3, so a point goes
+    # `p = v . M`. (rebase.rs's `bind` proves that convention against a real animated quaternion
+    # rather than assuming it.)
+    #
+    #   RIGID  mesh: its vertices are already in bone B's local frame, and B's parent IS `HaveR`,
+    #          so B's own local transform is exactly the map into `HaveR`'s frame.
+    #   SKINNED mesh: its vertices are in the source rig's MODEL space, so the map is the INVERSE
+    #          of `HaveR`'s world transform in that rig. This is the step the earlier attempt
+    #          missed -- "stripping the weights and single-binding" collapsed Mythra's blade
+    #          because it rebound model-space vertices to `Sword1` and let the chain transform
+    #          them a second time, rather than converting them into the target bone's frame first.
+    BAKEM=""
+    if [ "$bake" = "1" ]; then
+        nin0=$(jq -r --arg m "$mesh" '[.objects[]|select(.name==$m)][0].bone_influences|length' src_numshb.json | tr -d '\r')
+        BAKEM=$(jq -c --arg b "$bone" --arg skinned "$nin0" '
+          def mul(A;B): [ range(0;4) as $i | [ range(0;4) as $j |
+              reduce range(0;4) as $k (0; . + A[$i][$k]*B[$k][$j]) ] ];
+          def world($bones; $i):
+              if $i == null or $i < 0
+              then [[1,0,0,0],[0,1,0,0],[0,0,1,0],[0,0,0,1]]
+              else mul($bones[$i].transform; world($bones; $bones[$i].parent_index)) end;
+          def invrt(M):
+              ( [ range(0;3) as $i | [ range(0;3) as $j | M[$j][$i] ] ] ) as $RT
+              | ( [ range(0;3) as $j | - (reduce range(0;3) as $k (0; . + M[3][$k]*$RT[$k][$j])) ] ) as $t
+              | [ [$RT[0][0],$RT[0][1],$RT[0][2],0],
+                  [$RT[1][0],$RT[1][1],$RT[1][2],0],
+                  [$RT[2][0],$RT[2][1],$RT[2][2],0],
+                  [$t[0],$t[1],$t[2],1] ];
+          .bones as $B
+          | if ($skinned|tonumber) == 0
+            then ( [ $B[] | select(.name == $b) ][0].transform )
+            else ( [ $B | to_entries[] | select(.value.name == "HaveR") ][0].key ) as $h
+                 | invrt(world($B; $h))
+            end
+        ' src_nusktb.json | tr -d '\r')
+        [ -n "$BAKEM" ] && [ "$BAKEM" != "null" ] || { echo "$name: cannot compute bake matrix" >&2; exit 1; }
+    fi
+
+    jq --arg n "$name" --arg m "$mesh" --arg pb "$bone" --argjson bake "$bake" \
+       --argjson M "${BAKEM:-null}" --slurpfile s src_numshb.json '
+      def pt($v; $M): [ range(0;3) as $j
+          | ( reduce range(0;3) as $k (0; . + $v[$k]*$M[$k][$j]) ) + $M[3][$j] ];
+      def dir($v; $M): [ range(0;3) as $j
+          | reduce range(0;3) as $k (0; . + $v[$k]*$M[$k][$j]) ];
+      def bakeobj($o; $M):
+          $o
+          | .positions = [ .positions[] | .data.Vector3 = [ .data.Vector3[] | pt(.; $M) ] ]
+          | .normals   = [ .normals[]?  | .data.Vector4 = [ .data.Vector4[]
+                             | dir(.; $M) + [.[3]] ] ]
+          | .tangents  = [ .tangents[]? | .data.Vector4 = [ .data.Vector4[]
+                             | dir(.; $M) + [.[3]] ] ]
+          | .binormals = [ .binormals[]? | .data.Vector3 = [ .data.Vector3[]? | dir(.; $M) ] ]
+          # Bound to HaveR now, and NOT skinned: the weights described a chain that no longer
+          # applies once the vertices sit in the frame of HaveR itself.
+          | .parent_bone_name = "HaveR"
+          | .bone_influences = [];
       ( [ $s[0].objects[] | select(.name == $m) ] | sort_by(.subindex) ) as $objs
       | .objects += [ $objs[]
-          | .name = $n
-          | .parent_bone_name = ( if ((.bone_influences // []) | length) == 0 then $pb
-                                  else (.parent_bone_name // "") end ) ]
+          | if $bake == 1 then bakeobj(.; $M)
+            else ( .parent_bone_name = ( if ((.bone_influences // []) | length) == 0 then $pb
+                                         else (.parent_bone_name // "") end ) )
+            end
+          | .name = $n ]
     ' cur_numshb.json > next_numshb.json
 
     # One modl entry per subindex, each keeping the source's own subindex AND its own material.
