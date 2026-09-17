@@ -95,7 +95,7 @@ it is worse than nothing: a straight bar between Pikachu and wherever the victim
 The answer for all three is a real article. `clone_weapon` is proven to INSTALL but not yet proven
 to let the fighter load — see the last section of this file for what is and is not established.
 
-## Facing left: two defects found by measurement, and what the axis of the blade says
+## Facing left: what it actually is, and three theories that died on the way
 
 Three weapons were wrong facing left -- Chrom's jab, both Mythra moves, Palutena's n-air -- while
 Cloud's back-air and Corrin's up-air were correct in both directions. Ten rounds of reasoning from
@@ -179,7 +179,7 @@ wrong; the four weapons that provably match native keep their grafts, since Clou
 grafted `fusionsword1` and went wrong when baked onto `HaveR` with a matrix that is provably the
 identity for him.
 
-### The axis of the blade, which is the strongest unexplained signal left
+### The axis of the blade -- WRONG, see the retraction below
 
 Measured in each weapon's own bind frame, against the playtest verdicts for the state where Chrom
 and Mythra were wrong facing left and Cloud and Corrin were right:
@@ -207,6 +207,81 @@ Worth noting for whoever picks this up: after the bake, Mythra's blade extends a
 `HaveR`'s frame, `(0.000, 10.874, 0.019)` -- the same axis as Cloud and Corrin. So the bake moves her
 onto the axis of the two weapons that were never broken, which is a second and independent reason to
 expect it to help, and it makes her the clean test of the axis correlation.
+
+### RETRACTED: the axis correlation above is an artifact, and what replaced it
+
+**The table in the previous section is wrong and is kept only so the mistake is legible.** It rested
+on believing Corrin's Yato was correct. It was not: he was reported correct in both directions in an
+early round, broke later, and I read his ABSENCE from one bug report as "still fine". His blade
+extends along **Y**, the axis the table calls safe, and he is broken -- so "Y-extending weapons
+work" had exactly one supporting case, Cloud, and Cloud has a different reason.
+
+Two other theories died the same week, both to data rather than to a playtest, and both worth
+recording because each looked strong:
+
+- **Bone ORDER.** `HaveL(17)` parented to `HaveR(22)` is a child evaluated before its parent, which
+  is a real anomaly and looked like a clean cause. But **ten bones in every fighter in the game have
+  the same property** -- `UplipL1`, `UplipR1`, `Jaw`, `Tongue`, `DownlipC` and the rest all have
+  parents 40-odd indices later, identically in Pikachu, Corrin and Palutena. The engine handles
+  out-of-order parents. Checked before acting, which is the only reason it cost nothing.
+- **Billboarding and nuhlpb.** `billboard_type` is `Disabled` on all 89 bones, and Pikachu's
+  `model.nuhlpb` -- which the mod does not ship, so vanilla's is in force -- names `ArmL`, `ArmR`,
+  `Bust`, the twelve `nuHelperBoneRotateInterp*` bones and others, but neither `HaveR`, `HaveL` nor
+  `Stick`.
+
+### What the probe actually established
+
+262 samples over six motions in both facings, and the pairing is provably sound: `|handr - origin|`
+agrees between the two facings to within **0.002 on 24 of 24 frames**, so the two performances are
+the same pose frame for frame. On those same frames:
+
+| quantity | facing right | facing left | |
+| --- | --- | --- | --- |
+| `\|handr - haver\|` | 1.030 every frame | 9.14 .. 13.31 | **differs** |
+| `\|handr - origin\|` | identical, all six motions | identical | same |
+| `\|haver - origin\|` | differs, all six motions | | **differs** |
+| `\|havel - origin\|` | differs, all six motions | | **differs** |
+
+The distance from a bone to its own PARENT is rigid skeletal geometry. It cannot depend on which way
+the fighter is looking. **`HandR` is correct in both facings; its child `HaveR` is not, and neither
+is `HaveL`** -- and every weapon in this moveset hangs off `HaveR`.
+
+That is also why the symptom reads as "the sword is held in the wrong hand": the right hand
+reflected across the fighter's midline is where the left hand is. The playtest phrased it as "the
+left hand is the one tracing the correct animation but the sword is held in the right hand", which
+is the same observation from the other side.
+
+### And the instrument's limit, which retracts a load-bearing old conclusion
+
+The probe **cannot read a grafted bone.** Across all 262 samples `sword`, `sword1` and
+`fusionsword1` return byte-identical positions to each other, and they carry three different bind
+transforms -- an arbitrary rotation, a 90-degree turn about Z, and the identity -- so they cannot be
+in one place. A name the skeleton lacks does not fail: `sword2` comes back as the exact negation of
+`haver_from_top`, which is algebraically the fighter origin.
+
+So the reading that justified the `realise` mechanism -- "`sword`, `sword1` and `stick` differ
+between facings in all three components including Y, which no facing can change", read as proof that
+a grafted bone is not in the runtime transform chain -- was instrument error. **Cloud's Buster Sword
+is single-bound to the GRAFTED `fusionsword1` and has always rendered correctly**, which refutes it
+without needing the probe at all.
+
+### Why Cloud and George were never broken: they are symmetric, not correct
+
+Cloud's Buster Sword is held in BOTH hands on the body's centreline, where a mirror across the
+midline is nearly the identity. George's mod -- the reference that works on both sides, and the
+reason this was worth chasing -- turns out to **dual-wield**: `work/george`'s numshb appends the
+same object twice under one material (`gun`), once on `HaveR` and once on `HaveL`, with identical
+extents in all three axes and only a small translation between them. He does not solve facing. He is
+immune to it. And he ships **no `model.nusktb` at all**, so he never touches the skeleton.
+
+### The fix: stop deviating from the game's structure
+
+Palutena's staff is a mesh in her BODY model single-bound to `Stick`, and `Stick` is a real bone in
+her skeleton under `HaveR` with the identity rotation and a (0,-2.2,0) translation. That is now
+grafted verbatim, checked against her own skeleton for both parent and transform; her `Stick` track
+drives it with no rename; her hitboxes anchor to `stick` as her own ACMD wrote them;
+`tools/bone-remap.sed` is a no-op again; and `HaveL` is back under `HandL` where every fighter in
+the game has it. `tools/check-weapons.sh` now asserts both halves of that.
 
 ### The probe that answers it, and what it is missing
 
