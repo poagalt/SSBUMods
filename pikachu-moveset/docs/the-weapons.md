@@ -138,11 +138,31 @@ The active-Revenge state is still visible: `aura_on`/`aura_tick` put a `sys_fina
 shoulder and knee bones and pulse `FLASH(1.0, 0.45, 0.0, 0.35)` orange, which is Incineroar's own
 structure with a `sys_` effect substituted under ADR 0002.
 
-**Incineroar's red is a model variant, not a tint.** `revenge_off` calls
-`VisibilityModule::set(boma, 0xc8e6a844f, 0x11a164aef7)` — a visibility group and state, i.e. a
-swap to a differently-textured variant of his own body mesh. Pikachu has no such variant, so a
-tint is the only available approximation and the orange pulse above is it. Both hashes are
-unresolved (12 and 17 characters) and are not in any label list.
+**Incineroar's red is a model variant, not a tint**, and the pair is now identified even though
+the names are not. `_ZN3app26FighterSpecializer_Gaogaen11revenge_offERNS_7FighterEb` at
+`main 0xab86f0` calls the module at `boma+0x150` through vtable `+0x50` with
+
+    group 0xc8e6a844f (12 chars)   state 0x11a164aef7 (17 chars)   <- revenge OFF, in revenge_off
+    group 0xc8e6a844f (12 chars)   state 0x1331d072dd (19 chars)   <- revenge ON,  at main 0xab91e0
+
+Same group, two states, one per direction, so it is a two-way variant switch and not a one-shot.
+The surrounding calls confirm the module layout is being read correctly rather than guessed:
+`boma+0xa0` vtable `+0x270`/`+0x2b8` in the same function are `set_power_mul_5th` and
+`set_reaction_mul_3rd`, which is exactly the Revenge boost this port already reproduces.
+
+**All four hashes in that function are compile-time baked and cannot be recovered from the game.**
+`0xc8e6a844f`, `0x11a164aef7`, `0x1331d072dd`, plus `0x1a264dbb63` (26) and `0x1658651362` (22) on
+the adjacent calls, are in none of the three sources. Searched for directly: they are not mesh
+names, material labels, `mesh_object_group` names or `mesh_object_full_name`s in his
+`model.numshb`/`numdlb`/`numshexb`/`numatb` (138 candidate names, none 12 characters), not strings
+in `model.nusrcmdlb` or `model.xmb`, and his `model/body/c00/model.nuanmb` is 104 bytes with no
+visibility tracks at all. This is native C++, so the compiler hashed the literals at build time
+and the strings are simply not in the binary.
+
+What his model DOES carry is a `_001`/`_002` pair of both `alp_gaogaen` and `skin_gaogaen`
+materials, which is the variant the switch selects between. Pikachu has no second material set, so
+a tint remains the only available approximation and the orange pulse above is it. Resolving the
+names would not change that — it would only make the mechanism quotable.
 
 **Little Mac's f-smash armor is already implemented** and looks absent because the word never
 appears: it is `damage!(MA_MSC_DAMAGE_DAMAGE_NO_REACTION, DAMAGE_NO_REACTION_MODE_ALWAYS, 0)` on
@@ -340,3 +360,66 @@ but not sufficient.
 vanilla has no `fighter/pikachu/<article>` at any slot, so a non-c00 Pikachu has nothing to fall
 back to. Recorded in `gen-article-assets.sh`; the fix is a loop over `c00..c07`, deferred so the
 clone experiment stays one variable.
+
+### The clone's crash, root-caused to a named singleton
+
+The faulting instruction is `main + 0x3476e44`, from `PC` in the crash report -- not from the
+stack trace, whose entries are RETURN addresses and so decompile as partial functions. Read flat:
+
+    0x3476e20  sub  sp, sp, #0x40             <- function entry
+    0x3476e30  adrp x8, $+0x1e46000
+    0x3476e34  ldr  x8, [x8, #0x3b0]          <- a global pointer, at 0x52bc3b0
+    0x3476e38  ldr  x20, [x8, #0x1228]        <- x20 = that object's field 0x1228
+    0x3476e3c  ldr  x19, [x1, #0x20]
+    0x3476e40  ldr  x0, [x19, #0xb0]
+    0x3476e44  ldp  x8, x9, [x20, #0x138]     <- FAULTS: x20 is NULL
+
+and `0x52bc3b0` is, at offset +0x0 exactly,
+
+    _ZN3lib9SingletonIN3app21FighterParamAccessor2EE9instance_E
+
+So the crash is in the fighter PARAM accessor. What it does next is walk `x20+0x138` as a vector
+of 56-byte elements -- `ldp` the begin/end pair, subtract, `asr #3`, multiply by
+`0x6db6db6db6db6db7`, which is division by 0x38 -- and iterate them at `0x3476e94`. The object at
+`instance_+0x1228` that owns that vector was never created.
+
+The call chain, each frame resolved to its containing symbol rather than guessed:
+
+    [06] smashline + 0x2a68c   fighter_initialize_object_data + 0x2c
+    [05] create?               + 0x84c
+    [04] EnableOffset          + 0x37c
+    [03] InitializeModules     + 0xe04
+    [02] InstantiateBattleObject + 0xe68
+    [01] Initialize            + 0x1bc
+    [00] (no symbol)
+
+That is fighter module initialisation reaching into the param accessor, which is consistent with
+the one thing a cloned article demonstrably lacks: a param object. `vl.prc` is where a fighter
+declares its article params, and this mod does not ship one -- it is in `deploy.sh`'s RETIRED list
+precisely because it "declared a 21st article param with no weapon behind it", and
+`gen-vlprc.sh`'s override is disabled because it null-dereferenced in smashline's
+`load_fighter_effects`. With the clone on, Pikachu has seven articles and nothing declares the
+seventh.
+
+`src/articles/mod.rs` already names the API for this and calls it unnecessary: "`get_param_reimpl`
+FALLS THROUGH to `original_lookup_param` on a miss, so a missing `param_spikeball` does not crash"
+and "`smashline::add_param_object` is the supported way to whitelist a param object ... if those
+numbers ever turn out to matter." The fall-through claim is about a param LOOKUP at runtime and
+says nothing about the accessor's own construction at fighter init, which is where this dies.
+
+**Two single-variable experiments, in this order, neither yet run.** Both are one line and both
+need one boot:
+
+1. `smashline::add_param_object("pikachu", "spikeball")` before the `clone_weapon` call.
+   `sl_api.rs:268` pushes onto `WHITELISTED_PARAMS`, and `sl_params.rs:328` already treats a
+   fighter with new articles the same as one with whitelisted params -- so this may change
+   nothing, and finding that out is worth one boot because it is the cheapest of the two.
+2. `use_original_code: false`. That stops smashline loading Piranha Plant's fighter module and
+   running the spikeball's own code, which is what pulls Packun-specific machinery into a match
+   with no Piranha Plant in it. It costs the article's free behaviour -- the arc, the juggling,
+   the damage -- so it is only worth it if 1 fails, and it turns Ptooie into a projectile that
+   has to be written rather than inherited.
+
+**Do not run these while nobody is watching the console.** A crash on entry to a match is not
+destructive, but it leaves the card in a state where the mod cannot be played, and the whole
+point of keeping `CLONE_ENABLED = false` is that everything else in the moveset works.
