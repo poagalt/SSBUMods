@@ -23,76 +23,70 @@ size with the plugin `.nro` md5-identical to the local build.
 
 ## Boot once and look at five things
 
-One change this round, and it is a revert to the game's own structure rather than a new idea. The
-full derivation is in `the-weapons.md`; the short version is that `add-bones.sh` had reparented
-Pikachu's vanilla `HaveL` from `HandL` to `HaveR` so Palutena's staff could ride a bone he already
-owned, and **every native skeleton in the game parents `HaveL` to `HandL`.** Ours was alone in
-hanging the left hand's item socket off the right hand's. Palutena's staff now rides a grafted
-`Stick` under `HaveR`, verbatim from her own skeleton -- same parent, same (0,-2.2,0) transform --
-which is exactly how her body model does it.
+One rule this round, and it came from the cleanest A/B this project has had: **a weapon mesh must
+be single-bound to a bone vanilla Pikachu already ships.** Palutena's staff was shipped in two
+configurations that are geometrically IDENTICAL by construction -- same parent `HaveR`, same
+`Stick` bind transform, same vertices -- once on the vanilla `HaveL` (index 17) and once on an
+appended `Stick` (index 88). The vanilla one was correct facing right; the appended one was wrong in
+both directions. And the playtest said of the appended version "sweeps, but in the wrong place", so
+the bone was driven and it was the MESH that rendered elsewhere.
 
-**1. Does it load at all?** Any Pikachu, training mode. Gates everything else. Rollback:
+All five weapons are now on vanilla bones: chrom, cloud, mythra and corrin single-bound to `HaveR`,
+and palutena's staff on the vanilla `Mouth` repurposed into `Stick`'s frame.
 
-    git revert 370c6b6 && bash tools/merge-weapons.sh && bash tools/build.sh
+**1. Does it load at all?** Any Pikachu, training mode. Rollback:
+
+    git revert 475a795 && bash tools/merge-weapons.sh && bash tools/build.sh
     bash tools/deploy.sh
 
-`tools/merge-weapons.sh` is NOT a build step -- it reads weapon models pulled off the console into
+`tools/merge-weapons.sh` is NOT a build step -- it reads models pulled off the console into
 `work/arc-weapons` -- so a revert touching it needs that line before `build.sh`.
 
-**2. Corrin's up-air, facing left.** This is the one that identifies the culprit. He was reported
-correct in both directions, then broke, and the `HaveL` reparent is the change in that window --
-he single-binds his Yato to `HaveR`, so he was the weapon most exposed to a foreign child hanging
-off it. If Corrin is right again, the reparent was the fault and the same cause covers the rest.
+**2. CLOUD'S BACK-AIR, FIRST, because it is the one thing that argues against this.** He moved from
+the appended `fusionsword1` onto the vanilla `HaveR`, and his bake matrix is the IDENTITY, so his
+geometry provably did not change -- only which bone he binds to. An earlier round made that same
+move and the playtest said his back-air went wrong. That result is unexplained and it was measured
+while Chrom's jab was shipping 51 Transform tracks for bones that do not exist, so the round was
+confounded. If Cloud breaks again on an identity matrix, the rule is wrong and that is the single
+most important thing to know.
 
-**3. Palutena's n-air, facing left.** Her staff moved from the repurposed `HaveL` to a native
-`Stick`. Her 65-keyframe `Stick` track drives it with no rename and her hitboxes anchor to `stick`
-the way her own ACMD wrote them, so this is the first time her staff has been on the structure the
-game uses. Watch the sweep as well as the placement.
+**3. Chrom's jab and Mythra's dash attack / side tilt, facing left.** These are the weapons the rule
+predicts it fixes. Chrom was "at the other hand's position" facing left -- a mirror across the
+centreline -- and he is now on the same vanilla bone Corrin uses.
 
-**4. Chrom's jab and Mythra's dash attack / side tilt, facing left.** These ride grafted bones
-under `HaveR`. If they come right too, `HaveR` was being corrupted by its foreign child and the
-whole facing bug is one cause. If Corrin and Palutena come right and these two do not, then the
-grafted-bone case is separate and that is a genuinely new fact -- say which.
+**4. Palutena's n-air, both directions.** Her staff is on the vanilla `Mouth`, parented to `HaveR`
+with her own `Stick` bind transform and driven by her own 65-keyframe track renamed onto it. The
+gates verify all four of those against her own skeleton. Watch the sweep as well as the placement.
 
-**5. Cloud's back-air must still be CORRECT in both directions.** Nothing about him changed and he
-is the control. He is also the only weapon that was never broken, and the reason is now understood:
-his Buster Sword is held in BOTH hands on the body's centreline, where a mirror across the midline
-is nearly the identity. George's mod is immune the same way -- it dual-wields, appending the same
-object twice under one material on `HaveR` and `HaveL`, identical extents in all three axes. Both
-are symmetric, not correct.
+**5. Corrin's up-air must STAY correct.** He is untouched this round and he is the control -- he was
+already on the vanilla `HaveR`, which is what his own body model does, and that is the whole basis
+for the rule.
 
-Also worth a glance: two `sys_smash_flash` effects the source ACMD anchors to `havel` were firing
-at the RIGHT hand while `HaveL` was reparented. They should now appear at the left hand.
+Also: two `sys_smash_flash` effects the source ACMD anchors to `havel` should now appear at the
+LEFT hand. They were firing at the right hand while `HaveL` was reparented.
 
-### If it is still wrong, the probe has already narrowed it
+### What is now known about the facing bug, and what the probe cannot tell you
 
-The 262-sample capture in `work/pt44.log` established something that holds regardless of whether
-this fix works, and it is the sharpest fact this project has about facing:
+**Hitbox placement is the game's own ground truth and it says the bones are fine.** The playtest
+reports Chrom's and Mythra's hitboxes correct in BOTH directions while their visuals are wrong, and
+their hitboxes ride `haver`. So `HaveR`'s runtime transform is correct facing left, and the fault is
+in the mesh, not the skeleton.
 
-    |handr - haver|   1.030 on EVERY frame facing right;   9.14 .. 13.31 facing left
-    |handr - origin|  identical between facings, all six motions
-    |haver - origin|  differs between facings, all six motions
+That RETRACTS the probe reading that said otherwise. `mirror_probe` had `|handr - haver|` at 1.030
+facing right and 9.14 .. 13.31 facing left, which would be impossible for a bone and its own parent
+-- but hitboxes off `haver` land correctly, so the reading is wrong. It is the third time that call
+has misled this project. Also established, from the same capture: it **cannot read an appended bone
+at all** -- `sword`, `sword1` and `fusionsword1` return byte-identical positions across all 262
+samples despite carrying three different bind transforms, and a name the skeleton lacks returns the
+fighter origin rather than failing.
 
-measured on frames where `|handr - origin|` agrees between the two facings to within 0.002, so the
-two performances are the same pose frame for frame. The distance from a bone to its own PARENT is
-rigid skeletal geometry and cannot depend on facing. `HandR` is correct in both facings; its child
-`HaveR` is not, and neither is `HaveL`. Every weapon in the moveset hangs off `HaveR`.
+Treat `ModelModule::joint_global_position` as unreliable for anything but ordinary body bones, and
+prefer hitbox placement as the instrument.
 
-To re-measure after this build:
+    bash tools/ftpq.sh get /rat-telemetry.log > work/pt46.log
 
-    bash tools/ftpq.sh get /rat-telemetry.log > work/pt45.log
-    grep 'MIRROR ' work/pt45.log
-
-**Note the `%20`.** `ftpq.sh` takes a URL path, so a space in the mod folder name must be encoded
-or `get` returns 0 bytes with exit 0 -- an empty file that compares as DIFFER on every retry and
-looks exactly like a failed deploy.
-
-What the probe CANNOT do: read a grafted bone. Across all 262 samples `sword`, `sword1` and
-`fusionsword1` return byte-identical positions to each other, and they carry three different bind
-transforms (an arbitrary rotation, a 90-degree turn about Z, and the identity), so they cannot be
-in one place. A name the skeleton lacks returns the fighter origin rather than failing -- `sword2`
-comes back as the exact negation of `haver_from_top`. Every grafted-bone conclusion this project
-ever drew from that call is void, including the one that justified the `HaveL` repurpose.
+**Note the `%20`**: `ftpq.sh` takes a URL path, so a space in the mod folder name must be encoded or
+`get` returns 0 bytes with exit 0 -- an empty file that compares as DIFFER on every retry.
 
 ## What is settled and does not need looking at
 
