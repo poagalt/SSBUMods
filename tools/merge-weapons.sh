@@ -53,7 +53,7 @@ TABLE="
 chrom_sword|chrom/model/sword|fal_RShape|pasted__met_chrom_001|Sword|HaveR|0,0,4.5|7.0
 cloud_sword|cloud/model/fusionsword|fusionsword1_VIS_O_OBJShape|def_cloud_004|fusionsword1|HaveR|0,6.26053,0|10.0666
 mythra_sword|elight/model/esword|lightsword_VIS_O_OBJShape|alp_light_002|Sword1|HaveR|0,0,4.29851|6.57543
-palutena_staff|palutena/model/body|staff_group_VIS_O_OBJShape|metal_palutena_002_a|Stick|HaveR|0.0275341,-0.65733,0.0205462|10.1638
+palutena_staff|palutena/model/body|staff_group_VIS_O_OBJShape|metal_palutena_002_a|Stick|HaveR|0.0275341,-0.65733,0.0205462|10.1638|Mouth
 corrin_sword|kamui/model/body|Kamui_Weapon_VIS_O_OBJShape|def_sword_001|HaveR|HandR|-0.000500202,5.6193275,-0.0007674639|7.7049875
 "
 
@@ -91,6 +91,11 @@ base_srcmdl=$(jq '.entries | length' cur_nusrcmdlb.json)
 cp "$PIK/model.adjb" "$OUT/model.adjb"
 
 base_bones=$(jq '.bones | length' cur_nusktb.json)
+# VANILLA PIKACHU'S BONE LIST, SNAPSHOTTED BEFORE ANY GRAFT. `cur_nusktb.json` accumulates grafts
+# as the loop runs, so asking it "does Pikachu have this bone?" answers yes for a bone an earlier
+# weapon appended. The bake decision below turns on exactly that question, so it needs the
+# untouched list.
+cp cur_nusktb.json vanilla_nusktb.json
 base_meshes=$(jq '.objects | length' cur_numshb.json)
 
 printf '%-16s %-9s %-7s %s\n' WEAPON BONE MESH SOURCE
@@ -328,13 +333,70 @@ while IFS='|' read -r name dir mesh material bone parent sphere radius realise; 
     # Transform tracks naming bones Pikachu does not have -- see `tools/check-anim-tracks.sh`.
     # Both weapons were confounded. This is the narrow case instead: bake the one mesh whose
     # construction is provably wrong, and leave the four that provably match native alone.
+    # ==== A MESH MUST BIND TO A BONE VANILLA PIKACHU ALREADY HAS. BAKE IF IT DOES NOT. ====
+    #
+    # THE A/B THAT ESTABLISHED THIS held the geometry exactly fixed and changed only the bone's
+    # identity, which is why it is worth more than the ten theories before it.
+    #
+    # Palutena's staff was shipped two ways. First on the vanilla `HaveL` (index 17) reparented
+    # under `HaveR` and given `Stick`'s bind transform; then on a `Stick` (index 88) grafted under
+    # `HaveR` with that same bind transform. Same parent, same local transform, same vertices --
+    # geometrically the SAME PLACE by construction. The only difference is that one bone ships with
+    # Pikachu and the other is appended.
+    #
+    #     on vanilla `HaveL`   correct facing right, wrong facing left
+    #     on appended `Stick`  wrong in BOTH directions
+    #
+    # And the playtest settled what the failure is NOT: "sweeps, but in the wrong place". The
+    # appended bone IS driven by the animation -- her 65-keyframe `Stick` track moves it -- so the
+    # bone is alive and it is the MESH that renders somewhere else. That also kills the reason this
+    # mechanism was originally built ("a grafted bone is not driven at runtime") while confirming
+    # the mechanism itself.
+    #
+    # IT EXPLAINS THE WHOLE TABLE, which no earlier theory did:
+    #
+    #     corrin    `HaveR`         index 22, VANILLA    correct both ways
+    #     cloud     `fusionsword1`  index 78, appended   "correct" -- but his Buster Sword is held
+    #                                                    in both hands on the centreline, where a
+    #                                                    mirror across the midline is nearly the
+    #                                                    identity, so the fault is invisible
+    #     chrom     `Sword`         index 77, appended   "at the other hand's position" facing left
+    #     palutena  `Stick`         index 88, appended   displaced, both directions
+    #
+    # And George's mod, the reference that works on both sides, ships NO `model.nusktb` at all. He
+    # adds no bones and single-binds to the vanilla `HaveR` and `HaveL`.
+    #
+    # SO: bake whenever the mesh would otherwise bind to a bone Pikachu does not ship. The bake
+    # folds the bone's own transform into the vertices and single-binds to `HaveR`, which Corrin
+    # proves is a correct mesh parent because that is exactly what his own body model does.
+    #
+    # THE TWO CONDITIONS, and each is load-bearing:
+    #   - the bind bone is not in VANILLA Pikachu's skeleton, or the source mesh is SKINNED (which
+    #     substitutes Pikachu's bind pose for the weapon model's hand frame -- see below);
+    #   - and no shipped animation drives that bone, because baking freezes it. Palutena's `Stick`
+    #     carries 65 keyframes, so she CANNOT be baked and needs the `realise` route instead.
+    #
+    # KNOWN RISK, recorded rather than hidden. An earlier round baked every mesh onto `HaveR` and
+    # the playtest said Cloud's back-air went wrong -- on a bake matrix that is the identity for
+    # him, so his geometry provably did not change. That result is unexplained and it was measured
+    # while Chrom's jab was shipping 51 Transform tracks for bones that do not exist, so the round
+    # was confounded. It is still the one piece of evidence against this, and Cloud is the weapon
+    # to check first.
     nin0=$(jq -r --arg m "$mesh" '[.objects[]|select(.name==$m)][0].bone_influences|length' \
              src_numshb.json | tr -d '\r')
-    if [ "${nin0:-0}" != "0" ] && [ "$animated" = "0" ]; then
+    vanilla_bone=$(jq -r --arg b "$bone" '[.bones[]|select(.name==$b)]|length' \
+             vanilla_nusktb.json | tr -d '\r')
+    if [ "$animated" = "0" ] && { [ "${nin0:-0}" != "0" ] || [ "${vanilla_bone:-0}" = "0" ]; }; then
         bake=1
-        echo "  $name: source mesh is SKINNED ($nin0 influence bones) and no shipped animation drives $bone -- baking into HaveR's frame, exactly"
+        why="binds to \`$bone\`, which vanilla Pikachu does not have"
+        [ "${nin0:-0}" != "0" ] && why="source mesh is SKINNED ($nin0 influence bones)"
+        echo "  $name: $why and no shipped animation drives $bone -- baking into HaveR's frame"
     else
         bake=0
+        if [ "${vanilla_bone:-0}" = "0" ]; then
+            echo "  $name: binds to appended \`$bone\` and CANNOT be baked -- $bone is animated." \
+                 "It needs a vanilla bone realised into its frame, or the mesh will render displaced."
+        fi
     fi
 
     # THE BAKE DOES NOT REMOVE THE BONES, AND MAKING IT DO SO BROKE THE BUILD.

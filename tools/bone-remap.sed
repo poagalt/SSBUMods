@@ -22,3 +22,4 @@
 # `Sword1` is still NOT remapped here. Chrom's jab hitboxes ride a bone his animation drives, and
 # the right tool for that is `tools/reach/src/bin/rebase.rs`, which carries the bone's own
 # per-frame transform into the offsets instead of discarding it. A sed cannot do that.
+s/Hash40::new("stick")/Hash40::new("mouth")/g

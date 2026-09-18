@@ -43,7 +43,7 @@ mkdir -p "$W"
 # bone that genuinely cannot be rebased -- one that moves relative to the hand across its live
 # window, the way Palutena's staff does -- would need either a row here or the `realise` treatment,
 # and the second is now the better answer.
-WANT="Stick | $ROOT/work/fk/palutena_skel.json | palutena's staff bone, exactly where her own skeleton puts it"
+WANT=""
 
 cp "$W/pika.json" "$W/out.json"
 added=0
@@ -70,48 +70,64 @@ while IFS='|' read -r bone src why; do
     added=$((added+1))
 done <<< "$WANT"
 
-# ==== `HaveL` IS BACK UNDER `HandL`, BECAUSE REPARENTING IT WAS THE ONE THING NO NATIVE SKELETON
-# ==== DOES, AND PALUTENA'S STAFF NOW RIDES `Stick` EXACTLY WHERE SHE DOES
+# ==== PALUTENA'S STAFF RIDES THE VANILLA `Mouth`, BECAUSE A MESH MUST BIND TO A BONE PIKACHU
+# ==== ALREADY SHIPS, AND HERS IS THE ONE WEAPON THAT CANNOT BE BAKED
 #
-# What used to be here reparented Pikachu's vanilla `HaveL` under `HaveR`, gave it Palutena's
-# `Stick` bind transform, renamed her animation's `Stick` track onto it, and bound the staff there.
-# It is deleted, and the reasoning that produced it was wrong at the root.
+# THE A/B THAT SETTLED THE RULE is in `merge-weapons.sh`'s bake block, and it is worth repeating
+# because it holds the geometry fixed and varies only the bone. Her staff shipped twice in the
+# same place by construction -- same parent `HaveR`, same `Stick` bind transform, same vertices --
+# once on the vanilla `HaveL` (index 17) and once on an appended `Stick` (index 88):
 #
-# IT EXISTED BECAUSE OF AN INSTRUMENT ERROR. `telemetry::mirror_probe` reported that `sword`,
-# `sword1` and `stick` "differ between facings in all three components including Y, which no facing
-# can change", and that was read as proof that a grafted bone is not in the runtime transform
-# chain -- hence the scheme to move the staff onto a bone Pikachu already owned. The probe cannot
-# see grafted bones at all: in the latest capture `sword`, `sword1` and `fusionsword1` return
-# BYTE-IDENTICAL positions to each other on all 262 samples, and they are three different bones
-# with three different bind transforms (an arbitrary rotation, a 90-degree turn about Z, and the
-# identity), so they cannot be in one place. A name the skeleton lacks returns the fighter origin
-# rather than failing. Every grafted-bone reading this project has taken from that call is noise.
+#     vanilla `HaveL`    correct facing right, wrong facing left
+#     appended `Stick`   wrong in BOTH directions
 #
-# AND THE VISUALS REFUTE IT DIRECTLY: Cloud's Buster Sword is single-bound to the GRAFTED
-# `fusionsword1` and the playtest calls it correct. A grafted bone is in the render chain.
+# And the playtest says of the appended version "sweeps, but in the wrong place", so the bone IS
+# driven -- her 65-keyframe `Stick` track moves it -- and it is the MESH that renders elsewhere.
+# Four of the five weapons are therefore baked onto the vanilla `HaveR`. Hers cannot be: `Stick`
+# carries 65 keyframes of the sweep that IS the move, and baking freezes it.
 #
-# WHAT THE GAME ACTUALLY DOES, which is the whole reason this is a deletion and not a rewrite.
-# Palutena's staff is a mesh in her BODY model single-bound to `Stick`, and `Stick` is a real bone
-# in her skeleton parented to `HaveR` with transform [[1,0,0],[0,1,0],[0,0,1]] + (0,-2.2,0). So the
-# native structure is `HandR -> HaveR -> Stick`, and `WANT` above now grafts exactly that. Her
-# `Stick` animation track needs no rename, her hitboxes need no remap, and `bone-remap.sed` goes
-# back to a no-op -- all three of those existed only to serve the repurpose.
+# SO A VANILLA BONE IS REPURPOSED INTO `Stick`'s FRAME -- which is what `HaveL` used to do, and
+# `HaveL` was the wrong choice for two reasons that are both avoided here.
 #
-# WHY THE REPARENT WAS ACTIVELY HARMFUL, and this is measured. Every native skeleton checked --
-# Corrin's, Palutena's, and vanilla Pikachu's -- parents `HaveL` to `HandL`. Ours was the only one
-# that made it a child of `HaveR`, and the probe finds BOTH `HaveR` and `HaveL` in the wrong place
-# facing left while `HandR` is correct: |handr - haver| is 1.030 on every frame facing right and
-# 9.14 .. 13.31 facing left, on frames where |handr - origin| agrees between facings to 0.002, so
-# the pose is provably identical. Corrin's Yato is single-bound to `HaveR` in his own body model
-# and works in the retail game, so `HaveR` is a legitimate mesh parent and the bone is not at
-# fault; the one difference between his skeleton and ours was the child we hung on it.
+# WHY `Mouth` AND NOT `HaveL`:
+#   - `HaveL` is the LEFT-HAND ITEM SOCKET and the engine has semantics for it. Reparenting it
+#     under `HaveR` coincided exactly with Corrin's Yato breaking -- he single-binds to `HaveR`,
+#     so he was the weapon most exposed to a foreign child on it -- and undoing the reparent
+#     fixed him. It also silently moved two `sys_smash_flash` effects the source ACMD anchors to
+#     `havel` onto the wrong hand.
+#   - `HaveL` is index 17 and `HaveR` is index 22, so it was a child evaluated BEFORE its parent.
+#     Ten bones in every fighter in the game have that property (`Jaw`, `Tongue`, the `Uplip*`
+#     set), so it is not fatal in general -- but it is an anomaly, it is not worth carrying, and
+#     `Mouth` at index 37 does not have it.
 #
-# NOT the bone ORDER, which was the first theory and is dead. `HaveL(17)` under `HaveR(22)` is a
-# child evaluated before its parent -- but so are ten bones in every fighter in the game
-# (`UplipL1`, `Jaw`, `Tongue` and the rest all have parents 40-odd indices later, in Pikachu,
-# Corrin and Palutena alike). The engine handles that fine. Out-of-order parents are normal; a
-# left-hand item socket hanging off the right hand is not.
-
+# `Mouth` IS FREE, CHECKED RATHER THAN ASSUMED. Of vanilla Pikachu's 77 bones it is one of five
+# that are leaves, carry no mesh weight and are never named by `model.nuhlpb`: `Hat`, `HaveL`,
+# `HaveR`, `Mouth`, `Throw`. `HaveR` is where the other four weapons bind; `Throw` is the throw
+# attachment and this plugin names it twelve times; `Hat` is index 10 and would reintroduce the
+# out-of-order parent. `Mouth` is named ZERO times anywhere in the plugin, and no SHIPPED
+# animation drives it -- the source fighters have no such bone, so no ported move has the track.
+#
+# The cost: vanilla animations DO drive `Mouth`, so during a non-ported move the bone goes
+# somewhere meaningless under `HaveR`. Nothing renders on it -- no vanilla mesh is weighted to it
+# and `src/sword/mod.rs` shows the staff only during Palutena's own motions -- so the cost is
+# invisible, which is the same argument that made `HaveL` acceptable minus the two objections.
+STICKSRC="$ROOT/work/fk/palutena_skel.json"
+if [ -f "$STICKSRC" ]; then
+    hidx=$(jq '[.bones|to_entries[]|select(.value.name=="HaveR")][0].key' "$W/out.json")
+    before=$(jq -r '(.bones|to_entries) as $bs | $bs[] | select(.value.name=="Mouth")
+                    | $bs[.value.parent_index].value.name' "$W/out.json")
+    jq --argjson p "$hidx" --slurpfile s "$STICKSRC" '
+      ( [ $s[0].bones[] | select(.name == "Stick") ][0].transform ) as $st
+      | .bones = [ .bones[]
+          | if .name == "Mouth" then (.parent_index = $p | .transform = $st) else . end ]
+    ' "$W/out.json" > "$W/next.json" && mv "$W/next.json" "$W/out.json"
+    after=$(jq -r '(.bones|to_entries) as $bs | $bs[] | select(.value.name=="Mouth")
+                   | $bs[.value.parent_index].value.name' "$W/out.json")
+    echo "  ~ Mouth reparented $before -> $after, bind transform taken from palutena Stick"
+    added=$((added+1))
+else
+    echo "  !! no $STICKSRC -- Mouth NOT repurposed, Palutena's staff will ride an appended bone" >&2
+fi
 if [ "$added" -gt 0 ]; then
     "$T" "$W/out.json" "$SKEL" >/dev/null
     echo "add-bones: $added change(s), skeleton now $(jq '.bones|length' "$W/out.json") bones"

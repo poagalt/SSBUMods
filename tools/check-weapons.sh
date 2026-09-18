@@ -188,6 +188,7 @@ if [ -f "$MODEL/model.numshb" ]; then
         # place reported four of the five weapons' sources "unreadable" and then silently decided
         # that none of them was baked -- so the gate failed Mythra for being bound where she is
         # supposed to be bound.
+        "$T" extracted/fighter/pikachu/model/body/c00/model.nusktb "$W/vanillabone.json"             >/dev/null 2>&1 || echo '{"bones":[]}' > "$W/vanillabone.json"
         srcnin=0
         srcmesh=""
         for sroot in extracted/fighter work/arc-weapons/fighter; do
@@ -201,8 +202,15 @@ if [ -f "$MODEL/model.numshb" ]; then
         else
             bad="$bad ${name}:source-mesh-unreadable-under-extracted-or-arc-weapons-for-${dir}"
         fi
+        # A MESH MUST BIND TO A BONE VANILLA PIKACHU SHIPS, so the bake now fires for a bone he
+        # does not have as well as for a skinned source mesh. Recomputed from the same two inputs
+        # merge-weapons.sh uses, so a drift between them fails instead of being rubber-stamped.
+        # See the A/B in its bake block: Palutena's staff in two geometrically IDENTICAL
+        # configurations behaved differently, and the only difference was vanilla index 17 versus
+        # appended index 88.
+        van=$(jq -r --arg b "$bone" '[.bones[]|select(.name==$b)]|length'               "$W/vanillabone.json" 2>/dev/null | tr -d "$CR")
         baked=0
-        if [ "${srcnin:-0}" != "0" ] && [ "$animated" = "0" ]; then
+        if [ "$animated" = "0" ]            && { [ "${srcnin:-0}" != "0" ] || [ "${van:-0}" = "0" ]; }; then
             baked=1
         fi
         i=0
@@ -367,6 +375,12 @@ if [ -f "$MODEL/model.nusktb" ]; then
             [ -f "$sroot/$dir/c00/model.nusktb" ] && ssk="$sroot/$dir/c00/model.nusktb" && break
         done
         [ -n "$ssk" ] || { bad="$bad ${name}:no-source-skeleton"; continue; }
+        # A REALISED WEAPON'S SOURCE BONE IS DELIBERATELY ABSENT FROM OUR SKELETON. Palutena's
+        # staff rides the vanilla `Mouth` repurposed into `Stick`'s frame, so `Stick` is never
+        # grafted -- and the section above already asserts, against her own skeleton, that `Mouth`
+        # has Stick's parent and Stick's bind transform. Checking for `Stick` here failed her for
+        # being correct.
+        [ -n "${realise:-}" ] && continue
         # GRAFTED BONES ONLY. A weapon may bind to a bone PIKACHU ALREADY OWNS -- Corrin's Yato
         # single-binds to `HaveR`, exactly as it does in his own body model -- and such a bone must
         # keep PIKACHU's frame, not the source's. Asserting otherwise failed Corrin for being
