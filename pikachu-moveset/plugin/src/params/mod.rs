@@ -80,13 +80,23 @@ const PARAM_SPECIAL_N: u64 = 0x0f_8991_92aa;
 use cshot::{CSHOT_FLOATS, CSHOT_INTS};
 use table::{FLOATS, INTS};
 
-/// Is this accessor a Pikachu?
+/// Is this accessor a RAT OF DOOM -- a Pikachu on the gated costume?
 ///
 /// Called only after the object hash has already matched, which is one compare and is false for
 /// every param read in the game except Skull Bash's and Incineroar's own. That ordering is what
-/// keeps a hook on one of the hottest functions in the engine from costing anything.
+/// keeps a hook on one of the hottest functions in the engine from costing anything, and it is why
+/// the costume read goes LAST: it is a `WorkModule::get_int` on a hook that replaces
+/// `WorkModule::get_param_int`, so it must stay off the path every other fighter takes.
+///
+/// THE COSTUME TEST IS NOT DECORATION. These four hooks are installed globally and see every object
+/// in the fight; smashline's `*_costume` filter, which gates every `Agent` this plugin registers,
+/// does not reach a `skyline::hook`. Without it, vanilla Pikachu on c01-c07 would be handed
+/// Incineroar's `param_special_s` and Samus's `param_special_n` -- objects he has no scripts for,
+/// answered for a moveset he is not running.
 unsafe fn is_pikachu(boma: *mut BattleObjectModuleAccessor) -> bool {
-    !boma.is_null() && utility::get_kind(&mut *boma) == *FIGHTER_KIND_PIKACHU
+    !boma.is_null()
+        && utility::get_kind(&mut *boma) == *FIGHTER_KIND_PIKACHU
+        && crate::charaslot::is_rat_costume(boma)
 }
 
 #[skyline::hook(replace = WorkModule::get_param_int)]

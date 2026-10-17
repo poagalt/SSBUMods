@@ -103,25 +103,26 @@ pub unsafe fn run(boma: *mut BattleObjectModuleAccessor, entry: usize, status_co
     // alongside says so rather than leaving the next reader to re-derive it. It is still worth
     // logging: a value other than 1.0 would mean something is rescaling him, which would make
     // every hitbox measurement in the project wrong at once.
-    // THE COSTUME SLOT, WHICH NO LONGER DECIDES WHETHER THE MOVESET WORKS.
+    // THE COSTUME SLOT, WHICH DECIDES WHETHER THIS IS RAT OF DOOM AT ALL.
     //
-    // This used to read "the mod ships c00 ONLY -- any other colour has no added animations at
-    // all", and it was true and worth announcing: every added animation was declared under
-    // `fighter/pikachu/c00`, so on any other slot the moveset half-worked in a way that looked
-    // exactly like a code bug, and it had to be guessed at from the outside twice.
+    // Three answers, and the number has meant something different each time. It first read "the mod
+    // ships c00 ONLY -- any other colour has no added animations at all", which was true and had to
+    // be guessed at from the outside twice. Then `tools/mirror-costumes.sh` shipped the animations
+    // for all eight and this said the moves work on every colour, with only the grafted MODEL still
+    // c00-only.
     //
-    // `tools/mirror-costumes.sh` ships the animations for all eight now and `gen-config.sh`
-    // declares each under its OWN costume key, so the moves work on every colour. What is still
-    // c00-only is the MODEL -- the grafted weapons -- because each costume's body model carries
-    // its own textures and mirroring c00's would turn every Pikachu default yellow. So the number
-    // still matters, for a narrower reason: on a non-c00 slot the moves are right and Chrom's jab
-    // swings no sword.
+    // Now the moveset is its own character slot and the mirror runs BACKWARDS: c00 is Rat of Doom
+    // and the other seven are vanilla Pikachu, who gets no scripts (every `Agent` is installed
+    // under `charaslot::RAT_COSTUMES`), no article vtable swap, and no borrowed params. So a colour
+    // other than c00 printed here is not a half-broken moveset -- it is the gate working, and every
+    // "my move did nothing" report should start by reading this line.
     sink::diag(format!(
         "[rat] SELFTEST p{entry} color=c{:02} scale={:.4} base={:.4} owner={:.4} status_kind_count={status_count:#x} \
-         (animations ship for all 8 colours; the grafted WEAPONS are c00-only, so a non-c00 slot \
-         plays every move correctly with no sword visible; \
+         (RAT OF DOOM IS COSTUME c{:02}: on any other colour this is vanilla Pikachu and none \
+         of the moveset is installed, which is the gate working and not a missing asset; \
          scale is the RUNTIME multiplier and reads 1.0, NOT the 0.96 fighter_param scale)",
         WorkModule::get_int(boma, *FIGHTER_INSTANCE_WORK_ID_INT_COLOR),
+        crate::charaslot::RAT_COSTUME,
         PostureModule::scale(boma),
         PostureModule::base_scale(boma),
         PostureModule::owner_scale(boma),

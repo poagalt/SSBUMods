@@ -1,0 +1,26 @@
+# Fighter-owned effects that get a RESIDENT STAND-IN instead of being dropped.
+#
+# ADR 0002 forbids requesting another fighter's effect archive, and tools/extract-effects.awk
+# enforces it by keeping only `sys_*` spawns. That is correct and stays. What it cannot distinguish
+# is a decorative effect from a LOAD-BEARING one: Wolf's f-air is a claw swipe whose reach is only
+# legible from the arc it draws, so dropping the arc does not merely make the move plainer, it makes
+# it unreadable -- the playtest report was "needs a visual so the user knows how far the move is
+# going".
+#
+# THE ADR WARNED ABOUT THE OTHER DIRECTION, and this is not that. Its prediction was that a future
+# reader would "fix" the generic visuals by wiring up the real fighter-prefixed names, which compile,
+# deploy and silently do nothing on a card without that fighter. A substitution names a `sys_`
+# archive, which is always resident, so gate 4o still passes by construction -- the check is that
+# the REPLACEMENT is `sys_*`, not that nothing was replaced.
+#
+# EVERY OTHER ARGUMENT IS CARRIED OVER UNCHANGED. The effect name is the only thing swapped: the
+# joint, the offsets, the RGB and the scale are the source's own numbers, so the stand-in is drawn
+# where, and in the colour, the real one was. Wolf's arc is (0, 0, 250) -- pure blue -- and it stays
+# pure blue.
+#
+# ADD A ROW ONLY WITH A REASON IN THE THIRD COLUMN, and only when the effect carries information the
+# player needs. A substitution is still not the real effect, and a screen full of `sys_attack_arc`
+# standing in for six different fighters' signature visuals would be worse than six plain moves.
+#
+# source effect <TAB> sys_ stand-in <TAB> why this one earns a stand-in
+wolf_scratch_arc	sys_attack_arc	Wolf's f-air: the arc is the only thing on screen that shows how far the swipe reaches, and the move read as having no hitbox without it

@@ -121,7 +121,7 @@ unsafe extern "C" fn pikachu_cue_frame(fighter: &mut L2CFighterCommon) {
 }
 
 pub fn install() {
-    Agent::new("pikachu")
+    crate::charaslot::agent("pikachu")
         .on_line(Main, pikachu_cue_frame)
         .install();
 }

@@ -41,6 +41,7 @@ pub mod enginetrace;
 pub mod moves;
 /// Which line callback is in flight when the air-damage status faults. See the module doc.
 pub mod damageprobe;
+pub mod jabprobe;
 
 pub const ENABLED: bool = true;
 
@@ -390,7 +391,7 @@ pub fn install_selective(frame: bool, memserve_on: bool) {
         memserve::install();
     }
     if frame {
-        Agent::new("pikachu")
+        crate::charaslot::agent("pikachu")
             .on_line(Main, pikachu_telemetry)
             .install();
     }
@@ -405,7 +406,7 @@ pub fn install() {
     enginetrace::install();
     // Its own thread, so a blocking Accept never touches the game thread.
     memserve::install();
-    Agent::new("pikachu")
+    crate::charaslot::agent("pikachu")
         .on_line(Main, pikachu_telemetry)
         .install();
 

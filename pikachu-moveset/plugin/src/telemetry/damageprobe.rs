@@ -62,7 +62,7 @@ pub fn install() {
     if !ENABLED {
         return;
     }
-    Agent::new("pikachu")
+    crate::charaslot::agent("pikachu")
         .status(Init, *FIGHTER_STATUS_KIND_DAMAGE_AIR, damage_air_init_probe)
         .install();
 }

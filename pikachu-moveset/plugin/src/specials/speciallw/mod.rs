@@ -1425,7 +1425,7 @@ pub unsafe extern "C" fn pikachu_revenge_frame(fighter: &mut L2CFighterCommon) {
 // misread constant is worse than no function, so it is deleted rather than corrected.
 
 pub fn install() {
-    Agent::new("pikachu")
+    crate::charaslot::agent("pikachu")
         .status(Pre,  *FIGHTER_STATUS_KIND_SPECIAL_LW, pikachu_speciallw_pre)
         .status(Main, *FIGHTER_STATUS_KIND_SPECIAL_LW, pikachu_speciallw_main)
         .status(End,  *FIGHTER_STATUS_KIND_SPECIAL_LW, pikachu_speciallw_end)

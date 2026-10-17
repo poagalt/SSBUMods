@@ -897,6 +897,16 @@ bash "$ROOT/tools/check-blastradius.sh" || rc=1
 return $rc
 }
 
+# The sibling of 4j, one boundary in: seven of Pikachu's eight costumes are still vanilla Pikachu
+# since the moveset became its own slot, and a raw `Agent::new` or an ungated `skyline::hook` hands
+# them the moveset anyway -- silently, because it only shows on a colour nobody tests.
+gate_def gate_4p "4p. nothing this mod does reaches a Pikachu that is not Rat of Doom"
+gate_4p() {
+local rc=0
+bash "$ROOT/tools/check-slot.sh" || rc=1
+return $rc
+}
+
 gate_def gate_4c "4c. hand-written code uses no other fighter's constants"
 gate_4c() {
 local rc=0

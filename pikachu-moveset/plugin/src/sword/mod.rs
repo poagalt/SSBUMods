@@ -858,7 +858,7 @@ unsafe fn probe(
 }
 
 pub fn install() {
-    Agent::new("pikachu")
+    crate::charaslot::agent("pikachu")
         .on_line(Main, pikachu_weapon_frame)
         .install();
 }

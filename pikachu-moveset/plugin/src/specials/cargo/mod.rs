@@ -333,7 +333,7 @@ unsafe extern "C" fn pikachu_throw_main(fighter: &mut L2CFighterCommon) -> L2CVa
 }
 
 pub fn install() {
-    Agent::new("pikachu")
+    crate::charaslot::agent("pikachu")
         .on_line(Main, pikachu_cargo_frame)
         // The forward throw IS the lift, and it has to be taken over before Pikachu's own throw
         // executes. See `pikachu_throw_main`.

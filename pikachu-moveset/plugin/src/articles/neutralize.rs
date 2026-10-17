@@ -83,6 +83,13 @@ fn live_rows() -> impl Iterator<Item = (usize, i32, &'static [usize], &'static s
     })
 }
 
+/// Is the fighter in this entry slot a RAT OF DOOM -- a Pikachu on the gated costume?
+///
+/// THE COSTUME TEST IS HERE AND NOT IN THE HOOK because the hook runs once per weapon spawn for
+/// every object in the fight, and this is already the narrowing test. `WEAPON_INITIALIZE` is a
+/// `skyline::hook`, so smashline's `*_costume` filter -- which gates every `Agent` this plugin
+/// registers -- does not reach it; without the test, a vanilla Pikachu on c01-c07 would have his
+/// article's specializer vtable swapped for a private one, for a moveset he is not running.
 unsafe fn owner_is_pikachu(entry: u32) -> bool {
     if entry >= 8 {
         return false;
@@ -96,7 +103,16 @@ unsafe fn owner_is_pikachu(entry: u32) -> bool {
         return false;
     }
     let id = FighterEntry::current_fighter_id(fe) as u32;
-    sv_battle_object::kind(id) == *FIGHTER_KIND_PIKACHU
+    if sv_battle_object::kind(id) != *FIGHTER_KIND_PIKACHU {
+        return false;
+    }
+    // THE ACCESSOR COMES FROM `victim::boma`, NOT FROM `sv_battle_object::module_accessor`, and
+    // gate 4d is right to insist on it even though the id came from FighterManager a line ago. The
+    // entry's `current_fighter_id` is as capable of being stale as any other engine-supplied id --
+    // this hook runs on every weapon spawn in the fight, including ones during a respawn or a
+    // transformation -- and the failure mode of getting it wrong here is the Instruction Abort at a
+    // garbage address that `boma` exists to prevent. A costume test is not worth a crash.
+    crate::victim::boma(id).map_or(false, |b| crate::charaslot::is_rat_costume(b))
 }
 
 /// The private singleton for one row, built on first use from the running game's own memory.

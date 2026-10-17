@@ -296,7 +296,7 @@ emit_module() {
         # salvaging decompiler output does not generalise.
         echo "// ---- $slot : effect_$fname, sys_ effects only (ADR 0002) ----" >> "$file"
         echo "unsafe extern \"C\" fn pikachu_effect_$fname(agent: &mut L2CAgentBase) {" >> "$file"
-        awk -v want="effect_$fname" -f "$ROOT/tools/extract-effects.awk" "$src" \
+        awk -v want="effect_$fname" -v subs="$ROOT/tools/effect-subs.tsv" -f "$ROOT/tools/extract-effects.awk" "$src" \
             | sed -f "$ROOT/tools/bone-remap.sed" >> "$file"
         echo "}" >> "$file"
         echo "" >> "$file"
@@ -305,7 +305,7 @@ emit_module() {
 
     {
         echo "pub fn install() {"
-        echo "    Agent::new(\"pikachu\")"
+        echo "    crate::charaslot::agent(\"pikachu\")"
         printf "%b" "$installs"
         echo "        .install();"
         echo "}"
@@ -321,3 +321,31 @@ emit_module defensive "$DEFENSIVE"
 emit_module landings  "$LANDINGS"
 emit_module dodges    "$DODGES"
 emit_module specials_acmd "$SPECIALS"
+
+# ---- the effect substitutions actually landed ---------------------------------------------------
+#
+# A STALE OR BROKEN TABLE ROW FAILS SILENTLY, which is the whole reason this block exists. The first
+# attempt built the replacement with `gsub` and a regex assembled from the effect name; `(`, `)` and
+# `"` went unescaped, the substitution never fired, and the `^sys_` test downstream then dropped the
+# effect exactly as if there were no table at all. The generator printed nothing unusual and the
+# build passed. So: every row must be observable in the output, or it is a row that does nothing.
+if [ -f "$ROOT/tools/effect-subs.tsv" ]; then
+    subs_rc=0
+    while IFS=$'\t' read -r src_eff sys_eff _reason; do
+        case "${src_eff:-#}" in \#*|"") continue ;; esac
+        leaked=$(grep -rl "\"$src_eff\"" "$ROOT/pikachu-moveset/plugin/src"/{normals,smashes,aerials,throws,defensive,landings,dodges,specials_acmd}/mod.rs 2>/dev/null || true)
+        if [ -n "$leaked" ]; then
+            echo "  FAIL effect substitution did not fire: $src_eff is still named in $leaked" >&2
+            subs_rc=1
+            continue
+        fi
+        n=$(grep -rc "\"$sys_eff\"" "$ROOT/pikachu-moveset/plugin/src"/{normals,smashes,aerials,throws,defensive,landings,dodges,specials_acmd}/mod.rs 2>/dev/null | awk -F: '{s+=$2} END{print s+0}')
+        if [ "${n:-0}" -lt 1 ]; then
+            echo "  FAIL effect substitution $src_eff -> $sys_eff produced no call; the row is stale or the move is not ported" >&2
+            subs_rc=1
+        else
+            echo "  substituted $src_eff -> $sys_eff ($n call site(s))"
+        fi
+    done < "$ROOT/tools/effect-subs.tsv"
+    [ "$subs_rc" -eq 0 ] || exit 1
+fi

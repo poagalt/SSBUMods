@@ -74,7 +74,7 @@ unsafe extern "C" fn pikachu_effect_escapef(agent: &mut L2CAgentBase) {
 }
 
 pub fn install() {
-    Agent::new("pikachu")
+    crate::charaslot::agent("pikachu")
         .game_acmd("game_escapeair", pikachu_game_escapeair, Default)
         .effect_acmd("effect_escapeair", pikachu_effect_escapeair, Default)
         .game_acmd("game_escapeairslide", pikachu_game_escapeairslide, Default)

@@ -82,7 +82,7 @@ unsafe extern "C" fn pikachu_specialhiclose_end(fighter: &mut L2CFighterCommon) 
 }
 
 pub fn install() {
-    Agent::new("pikachu")
+    crate::charaslot::agent("pikachu")
         .status(Pre, RAT_STATUS_KIND_SPECIAL_HI_CLOSE, pikachu_specialhiclose_pre)
         .status(Main, RAT_STATUS_KIND_SPECIAL_HI_CLOSE, pikachu_specialhiclose_main)
         .status(End, RAT_STATUS_KIND_SPECIAL_HI_CLOSE, pikachu_specialhiclose_end)

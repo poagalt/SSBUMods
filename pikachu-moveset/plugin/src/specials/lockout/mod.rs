@@ -100,7 +100,7 @@ unsafe extern "C" fn retired_end(fighter: &mut L2CFighterCommon) -> L2CValue {
 }
 
 pub fn install() {
-    let mut agent = Agent::new("pikachu");
+    let mut agent = crate::charaslot::agent("pikachu");
     for (kind, _what) in RETIRED {
         agent
             .status(Pre, *kind, retired_pre)

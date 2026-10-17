@@ -25,12 +25,12 @@ use crate::acmd_ext as macros;
 unsafe extern "C" fn pikachu_game_landingairn(agent: &mut L2CAgentBase) {
     if macros::IS_EXIST_ARTICLE(agent, *FIGHTER_MASTER_GENERATE_ARTICLE_BOW) {
         if macros::is_excute(agent) {
-            crate::articles::change_motion(agent.module_accessor, "bow", Hash40::new("landing_air_n"), false, -1.0);
+            ArticleModule::change_motion(agent.module_accessor, *FIGHTER_MASTER_GENERATE_ARTICLE_BOW, Hash40::new("landing_air_n"), false, -1.0);
         }
     }
     frame(agent.lua_state_agent, 2.0);
     if macros::is_excute(agent) {
-        macros::ATTACK(agent, 0, 0, Hash40::new("top"), 1.0, 30, 120, 0, 40, 4.25, 0.0, 7.1187496, -5.3125, Some(0.0), Some(7.1187496), Some(6.375), 0.7, 1.0, *ATTACK_SETOFF_KIND_OFF, *ATTACK_LR_CHECK_POS, true, 0, 0.0, 0, false, false, false, false, false, *COLLISION_SITUATION_MASK_GA, *COLLISION_CATEGORY_MASK_ALL, *COLLISION_PART_MASK_ALL, false, Hash40::new("collision_attr_normal"), *ATTACK_SOUND_LEVEL_S, *COLLISION_SOUND_ATTR_KICK, *ATTACK_REGION_OBJECT);
+        macros::ATTACK(agent, 0, 0, Hash40::new("top"), 1.0, 30, 120, 0, 40, 4.0, 0.0, 6.7, -5.0, Some(0.0), Some(6.7), Some(6.0), 0.7, 1.0, *ATTACK_SETOFF_KIND_OFF, *ATTACK_LR_CHECK_POS, true, 0, 0.0, 0, false, false, false, false, false, *COLLISION_SITUATION_MASK_GA, *COLLISION_CATEGORY_MASK_ALL, *COLLISION_PART_MASK_ALL, false, Hash40::new("collision_attr_normal"), *ATTACK_SOUND_LEVEL_S, *COLLISION_SOUND_ATTR_KICK, *ATTACK_REGION_OBJECT);
     }
     wait(agent.lua_state_agent, 1.0);
     if macros::is_excute(agent) {
@@ -38,7 +38,7 @@ unsafe extern "C" fn pikachu_game_landingairn(agent: &mut L2CAgentBase) {
     }
     frame(agent.lua_state_agent, 25.0);
     if macros::is_excute(agent) {
-        crate::articles::remove_exist(agent.module_accessor, "bow", ArticleOperationTarget(*ARTICLE_OPE_TARGET_ALL));
+        ArticleModule::remove_exist(agent.module_accessor, *FIGHTER_MASTER_GENERATE_ARTICLE_BOW, ArticleOperationTarget(*ARTICLE_OPE_TARGET_ALL));
     }
 }
 
@@ -64,7 +64,7 @@ unsafe extern "C" fn pikachu_game_landingairhi(_agent: &mut L2CAgentBase) {}
 unsafe extern "C" fn pikachu_game_landingairlw(_agent: &mut L2CAgentBase) {}
 
 pub fn install() {
-    Agent::new("pikachu")
+    crate::charaslot::agent("pikachu")
         .game_acmd("game_landingairn", pikachu_game_landingairn, Default)
         .effect_acmd("effect_landingairn", pikachu_effect_landingairn, Default)
         .game_acmd("game_landingairf", pikachu_game_landingairf, Default)

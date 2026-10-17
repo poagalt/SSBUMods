@@ -86,6 +86,25 @@ pub fn main() {
     if TELEMETRY_FRAME || MEMSERVE {
         telemetry::install_selective(TELEMETRY_FRAME, MEMSERVE);
     }
+    // The rapid-jab trace. Its own `ENABLED`, because it is a question being asked and not a
+    // feature, and it is outside the bisect groups for the same reason `damageprobe` is: the crash
+    // those flags are bisecting predates it.
+    telemetry::jabprobe::install();
+
+    // THE ROSTER ROW GOES LAST, AND IT WENT NOWHERE AT ALL UNTIL NOW.
+    //
+    // `mod charaslot;` was added with the CSK API and `charaslot::install()` was never called, so
+    // the ui_chara_db and ui_layout_db entries have never been registered on hardware -- the
+    // module's own log line ("CHARASLOT registering ui_chara_ratofdoom") has never appeared in a
+    // capture, which is how this was found. The gate now asserts the call exists.
+    //
+    // LAST is deliberate and the reason is in the module: the CSK API's own notice is that calling
+    // it without `libthe_csk_collection.nro` present crashes, and there is no version query to ask
+    // first (the wiki's `csk_collection_version()` has no safe wrapper at rev e144a25). If the
+    // plugin is absent, everything above has already installed and the moveset still works -- the
+    // card just has no second portrait.
+    charaslot::install();
+
     crate::telemetry::sink::diag(format!(
         "[rat] BISECT moves={MOVES} specials={SPECIALS} weapons={WEAPONS} params={PARAMS}          cues={CUES} telemetry_frame={TELEMETRY_FRAME} memserve={MEMSERVE}"
     ));

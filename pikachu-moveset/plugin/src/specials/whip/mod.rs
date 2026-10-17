@@ -2282,7 +2282,7 @@ const WHIP_CLIFF_HANGDATA_INDEX: u32 = 1;
 /// installed at once -- whichever registered last would silently own the status, and "which
 /// implementation am I testing" is not a question worth having.
 pub fn install() {
-    Agent::new("pikachu")
+    crate::charaslot::agent("pikachu")
         .status(Pre, *FIGHTER_STATUS_KIND_SPECIAL_S, special_s_pre)
         .status(Main, *FIGHTER_STATUS_KIND_SPECIAL_S, special_s_main)
         .status(End, *FIGHTER_STATUS_KIND_SPECIAL_S, special_s_end)

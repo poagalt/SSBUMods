@@ -1072,7 +1072,7 @@ pub fn install() {
         return;
     }
     acmd::install();
-    Agent::new("pikachu")
+    crate::charaslot::agent("pikachu")
         .status(Pre, *FIGHTER_STATUS_KIND_SPECIAL_N, special_n_pre)
         .status(Init, *FIGHTER_STATUS_KIND_SPECIAL_N, special_n_init)
         .status(Main, *FIGHTER_STATUS_KIND_SPECIAL_N, special_n_main)

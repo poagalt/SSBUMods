@@ -83,7 +83,7 @@ unsafe extern "C" fn game_specialncancel(agent: &mut L2CAgentBase) {
 }
 
 pub fn install() {
-    Agent::new("pikachu")
+    crate::charaslot::agent("pikachu")
         .game_acmd("game_specialnstart", game_specialnstart, Default)
         .game_acmd("game_specialairnstart", game_specialnstart, Default)
         .game_acmd("game_specialnhold", game_specialnhold, Default)

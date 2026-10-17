@@ -500,6 +500,17 @@ unsafe extern "C" fn shoulder_wait_main(fighter: &mut L2CFighterCommon) -> L2CVa
 /// cat1 button mask, because that is what he does when the command flag has not fired. TRIGGER
 /// rather than held: the grab button is still down when the carry begins, and reading it as held
 /// is what committed a throw on the first carry frame and froze the game in round 2.
+/// The four cat2 throw-direction flags as one mask, for asking "was any direction asked for".
+///
+/// A `fn` rather than a `const` because the four are `Lazy` lua constants resolved at first use,
+/// which cannot be or-ed in a const initialiser.
+unsafe fn throw_dir_mask() -> i32 {
+    *FIGHTER_PAD_CMD_CAT2_FLAG_THROW_F
+        | *FIGHTER_PAD_CMD_CAT2_FLAG_THROW_B
+        | *FIGHTER_PAD_CMD_CAT2_FLAG_THROW_HI
+        | *FIGHTER_PAD_CMD_CAT2_FLAG_THROW_LW
+}
+
 unsafe fn requested_throw(fighter: &mut L2CFighterCommon) -> Option<i32> {
     let boma = fighter.module_accessor;
 
@@ -579,6 +590,39 @@ unsafe fn requested_throw(fighter: &mut L2CFighterCommon) -> Option<i32> {
     }
     let cat2 = fighter.global_table[0x21].get_i32();
     let stick = fighter.IsThrowStick();
+
+    // THE PROBE THAT REPLACES A FOURTH GUESS AT THE BACK THROW.
+    //
+    // THREE FIXES HAVE NOW BEEN AIMED AT THIS DISPATCH and the move still does not come out, so
+    // this prints the real input state at the real moment instead of another theory. What the last
+    // measured carry actually said was THROW_F_F x5, SHOULDER_TURN x4, THROW_F_B x0 -- and the
+    // crumb below, which fires on a press that resolves to no direction, x0. Those two facts
+    // together already rule out "the direction test is wrong": a press always resolved to SOME
+    // direction, and it was always forward.
+    //
+    // WHICH LEAVES THE TURN. `shoulder_wait_main` tests the stick AFTER this helper, so a throw
+    // beats a turn in the same frame -- but only in the same frame. A back stick held for one frame
+    // with no cat1 press yet takes SHOULDER_TURN, which flips `lr`, and `lr` is what makes a stick
+    // direction "f" or "b": both `stick_x_lr` and the engine's own IsThrowStick table are
+    // facing-relative. So the back input turns him, and the attack that arrives a frame later is a
+    // FORWARD throw by the time it is read. That is a complete account of the telemetry, and it is
+    // a theory until these numbers say so.
+    //
+    // Printed on any frame with a press OR a stick direction, which is rare enough to read and
+    // narrow enough not to flood a carry. `lr` is the one that settles it: if it has already
+    // flipped by the time ATTACK_N appears, the fix is in the turn's guard, not here.
+    if btn != 0 || cat2 & throw_dir_mask() != 0 {
+        crate::telemetry::probe::event(format!(
+            "[rat] SHOULDER throw-probe btn={btn:#x} cat2={cat2:#x} lr={:+.0} stick_x_lr={:+.3}              f/b/hi/lw={}/{}/{}/{}",
+            PostureModule::lr(boma),
+            stick_x_lr(fighter),
+            stick["f"].try_get_bool().unwrap_or(false),
+            stick["b"].try_get_bool().unwrap_or(false),
+            stick["hi"].try_get_bool().unwrap_or(false),
+            stick["lw"].try_get_bool().unwrap_or(false),
+        ));
+    }
+
     // DK tests them in this order: f, b, hi, lw.
     for (mask, name, status) in [
         (*FIGHTER_PAD_CMD_CAT2_FLAG_THROW_F, "f", RAT_STATUS_KIND_THROW_F_F),
@@ -1870,7 +1914,7 @@ pub fn install() {
     // `docs/the-carry.md`: his eleven carry statuses share one `EXIT_STATUS` and his lift setup is
     // an `INIT_STATUS`, and this module previously had ELEVEN `Main` and TEN `Pre` hooks and none
     // of these. The bodies were already right; only their line was wrong.
-    Agent::new("pikachu")
+    crate::charaslot::agent("pikachu")
         .status(Init, RAT_STATUS_KIND_SHOULDER_START,   shoulder_start_init)
         .status(Pre,  RAT_STATUS_KIND_SHOULDER_START,   shoulder_start_pre)
         .status(Main, RAT_STATUS_KIND_SHOULDER_START,   shoulder_start_main)

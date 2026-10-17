@@ -306,7 +306,7 @@ unsafe extern "C" fn pikachu_specialhi_visible(fighter: &mut L2CFighterCommon) {
 }
 
 pub fn install() {
-    Agent::new("pikachu")
+    crate::charaslot::agent("pikachu")
         .on_line(Main, pikachu_specialhi_visible)
         .status(Pre, *FIGHTER_STATUS_KIND_SPECIAL_HI, pikachu_specialhi_pre)
         .status(Init, *FIGHTER_STATUS_KIND_SPECIAL_HI, pikachu_specialhi_init)
