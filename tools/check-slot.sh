@@ -118,6 +118,46 @@ else
     echo "  ok  the tree ships $rat alone ($kept file(s)); no vanilla costume directory survives"
 fi
 
+# ---- 3b. the display name belongs to the ROW, not to the host fighter -------------------------
+#
+# THE BUG THIS GUARDS AGAINST SHIPPED AND WAS REPORTED FROM HARDWARE: "rat of doom appears over the
+# now base pikachu in the character select screen and there's no character name text for the second
+# pikachu slot". `msg_name.xmsbt` labels are `nam_chr0_00_<name_id>`, so a label ending `_pikachu`
+# renames PIKACHU HIMSELF, and the mod's own row -- registered as `ratofdoom` -- had no entry to
+# find. `Documents/switch/Sans Moveset` labels every one of its entries `nam_*_00_sans` against a
+# `Name ID: sans`, and renames nothing of Palutena's.
+XMSBT="$MOD/ui/message/msg_name.xmsbt"
+NAMEID=$(grep 'CStrCSK::new(' "$CHARASLOT" | head -1 | awk -F'"' '{print $2}')
+if [ -z "${NAMEID:-}" ]; then
+    echo "  FAIL cannot read the row's name_id out of plugin/src/charaslot/mod.rs"
+    rc=1
+elif [ ! -f "$XMSBT" ]; then
+    echo "  FAIL no $XMSBT"
+    rc=1
+else
+    # UTF-16LE, so the labels are read by dropping every non-printable byte rather than by
+    # decoding. A `tr -d` with an octal escape was the first attempt and it wrote a literal NUL
+    # into this script, which made grep treat it as binary and made the filter delete backslashes
+    # and zeroes instead. A character class needs no escape and cannot do that.
+    labels=$(sed 's/[^[:print:]]//g' "$XMSBT" | grep -oE 'label="[^"]+"' | sed 's/label="//; s/"//' | sort -u)
+    hostnamed=$(printf '%s
+' "$labels" | grep -E "_pikachu$" || true)
+    rownamed=$(printf '%s
+' "$labels" | grep -cE "_${NAMEID}$" || true)
+    if [ -n "$hostnamed" ]; then
+        echo "  FAIL msg_name.xmsbt renames the HOST FIGHTER -- these put the mod's name over vanilla"
+        echo "       Pikachu and leave the mod's own row blank:"
+        printf '%s
+' "$hostnamed" | sed 's/^/         /'
+        rc=1
+    elif [ "${rownamed:-0}" -lt 1 ]; then
+        echo "  FAIL msg_name.xmsbt has no label ending _$NAMEID -- the row will have no name text"
+        rc=1
+    else
+        echo "  ok  msg_name.xmsbt names the row ($rownamed label(s) for _$NAMEID), not the host"
+    fi
+fi
+
 # ---- 4. config.json declares only the rat's costume ---------------------------------------------
 if [ -f "$MOD/config.json" ]; then
     bad=$(grep -oE '"fighter/pikachu/c[0-9]{2,3}"' "$MOD/config.json" | tr -d '"' | sed 's|.*/||' | sort -u | grep -v "^$rat$" || true)

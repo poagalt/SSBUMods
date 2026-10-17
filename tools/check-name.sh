@@ -42,8 +42,16 @@ fi
 txt=$(perl -0777 -ne 's/\x00//g; print' "$F")
 [ -n "$txt" ] || { echo "  FAIL msg_name.xmsbt is empty or could not be decoded"; exit 1; }
 
-for l in nam_chr0_00_pikachu nam_chr1_00_pikachu nam_chr2_00_pikachu nam_chr3_00_pikachu \
-         nam_stage_name_00_pikachu; do
+# THE LABELS CARRY THE ROW'S name_id, NOT THE HOST FIGHTER'S, and this gate asserted the host's
+# until 2026-10-17 -- which is what let the bug ship. A label ending `_pikachu` is the display name
+# of the fighter called `pikachu`, so the mod's name went over VANILLA Pikachu on the character
+# select screen while its own row had no name text at all. Reported from hardware in exactly those
+# words. Read from the plugin's registration so the two cannot drift.
+NAMEID=$(grep 'CStrCSK::new(' "$ROOT/pikachu-moveset/plugin/src/charaslot/mod.rs" | head -1 | awk -F'"' '{print $2}')
+if [ -z "${NAMEID:-}" ]; then
+    echo "  FAIL cannot read the row's name_id out of plugin/src/charaslot/mod.rs"; exit 1
+fi
+for l in nam_chr0_00_$NAMEID nam_chr1_00_$NAMEID nam_chr2_00_$NAMEID nam_chr3_00_$NAMEID          nam_stage_name_00_$NAMEID; do
     printf '%s' "$txt" | grep -q "label=\"$l\"" || { echo "  FAIL missing label $l"; rc=1; }
 done
 

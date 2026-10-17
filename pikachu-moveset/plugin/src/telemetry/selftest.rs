@@ -122,10 +122,10 @@ pub unsafe fn run(boma: *mut BattleObjectModuleAccessor, entry: usize, status_co
          of the moveset is installed, which is the gate working and not a missing asset; \
          scale is the RUNTIME multiplier and reads 1.0, NOT the 0.96 fighter_param scale)",
         WorkModule::get_int(boma, *FIGHTER_INSTANCE_WORK_ID_INT_COLOR),
-        crate::charaslot::RAT_COSTUME,
         PostureModule::scale(boma),
         PostureModule::base_scale(boma),
         PostureModule::owner_scale(boma),
+        crate::charaslot::RAT_COSTUME,
     ));
 
     // `global_table[0xC]` IS REPORTED AND NO LONGER ASSERTED ON, BECAUSE IT DOES NOT MEAN WHAT

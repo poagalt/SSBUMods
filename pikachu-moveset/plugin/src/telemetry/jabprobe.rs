@@ -59,6 +59,32 @@ use super::sink;
 
 pub const ENABLED: bool = true;
 
+/// THE COMPARISON IS WANTED AND IS NOT TAKEN, and gate 4j is why.
+///
+/// The obvious next measurement is one `on_line(Main, ..)` on Little Mac, reading his hitbox-live
+/// count against ours: across one session our `attack_100` ran 1924 frames -- about 96 passes of a
+/// 20-frame looping motion -- with an attack hitbox live on THIRTY-NINE of them. That is one hit
+/// from the top of the script plus the ten it plays after `wait_loop_clear` resumes, then nothing
+/// for ninety-odd passes. The ACMD runs about twice and stops while the motion goes on looping.
+///
+/// Everything around it is already cleared: the motion_list entry, the animation's frame count and
+/// the ACMD are byte-identical to Mac's; the status machine is correct end to end; and the engine's
+/// own STEP_LOOP does not restart the motion -- it only switches to `attack_100_end` when CONTINUE
+/// drops. So the repeat is the MOTION's loop flag re-running the script, and ours stops doing it.
+///
+/// That probe was written and REMOVED. `tools/check-blastradius.sh` refuses any `Agent::new` for a
+/// fighter this mod does not own, and its reason is exactly the symptom currently open: registering
+/// a foreign agent makes smashline `load_fighter_module` and then spin in
+/// `while !is_fighter_module_loaded { sleep(1ms) }` -- no timeout, no bail, once per foreign agent
+/// AT FIGHT LOAD (vendor/sl_create_agent.rs:582 and :1079).
+///
+/// The gate also records, fairly, that forty playtests have armed source tracing and loaded fine,
+/// so that edge has never actually cut. But there is an unexplained LOAD HANG open right now --
+/// ARCropolis's inflate thread stopped at 107 of 455 on a second fight load while every other run
+/// in the same capture completed -- and adding a known unbounded wait at fight load while
+/// diagnosing a fight-load hang would make the next capture unreadable. Take the comparison once
+/// the hang is understood.
+
 /// The statuses worth printing: the rapid jab and the three jabs that reach it.
 unsafe fn watched(status: i32) -> bool {
     status == *FIGHTER_STATUS_KIND_ATTACK_100 || status == *FIGHTER_STATUS_KIND_ATTACK
@@ -74,11 +100,17 @@ unsafe extern "C" fn jab_frame(fighter: &mut L2CFighterCommon) {
     if !watched(status) {
         return;
     }
+    // Tagged, because the whole point is to read our lines against Little Mac's in one file.
+    let who = if smash::app::utility::get_kind(&mut *boma) == *FIGHTER_KIND_PIKACHU {
+        "rat"
+    } else {
+        "mac"
+    };
     // `motion_kind` is the one field that distinguishes "parked in attack_100_start" from "looping
     // attack_100" from "already in attack_100_end", and the three are indistinguishable from the
     // status kind alone -- all three are FIGHTER_STATUS_KIND_ATTACK_100.
     sink::diag(format!(
-        "[rat] JABPROBE st={status} motion={:#x} frame={:.1}/{:.1} looped={} \
+        "[rat] JABPROBE {who} st={status} motion={:#x} frame={:.1}/{:.1} looped={} \
          LOOPED={} CONTINUE={} CONTINUE_CHECK={} PRECEDE={} CHECK_COMBO_NUM={} \
          100_COUNT={} CONTINUE_COUNT={} btn_off={} atk0={} atk1={}",
         MotionModule::motion_kind(boma),

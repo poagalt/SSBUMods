@@ -20,6 +20,23 @@
 set -euo pipefail
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 OUT="$ROOT/pikachu-moveset/mod/ui/message/msg_name.xmsbt"
+
+# THE LABEL CARRIES THE ROW'S OWN name_id, NOT THE HOST FIGHTER'S -- and writing `pikachu` here is
+# what put "Rat of Doom" over VANILLA PIKACHU on the character select screen while the mod's own
+# row had no name at all. Reported from hardware 2026-10-17 and it is exactly what these labels do:
+# `nam_chr0_00_pikachu` is the display name of the fighter called `pikachu`, so overriding it
+# renames HIM. The mod's row is called `ratofdoom` (the `name_id` registered in
+# plugin/src/charaslot/mod.rs) and had no `nam_chr*_00_ratofdoom` entry to find.
+#
+# `Documents/switch/Sans Moveset` confirms the convention outright: every one of its labels is
+# `nam_*_00_sans`, against a `Name ID: sans` in its README, and it renames nothing of Palutena's.
+#
+# Parsed from the Rust rather than restated, for the same reason the slot number is.
+SLOTNAME=$(grep 'CStrCSK::new(' "$ROOT/pikachu-moveset/plugin/src/charaslot/mod.rs" | head -1 | awk -F'"' '{print $2}')
+if [ -z "${SLOTNAME:-}" ]; then
+    echo "  REFUSING: cannot read the row's name_id out of plugin/src/charaslot/mod.rs" >&2
+    exit 1
+fi
 mkdir -p "$(dirname "$OUT")"
 
 NAME="Rat of Doom"
@@ -31,12 +48,12 @@ tmp=$(mktemp)
 {
     echo '<?xml version="1.0" encoding="utf-16"?>'
     echo '<xmsbt>'
-    for l in nam_chr0_00_pikachu nam_chr1_00_pikachu nam_chr3_00_pikachu; do
+    for l in nam_chr0_00_$SLOTNAME nam_chr1_00_$SLOTNAME nam_chr3_00_$SLOTNAME; do
         printf '\t<entry label="%s">\n\t\t<text>%s</text>\n\t</entry>\n' "$l" "$NAME"
     done
-    printf '\t<entry label="%s">\n\t\t<text>%s</text>\n\t</entry>\n' "nam_chr2_00_pikachu" "$UPPER"
+    printf '\t<entry label="%s">\n\t\t<text>%s</text>\n\t</entry>\n' "nam_chr2_00_$SLOTNAME" "$UPPER"
     printf '\t<entry label="%s">\n\t\t<text>%s\n%s</text>\n\t</entry>\n' \
-           "nam_stage_name_00_pikachu" "$NAME" "$TITLE"
+           "nam_stage_name_00_$SLOTNAME" "$NAME" "$TITLE"
     echo '</xmsbt>'
 } > "$tmp"
 
