@@ -130,6 +130,7 @@ unsafe extern "C" fn pikachu_effect_attack13(agent: &mut L2CAgentBase) {
 
 // ---- rapid jab (Little Mac) : game_attack100 ----
 unsafe extern "C" fn pikachu_game_attack100(agent: &mut L2CAgentBase) {
+    crate::telemetry::probe::acmd_enter(0);
     if macros::is_excute(agent) {
         macros::ATTACK(agent, 0, 0, Hash40::new("top"), 0.5, 361, 8, 0, 14, 8.09375, 0.0, 9.25, 12.140625, Some(0.0), Some(9.25), Some(12.140625), 0.5, 0.2, *ATTACK_SETOFF_KIND_OFF, *ATTACK_LR_CHECK_F, false, 0, 0.0, 0, false, false, false, false, true, *COLLISION_SITUATION_MASK_GA, *COLLISION_CATEGORY_MASK_ALL, *COLLISION_PART_MASK_ALL, false, Hash40::new("collision_attr_rush"), *ATTACK_SOUND_LEVEL_S, *COLLISION_SOUND_ATTR_PUNCH, *ATTACK_REGION_PUNCH);
     }
@@ -139,6 +140,7 @@ unsafe extern "C" fn pikachu_game_attack100(agent: &mut L2CAgentBase) {
         WorkModule::on_flag(agent.module_accessor, *FIGHTER_STATUS_ATTACK_FLAG_100_CONTINUE_CHECK);
     }
     macros::wait_loop_clear(agent);
+    crate::telemetry::probe::acmd_pass(0);
     frame(agent.lua_state_agent, 1.0);
     if macros::is_excute(agent) {
         macros::ATTACK(agent, 0, 0, Hash40::new("top"), 0.5, 361, 8, 0, 14, 8.09375, 0.0, 9.25, 12.140625, Some(0.0), Some(9.25), Some(12.140625), 0.5, 0.2, *ATTACK_SETOFF_KIND_OFF, *ATTACK_LR_CHECK_F, false, 0, 0.0, 0, false, false, false, false, true, *COLLISION_SITUATION_MASK_GA, *COLLISION_CATEGORY_MASK_ALL, *COLLISION_PART_MASK_ALL, false, Hash40::new("collision_attr_rush"), *ATTACK_SOUND_LEVEL_S, *COLLISION_SOUND_ATTR_PUNCH, *ATTACK_REGION_PUNCH);

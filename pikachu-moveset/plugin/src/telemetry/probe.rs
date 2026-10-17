@@ -314,3 +314,66 @@ pub unsafe fn throw_frame(
         ));
     }
 }
+
+// ---- ACMD execution counters -------------------------------------------------------------------
+//
+// DOES THE SCRIPT RUN AT ALL, AND HOW OFTEN. Everything else about the rapid jab is now measured
+// and faithful -- the motion loops cleanly every 20 frames about 96 times a hold, the motion_list
+// entry and animation frame count are byte-identical to Little Mac's, the ACMD is byte-identical,
+// and the engine's own STEP_LOOP neither restarts the motion nor needs to. What is NOT measured is
+// the one thing in the middle: how many times the ACMD VM actually enters `game_attack100`, and how
+// many of those get past `wait_loop_clear`, which the engine implements as a YIELD
+// (`sv_animcmd::wait_loop_clear`, main 0x22b5870: it suspends unless a loop predicate holds).
+//
+// The hitbox field says an attack box is live on 39 frames of 1924, which is about one hit plus the
+// ten the script plays after the park resumes -- consistent with the script running ONCE. But
+// "consistent with" is not "measured", and the two candidates it cannot separate are:
+//
+//   * the VM never re-enters the script after it returns, so the hits are gone for good; or
+//   * it re-enters every loop and the script parks forever at `wait_loop_clear` on the second
+//     entry, because that call marks itself done (`*(state + 9) = 1`) and nothing resets it.
+//
+// The counts tell those apart in one hold: equal enter/pass counts in the nineties means the script
+// is running and the hits are being lost somewhere further down; an enter count in the nineties
+// with a pass count of one means the park is the wall; both at one or two means the VM is not
+// coming back.
+//
+// COUNTED, NOT LOGGED PER CALL, because these sit inside a script that runs every frame of a
+// twenty-frame motion: a line each would be thousands. The tally is printed when the fighter leaves
+// the status, which `jabprobe` already sees.
+static mut ACMD_ENTER: [u32; 4] = [0; 4];
+static mut ACMD_PASS: [u32; 4] = [0; 4];
+
+/// Slot 0 is the rapid jab's loop script; the rest are spare so a second question needs no new
+/// array. Out-of-range is ignored rather than panicking -- this is instrumentation and must never
+/// be the thing that takes the game down.
+pub unsafe fn acmd_enter(slot: usize) {
+    if slot < 4 {
+        ACMD_ENTER[slot] = ACMD_ENTER[slot].saturating_add(1);
+    }
+}
+
+pub unsafe fn acmd_pass(slot: usize) {
+    if slot < 4 {
+        ACMD_PASS[slot] = ACMD_PASS[slot].saturating_add(1);
+    }
+}
+
+/// Reads the tally without disturbing it, for printing alongside a line already being written.
+pub unsafe fn acmd_peek(slot: usize) -> (u32, u32) {
+    if slot >= 4 {
+        return (0, 0);
+    }
+    (ACMD_ENTER[slot], ACMD_PASS[slot])
+}
+
+/// Reads the tally and zeroes it, for printing once per episode.
+pub unsafe fn acmd_take(slot: usize) -> (u32, u32) {
+    if slot >= 4 {
+        return (0, 0);
+    }
+    let out = (ACMD_ENTER[slot], ACMD_PASS[slot]);
+    ACMD_ENTER[slot] = 0;
+    ACMD_PASS[slot] = 0;
+    out
+}

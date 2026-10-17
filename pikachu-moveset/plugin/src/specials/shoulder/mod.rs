@@ -545,32 +545,19 @@ unsafe fn requested_throw(fighter: &mut L2CFighterCommon) -> Option<i32> {
             | *FIGHTER_PAD_CMD_CAT1_FLAG_SPECIAL_HI
             | *FIGHTER_PAD_CMD_CAT1_FLAG_SPECIAL_LW
             | *FIGHTER_PAD_CMD_CAT1_FLAG_ATTACK_N);
-    if btn == 0 {
-        return None;
-    }
+    // THE READS AND THE PROBE BOTH MOVED ABOVE THE EARLY RETURN, 2026-10-17, AND THE FIRST
+    // ATTEMPT AT THIS PROBE WAS USELESS BECAUSE THEY WERE BELOW IT. It was changed from "only
+    // when a button is down" to "every carry frame" and still produced ONE line in a whole
+    // session, because `if btn == 0 { return None }` sits above it and the frames worth seeing
+    // -- a stick held with no button yet, which is the frame the turn fires on -- all take that
+    // return. Widening the probe's own condition while leaving the function's was no change at
+    // all.
+    //
+    // Reading cat2 and `IsThrowStick()` a few frames earlier than DK does costs two accessor
+    // calls per carry frame and changes no decision: the loop below still runs only when `btn`
+    // is non-zero, and both reads are pure.
     let cat2 = fighter.global_table[0x21].get_i32();
     let stick = fighter.IsThrowStick();
-
-    // THE PROBE THAT REPLACES A FOURTH GUESS AT THE BACK THROW.
-    //
-    // THREE FIXES HAVE NOW BEEN AIMED AT THIS DISPATCH and the move still does not come out, so
-    // this prints the real input state at the real moment instead of another theory. What the last
-    // measured carry actually said was THROW_F_F x5, SHOULDER_TURN x4, THROW_F_B x0 -- and the
-    // crumb below, which fires on a press that resolves to no direction, x0. Those two facts
-    // together already rule out "the direction test is wrong": a press always resolved to SOME
-    // direction, and it was always forward.
-    //
-    // WHICH LEAVES THE TURN. `shoulder_wait_main` tests the stick AFTER this helper, so a throw
-    // beats a turn in the same frame -- but only in the same frame. A back stick held for one frame
-    // with no cat1 press yet takes SHOULDER_TURN, which flips `lr`, and `lr` is what makes a stick
-    // direction "f" or "b": both `stick_x_lr` and the engine's own IsThrowStick table are
-    // facing-relative. So the back input turns him, and the attack that arrives a frame later is a
-    // FORWARD throw by the time it is read. That is a complete account of the telemetry, and it is
-    // a theory until these numbers say so.
-    //
-    // Printed on any frame with a press OR a stick direction, which is rare enough to read and
-    // narrow enough not to flood a carry. `lr` is the one that settles it: if it has already
-    // flipped by the time ATTACK_N appears, the fix is in the turn's guard, not here.
     // ON EVERY CARRY FRAME, NOT ONLY BUTTON FRAMES -- the first capture's blind spot.
     //
     // Gating this on `btn != 0` gave five lines for a whole session and none of them covered the
@@ -601,6 +588,30 @@ unsafe fn requested_throw(fighter: &mut L2CFighterCommon) -> Option<i32> {
         stick["hi"].try_get_bool().unwrap_or(false),
         stick["lw"].try_get_bool().unwrap_or(false),
     ));
+    if btn == 0 {
+        return None;
+    }
+
+    // THE PROBE THAT REPLACES A FOURTH GUESS AT THE BACK THROW.
+    //
+    // THREE FIXES HAVE NOW BEEN AIMED AT THIS DISPATCH and the move still does not come out, so
+    // this prints the real input state at the real moment instead of another theory. What the last
+    // measured carry actually said was THROW_F_F x5, SHOULDER_TURN x4, THROW_F_B x0 -- and the
+    // crumb below, which fires on a press that resolves to no direction, x0. Those two facts
+    // together already rule out "the direction test is wrong": a press always resolved to SOME
+    // direction, and it was always forward.
+    //
+    // WHICH LEAVES THE TURN. `shoulder_wait_main` tests the stick AFTER this helper, so a throw
+    // beats a turn in the same frame -- but only in the same frame. A back stick held for one frame
+    // with no cat1 press yet takes SHOULDER_TURN, which flips `lr`, and `lr` is what makes a stick
+    // direction "f" or "b": both `stick_x_lr` and the engine's own IsThrowStick table are
+    // facing-relative. So the back input turns him, and the attack that arrives a frame later is a
+    // FORWARD throw by the time it is read. That is a complete account of the telemetry, and it is
+    // a theory until these numbers say so.
+    //
+    // Printed on any frame with a press OR a stick direction, which is rare enough to read and
+    // narrow enough not to flood a carry. `lr` is the one that settles it: if it has already
+    // flipped by the time ATTACK_N appears, the fix is in the turn's guard, not here.
 
     // DK tests them in this order: f, b, hi, lw.
     for (mask, name, status) in [

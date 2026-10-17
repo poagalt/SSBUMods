@@ -112,7 +112,7 @@ unsafe extern "C" fn jab_frame(fighter: &mut L2CFighterCommon) {
     sink::diag(format!(
         "[rat] JABPROBE {who} st={status} motion={:#x} frame={:.1}/{:.1} looped={} \
          LOOPED={} CONTINUE={} CONTINUE_CHECK={} PRECEDE={} CHECK_COMBO_NUM={} \
-         100_COUNT={} CONTINUE_COUNT={} btn_off={} atk0={} atk1={}",
+         100_COUNT={} CONTINUE_COUNT={} btn_off={} atk0={} atk1={} acmd_enter={} acmd_pass={}",
         MotionModule::motion_kind(boma),
         MotionModule::frame(boma),
         MotionModule::end_frame(boma),
@@ -143,6 +143,18 @@ unsafe extern "C" fn jab_frame(fighter: &mut L2CFighterCommon) {
         // moves the question to damage and to the opponent.
         u8::from(AttackModule::is_attack(boma, 0, false)),
         u8::from(AttackModule::is_attack(boma, 1, false)),
+        // THE TWO NUMBERS THE WHOLE QUESTION NOW TURNS ON, counted inside `game_attack100` itself
+        // (tools/gen-moves.sh emits the calls; `ACMD_TRACE` names the script). Running totals, not
+        // per-frame events, so they are read rather than taken -- watching them climb across one
+        // hold is the measurement.
+        //
+        // Equal counts in the nineties: the script runs every loop and the hits are being lost
+        // further down. An enter count in the nineties with a pass count of one: `wait_loop_clear`
+        // is the wall, which would make it the first call in the script that never comes back.
+        // Both at one or two: the VM is not re-entering the script at all, and the motion's loop
+        // flag is not doing what every other fighter's rapid jab depends on.
+        super::probe::acmd_peek(0).0,
+        super::probe::acmd_peek(0).1,
     ));
 }
 
