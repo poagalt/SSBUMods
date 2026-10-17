@@ -23,10 +23,11 @@
 #                                    the grafted weapons can live on without turning other Pikachus
 #                                    default yellow -- see the note in plugin/src/charaslot/mod.rs.
 #
-# THE SLOT NUMBER IS READ FROM THE RUST, NOT RESTATED HERE. `RAT_COSTUME` in
-# `plugin/src/charaslot/mod.rs` is the single source of truth for which colour is Rat of Doom's; the
-# plugin installs its agents under it and this pass ships assets for it. Two copies of that number
-# would drift, and the failure mode is silent -- a moveset installed on a colour with no animations.
+# THE SLOT NUMBER IS NOT THIS PASS'S BUSINESS ANY MORE. It briefly was, when Rat of Doom took one
+# of Pikachu's own eight colours. He now takes an ADDED slot, so the authoring tree stays in the
+# host's coordinate system -- c00 throughout -- and `tools/relocate-slot.sh` moves the whole thing
+# onto the added colour at the end of the build. This pass only has to make sure the authoring tree
+# holds c00 and nothing else.
 #
 # `motion_list.bin` IS SHIPPED WITH IT, AND THAT WAS CHECKED RATHER THAN ASSUMED. It is the thing
 # that makes the 30 synthesized motions resolvable at all (`src/specials/mod.rs`: "they are
@@ -44,22 +45,6 @@
 set -uo pipefail
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 BODY="$ROOT/pikachu-moveset/mod/fighter/pikachu/motion/body"
-CHARASLOT="$ROOT/pikachu-moveset/plugin/src/charaslot/mod.rs"
-
-# THE GATE'S OWN NUMBER. Parsed from the declaration rather than matched loosely, so a renamed or
-# deleted constant is a hard failure here instead of a default that quietly disagrees with the
-# plugin. `RAT_COSTUMES` is a slice built from it; when it gains a second entry this grows a loop.
-if [ ! -f "$CHARASLOT" ]; then
-    echo "  REFUSING: cannot find $CHARASLOT to read the slot number from" >&2
-    exit 1
-fi
-slot=$(sed -n 's/^pub const RAT_COSTUME: usize = \([0-9]\+\);.*/\1/p' "$CHARASLOT")
-if ! [[ "$slot" =~ ^[0-9]+$ ]] || [ "$slot" -gt 7 ]; then
-    echo "  REFUSING: could not read a 0-7 RAT_COSTUME out of plugin/src/charaslot/mod.rs (got '${slot}')" >&2
-    exit 1
-fi
-rat=$(printf "c%02d" "$slot")
-
 SRC="$BODY/c00"
 if [ ! -d "$SRC" ]; then
     echo "  no c00 motion directory -- run tools/anim-dropin.sh first" >&2
@@ -71,28 +56,18 @@ if [ "$n_src" -lt 10 ]; then
     exit 1
 fi
 
-# anim-dropin.sh writes c00. If the rat slot is some other colour, c00 is the staging directory and
-# the assets move; if it IS c00, there is nothing to move and nothing below runs.
-if [ "$rat" != "c00" ]; then
-    rm -rf "$BODY/$rat"
-    mkdir -p "$BODY/$rat"
-    cp -r "$SRC/." "$BODY/$rat/"
-    echo "  staged $n_src animation(s) onto the rat slot $rat"
-fi
-
 # RETIRING IS A WIPE, and that is equivalent to the old per-file retire pass rather than a shortcut
 # past it: nothing in `motion/body/cNN` is costume-specific for this mod, so the whole directory is
 # ours or it is vanilla's. Removing it is the only way to hand the colour back.
 retired=0
-for c in c00 c01 c02 c03 c04 c05 c06 c07; do
-    [ "$c" = "$rat" ] && continue
+for c in c01 c02 c03 c04 c05 c06 c07; do
     [ -d "$BODY/$c" ] || continue
     rm -rf "$BODY/$c"
     retired=$(( retired + 1 ))
 done
 
 if [ "$retired" -gt 0 ]; then
-    echo "  retired $retired vanilla costume(s) from motion/body -- the moveset ships for $rat alone"
+    echo "  retired $retired costume(s) from motion/body -- the authoring tree holds c00 alone"
 else
-    echo "  motion/body holds $rat alone ($n_src animation(s)); no vanilla costume to retire"
+    echo "  motion/body holds c00 alone ($n_src animation(s)); nothing to retire"
 fi

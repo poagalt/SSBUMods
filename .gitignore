@@ -42,3 +42,6 @@ vendor/refs/
 # Python bytecode from tools/*.py
 __pycache__/
 *.pyc
+
+# The shipped tree is generated from pikachu-moveset/mod by tools/relocate-slot.sh on every build.
+pikachu-moveset/ship/

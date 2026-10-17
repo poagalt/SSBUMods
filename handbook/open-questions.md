@@ -198,8 +198,61 @@ units) because the sword's bone has a single transform.
      all eight colours; a new entry he never asks for changes nothing.
   3. **Then emit the `sound_` scripts**, which can be checked the same way gate 3i checks effects.
 
-  No nus3audio tooling is on hand (`vendor/tools/` has Ghidra and a JDK and nothing else), so step 2
-  starts by acquiring it. That is the first thing to do that does NOT need the console.
+  **CORRECTED 2026-10-17, and the correction is the whole plan.** The claim above that Pikachu's
+  bank "is per-FIGHTER, so the gate cannot reach it, and additive is the only shape that does not
+  leak" IS WRONG. The grep behind it was anchored `se_pikachu\.` and so could only ever match the
+  non-slotted name. He has the full per-slot set: `se_pikachu_c00` … `se_pikachu_c07` and
+  `vc_pikachu_c00` … `_c07`, nus3audio, nus3bank and tonelabel each. A slot can therefore own its
+  sounds outright, nothing needs merging into a shared bank, and nothing leaks.
+
+  No nus3audio tooling is on hand (`vendor/tools/` has Ghidra and a JDK and nothing else), so the
+  merge step is replaced by: pull the donor banks, build `se_pikachu_c<slot>.nus3audio` carrying
+  the donors' own entry labels, ship it at the rat's slot.
+
+---
+
+## The added-slot recipe, read off two working mods
+
+`Documents/switch/Sans Moveset` (over Palutena) and `Gogeta Moveset` (over Min Min) do what Rat of
+Doom is trying to do, through the same CSK Collection, and their `config.json` is the whole
+mechanism written out. Sans's README states the registration in the CSS Manager's own words:
+
+    Duplicate Palutena / Character ID: ui_chara_sans / Name ID: sans
+    Series ID: undertale / Amount of Colors: 8 / Color Start Index: 120
+
+**THE SLOT IS AN ADDED ONE, NOT ONE OF THE HOST'S EIGHT.** Sans takes palutena c120–c127, Gogeta
+takes minmin c103–c110. The base is picked per mod so two mods on one host do not collide, and
+because it is outside 0–7 the host's own costumes are untouched BY CONSTRUCTION — there is no
+overlap to gate, no row to shrink, and no "both portraits load the mod" wart. That is the answer to
+the one open complaint about our c00 design.
+
+**FOUR `config.json` KEYS, of which we were using one.**
+
+| key | what it does |
+|---|---|
+| `new-dir-infos` | a LIST of the new directories to bring into existence: `fighter/X/c120`, and `camera/`, `movie/`, `result/`, `kirbycopy/` beside it. Five per slot, so Sans has 40 for eight slots. This is what CREATES the slot |
+| `new-dir-infos-base` | each new directory's vanilla parent, e.g. `fighter/palutena/c120/camera` → `fighter/palutena/c00/camera` |
+| `new-dir-files` | the files each new directory contains — the only one we already emit |
+| `share-to-vanilla` / `share-to-added` | point the paths the mod does NOT override at a file that already exists, in both directions. Sans has 541 `share-to-added` entries, which is how c121–c127 cost almost nothing: they share c120's |
+
+**IT REACHES SOUND AND EFFECTS TOO**, which is the part worth having read this for.
+`sound/bank/fighter/se_palutena_c120.nus3audio` is shipped and shared to c121–c127, and
+`effect/fighter/palutena/ef_palutena_c120.eff` exists for all eight. So an added slot owns its sound
+bank and its effect archive. Pikachu has the same per-slot paths in vanilla (see the correction
+above), so this is available to us unchanged.
+
+**THEIR DEPENDENCY LIST IS ALSO AN ANSWER.** Sans's README requires ARCropolis, Skyline, CSK
+Collection, NRO Hook, Smashline2, One Slot Effects — all of which the card already has — and
+`lib_paramconfig` (CSharpM7), which is PER-SLOT PARAMS. That is the one thing our
+`fighter_param.prcxml` patch cannot be: our note in `plugin/src/charaslot/mod.rs` says the jab-combo
+params leak to vanilla Pikachu on all eight colours and are "not fixable from this side". With an
+added slot they stop mattering (c120 is not one of his colours), and `lib_paramconfig` is the route
+if a per-slot param is ever needed on top.
+
+**WHAT THIS COSTS US.** Not the whole pipeline: the build can keep producing c00 and one late pass
+can relocate `fighter/pikachu/**/c00` and `ef_pikachu_c00.eff` to the rat's slot, which is the shape
+`tools/mirror-costumes.sh` already has. The two tools that change are that one and
+`tools/gen-config.sh`; everything upstream of them keeps writing c00.
 
 ---
 

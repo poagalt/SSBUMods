@@ -31,19 +31,30 @@
 set -uo pipefail
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"; cd "$ROOT"
 PLUGIN="$ROOT/pikachu-moveset/plugin"
-MOD="$ROOT/pikachu-moveset/mod"
+# THE SHIPPED TREE, NOT THE AUTHORING ONE. `mod/` is c00 throughout on purpose -- every
+# generator and gate reads it in the host's own coordinate system, and tools/relocate-slot.sh
+# moves it onto the added slot at the end of the build. `ship/` is what the card mirrors, so
+# it is what "no vanilla costume survives" has to be asked of.
+MOD="$ROOT/pikachu-moveset/ship"
 CHARASLOT="$PLUGIN/src/charaslot/mod.rs"
 rc=0
 
 # THE SLOT NUMBER, read from the declaration. Same parse as mirror-costumes.sh, on purpose: if the
 # two ever read it differently, the one that is wrong is the one shipping assets to a dead colour.
 slot=$(sed -n 's/^pub const RAT_COSTUME: usize = \([0-9]\+\);.*/\1/p' "$CHARASLOT")
-if ! [[ "$slot" =~ ^[0-9]+$ ]] || [ "$slot" -gt 7 ]; then
-    echo "  FAIL could not read a 0-7 RAT_COSTUME out of plugin/src/charaslot/mod.rs (got '${slot}')"
+if ! [[ "$slot" =~ ^[0-9]+$ ]] || [ "$slot" -gt 127 ]; then
+    echo "  FAIL could not read a 0-127 RAT_COSTUME out of plugin/src/charaslot/mod.rs (got '${slot}')"
     exit 1
 fi
 rat=$(printf "c%02d" "$slot")
-echo "  Rat of Doom is Pikachu $rat; the other seven costumes must be vanilla"
+if [ "$slot" -lt 8 ]; then
+    echo "  FAIL RAT_COSTUME is $slot, which is one of Pikachu's OWN eight colours. That design"
+    echo "       was tried and the first hardware test found its wart: the colour stays reachable"
+    echo "       from his CSS row too, so both portraits play the moveset. Use an added slot --"
+    echo "       the two reference mods use 120 and 103; see plugin/src/charaslot/mod.rs"
+    rc=1
+fi
+echo "  Rat of Doom is Pikachu $rat, an added slot; all eight of his own colours stay vanilla"
 
 # ---- 1. every Pikachu Agent is built through the gate ----------------------------------------
 # `charaslot/mod.rs` itself is excluded because it is where the gated constructor calls
@@ -91,8 +102,8 @@ for f in src/params/mod.rs src/articles/neutralize.rs; do
 done
 
 # ---- 3. no shipped file under another costume's directory --------------------------------------
-stray=$(find "$MOD/fighter" -type d -regextype posix-extended -regex ".*/c[0-9]{2}$" 2>/dev/null \
-        | sed -E 's#.*/(c[0-9]{2})$#\1#;' | sort -u | grep -v "^$rat$" || true)
+stray=$(find "$MOD/fighter" -type d -regextype posix-extended -regex ".*/c[0-9]{2,3}$" 2>/dev/null \
+        | sed -E 's#.*/(c[0-9]{2,3})$#\1#;' | sort -u | grep -v "^$rat$" || true)
 if [ -n "$stray" ]; then
     echo "  FAIL the tree ships costume directory/ies that are not the rat's:"
     for c in $stray; do
@@ -100,7 +111,7 @@ if [ -n "$stray" ]; then
         cnt=$(find "$MOD/fighter" -type d -name "$c" -exec find {} -type f \; | wc -l)
         printf '         %s  (%s file(s)) %s\n' "$c" "$cnt" "$(printf '%s ' $d | sed "s|$MOD/||g")"
     done
-    echo "         run tools/mirror-costumes.sh -- it retires these"
+    echo "         run tools/relocate-slot.sh -- it rebuilds the shipped tree from scratch"
     rc=1
 else
     kept=$(find "$MOD/fighter" -type d -name "$rat" -exec find {} -type f \; | wc -l)
@@ -109,11 +120,11 @@ fi
 
 # ---- 4. config.json declares only the rat's costume ---------------------------------------------
 if [ -f "$MOD/config.json" ]; then
-    bad=$(grep -oE '"fighter/pikachu/c[0-9]{2}"' "$MOD/config.json" | tr -d '"' | sed 's|.*/||' | sort -u | grep -v "^$rat$" || true)
+    bad=$(grep -oE '"fighter/pikachu/c[0-9]{2,3}"' "$MOD/config.json" | tr -d '"' | sed 's|.*/||' | sort -u | grep -v "^$rat$" || true)
     if [ -n "$bad" ]; then
         echo "  FAIL config.json has new-dir-files key(s) for a costume that is not the rat's:"
         printf '%s\n' "$bad" | sed 's/^/         fighter\/pikachu\//'
-        echo "         run tools/gen-config.sh"
+        echo "         run python tools/gen-config.py"
         rc=1
     else
         echo "  ok  config.json declares fighter/pikachu/$rat and no other costume"

@@ -80,7 +80,7 @@ unsafe extern "C" fn jab_frame(fighter: &mut L2CFighterCommon) {
     sink::diag(format!(
         "[rat] JABPROBE st={status} motion={:#x} frame={:.1}/{:.1} looped={} \
          LOOPED={} CONTINUE={} CONTINUE_CHECK={} PRECEDE={} CHECK_COMBO_NUM={} \
-         100_COUNT={} CONTINUE_COUNT={} btn_off={}",
+         100_COUNT={} CONTINUE_COUNT={} btn_off={} atk0={} atk1={}",
         MotionModule::motion_kind(boma),
         MotionModule::frame(boma),
         MotionModule::end_frame(boma),
@@ -96,6 +96,21 @@ unsafe extern "C" fn jab_frame(fighter: &mut L2CFighterCommon) {
             boma,
             *CONTROL_PAD_BUTTON_ATTACK
         )),
+        // THE FIELD THE FIRST PASS WAS MISSING, and the one the whole question now turns on.
+        //
+        // The first capture settled the state machine and cleared it: `100_LOOPED` latches,
+        // `100_CONTINUE_CHECK` is set by the ACMD and consumed by the engine once it has, holding
+        // ATTACK keeps `PRECEDE` alive, releasing it sets `btn_off` and the very next check drops
+        // `100_CONTINUE` and hands over to `attack_100_end`. That is the behaviour asked for, and
+        // it is already happening -- 838 frames of `attack_100` against 236 of `attack_100_end`.
+        //
+        // So "the rapid hits don't come out" is not the loop failing to loop. It is either the
+        // ACMD's ATTACK calls not producing hitboxes on the later passes, or them producing
+        // hitboxes nobody is standing in. These two say which: a hitbox that is never live on a
+        // pass after the first is a script that stopped running, and one that is live every pass
+        // moves the question to damage and to the opponent.
+        u8::from(AttackModule::is_attack(boma, 0, false)),
+        u8::from(AttackModule::is_attack(boma, 1, false)),
     ));
 }
 

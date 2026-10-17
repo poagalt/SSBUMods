@@ -1,40 +1,65 @@
-//! Rat of Doom as its own character slot: one CSS row, one costume, and the gate that keeps the
-//! moveset off vanilla Pikachu's other seven.
+//! Rat of Doom as its own character slot: an ADDED Pikachu colour, its own CSS row, and the gate
+//! that keeps the moveset off every colour Pikachu actually has.
 //!
-//! THE SLOT IS PIKACHU'S c00, AND THE MOD'S OWN FILE TREE IS WHAT DECIDED THAT. `mod/fighter/
-//! pikachu/` ships `model/body/c00` and every grafted article -- `model/bow`, `model/cshot`,
-//! `model/fusionsword`, `model/parachute` and their motions -- under c00 ALONE, because a costume's
-//! body model carries its own textures and mirroring c00's over the others would turn every Pikachu
-//! default yellow (`tools/mirror-costumes.sh` refuses to, and says so). c00 is therefore the only
-//! slot that looks like Rat of Doom, and it no longer looks like Pikachu.
+//! THE DESIGN CHANGED ON 2026-10-17 AFTER READING TWO MODS THAT ALREADY DO THIS. It first took
+//! Pikachu's c00, on the reasoning that the grafted weapons ship for c00 alone and so exactly one
+//! of his eight could look like Rat of Doom. That worked, and it carried a wart that the first
+//! hardware test found immediately: "both pikachu slots appear to load rat of doom". They did, and
+//! by design -- c00 is reachable from Pikachu's own row as well as from this one, and the only way
+//! to close that was to shrink his row, which depended on two things the CSK API does not write
+//! down.
 //!
-//! WHY NOT AN ADDED SLOT AT c08. That was the first design, recorded here as "the assets must move
-//! to c08-c15", and it is a bigger job than it looks: a ninth colour needs `color_num` raised on
-//! PIKACHU'S OWN row, a `characall_label_c08`, an `nNN_index`, and CSS/stock art at c08 -- and the
-//! mod has no UI-art pipeline at all (`mod/ui/` is one `msg_name.xmsbt`). The four added-slot mods
-//! on this card (Bomb over Wario and friends) each ship that art by hand. Nothing about the moveset
-//! needs a ninth colour; it needs to stop being on the other eight. So it takes one of the eight.
+//! `Documents/switch/Sans Moveset` (over Palutena) and `Gogeta Moveset` (over Min Min) do not have
+//! the problem, because they do not take one of the host's colours. Sans takes palutena c120-c127,
+//! Gogeta takes minmin c103-c110, and the README states the registration outright:
 //!
-//! WHAT THE CSS SHOWS, AND THE ONE WART. Rat of Doom gets its own `ui_chara_db` row redirecting to
-//! Pikachu at colour 0, built on the API's own "redirected entry" example. Pikachu's row is LEFT
-//! ALONE at eight colours, so his first portrait still reaches c00 and still plays Rat of Doom.
-//! Shrinking him to colours 1..7 would fix that, and is not done, because `add_chara_db_entry_info`
-//! is an ADD -- whether passing an existing `ui_chara_id` with no `clone_from` patches that row or
-//! appends a duplicate Pikachu is not stated anywhere in the API and is not worth guessing at on a
-//! roster. The gate below is what makes the slot real; the row is how it is presented.
+//!     Duplicate Palutena / Character ID: ui_chara_sans / Name ID: sans
+//!     Series ID: undertale / Amount of Colors: 8 / Color Start Index: 120
+//!
+//! An ADDED colour is outside the host's range, so his eight costumes are untouched BY
+//! CONSTRUCTION. There is no overlap to gate, no row to shrink and no wart. Everything the c00
+//! design needed a gate for, this design does not have.
+//!
+//! THE GATE STAYS ANYWAY, and it is not redundant. Assets are per-slot by path, so moving them to
+//! c120 is enough for THEM -- but this plugin's `Agent` registrations are per-FIGHTER, and an
+//! ungated one would install Little Mac's jab on every Pikachu on the card whatever colour he is.
+//! `agent()` below is the only constructor that sets a costume list, and gate 4p fails the build
+//! on a raw `Agent::new`. The same is true of the two `skyline::hook` sites, which smashline's
+//! costume filter cannot reach and which call `is_rat_costume` themselves.
+//!
+//! WHAT AN ADDED SLOT ALSO BUYS, beyond the wart:
+//!
+//!   * ITS OWN SOUND BANK. `sound/bank/fighter/se_pikachu_c120.nus3audio` -- Pikachu has the full
+//!     per-slot set in vanilla (`se_pikachu_c00` … `_c07`), and Sans ships exactly this for
+//!     Palutena. So the ported moves can carry their source's sounds without a single byte of
+//!     vanilla Pikachu's audio changing. See handbook/open-questions.md.
+//!   * ITS OWN EFFECT ARCHIVE, `effect/fighter/pikachu/ef_pikachu_c120.eff`, which is what One Slot
+//!     Effects is for and what Sans ships for all eight of its slots.
+//!
+//! WHAT AN ADDED SLOT DOES NOT FIX, AND I BRIEFLY WROTE HERE THAT IT DID. `fighter_param.prcxml`
+//! patches Pikachu's row of `fighter_param_table`, which is keyed by FIGHTER KIND. A c120 Pikachu
+//! is still `FIGHTER_KIND_PIKACHU` and reads that same row, so the jab-combo params -- the seven
+//! that have to live there because native ComboModule never calls the `get_param_int` hook -- still
+//! reach vanilla Pikachu on all eight of his colours. Moving the slot changes nothing about that.
+//! `lib_paramconfig` (CSharpM7), which BOTH reference mods list as a dependency, is the mechanism
+//! for a genuinely per-slot param, and is the route if this ever needs closing.
+//!
+//! ONE COLOUR, NOT EIGHT, AND THAT IS THE ONE PLACE WE DIFFER. Both reference mods register eight
+//! because they ship eight recolours -- Sans's c121 has 544 files of its own. Rat of Doom has one
+//! look, so it registers one colour and `RAT_COSTUMES` is a slice for the day that changes.
 //!
 //! EVERY HASH BELOW WAS COMPUTED, AND THE FUNCTION THAT COMPUTED THEM WAS CHECKED against five
 //! values the wiki states outright (`ui_chara_mario` 0xedaf3c863, `ui_chara_mario64` 0x10321edf2a,
 //! `ui_chara_mario_00` 0x110c383d83, `color_start_index` 0x11895f00fc, `original_ui_chara_hash`
 //! 0x160ab9eb98). All five matched, so the two new ones are trustworthy by the same arithmetic.
 //!
-//! THE ONE THING THE GATE CANNOT REACH is `fighter/common/param/fighter_param.prcxml`, where
-//! `tools/gen-params.sh` patches PIKACHU'S ROW of the game's own table -- the jab combo's seven
-//! params among them. That table is per-FIGHTER, not per-costume, and the reason those params live
-//! there rather than in `src/params`' hook is that the engine's native ComboModule never calls the
-//! hook (see the note there). So vanilla Pikachu on c01-c07 keeps Rat of Doom's jab PARAMS while
-//! getting none of his scripts: a three-hit jab window on a two-hit jab. Known, bounded, and not
-//! fixable from this side.
+//! THE CSS ART HAS TO BE SHIPPED AND IS NOT YET. The portraits are files named after the row --
+//! `ui/replace/chara/chara_N/chara_N_ratofdoom_00.bntx` -- and `original_ui_chara_hash` redirects
+//! the fighter a row resolves to, not a texture lookup; `CharacterDatabaseEntry` has no art field
+//! among its 38. That is why the first hardware test reported "the second one has no character
+//! model on the character select screen". Sans ships the same eight files under its own name.
+//! `tools/arc-pull/paths-ui.txt` pulls Pikachu's c00 set to copy from, and the pull needs the game
+//! running.
 use std::collections::HashMap;
 
 use smashline::Agent;
@@ -53,12 +78,22 @@ const COLOR_START_INDEX: u64 = 0x11895f00fc;
 /// `original_ui_chara_hash`, stated by the wiki.
 const ORIGINAL_UI_CHARA_HASH: u64 = 0x160ab9eb98;
 
-/// THE SLOT. Pikachu's colour 0 -- the one the grafted weapons ship for.
+/// THE SLOT. An ADDED colour, outside Pikachu's own eight.
 ///
-/// Changing this number is not enough on its own: `mod/fighter/pikachu/model/*` and the article
-/// motions would have to move with it, and `tools/gen-config.sh` re-derive the `new-dir-files`
-/// keys. `tools/check-slot.sh` asserts the two halves still agree.
-pub const RAT_COSTUME: usize = 0;
+/// 120 IS THE CONVENTION, READ OFF TWO WORKING MODS rather than picked. `Documents/switch/Sans
+/// Moveset` takes palutena c120-c127 and `Gogeta Moveset` takes minmin c103-c110; the base is
+/// chosen per mod so that two movesets on one host fighter do not collide, and being outside 0-7
+/// is the point -- the host's own costumes cannot be reached by this row and this row cannot be
+/// reached from his. Sans's README states it in the CSS Manager's own field names:
+///
+///     Duplicate Palutena / Character ID: ui_chara_sans / Name ID: sans
+///     Series ID: undertale / Amount of Colors: 8 / Color Start Index: 120
+///
+/// Changing this number is one edit: `tools/relocate-slot.sh` moves the built tree onto it,
+/// `tools/gen-config.sh` derives every `config.json` key from it, and `tools/check-slot.sh` fails
+/// if the two disagree. What it is NOT free to change is the base once the mod has shipped --
+/// a save file remembers costumes by index.
+pub const RAT_COSTUME: usize = 120;
 
 /// The costume list every `Agent` in this plugin is installed under.
 ///
@@ -68,6 +103,7 @@ pub const RAT_COSTUMES: &[usize] = &[RAT_COSTUME];
 
 /// Set false to leave the roster untouched without unpicking the module.
 pub const ENABLED: bool = true;
+
 
 /// A Pikachu `Agent` already gated to Rat of Doom's costume.
 ///

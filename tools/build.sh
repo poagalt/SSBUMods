@@ -178,8 +178,20 @@ mkdir -p "$ROOT/work/ml"
 "$MP/synth.exe" "$ROOT/extracted" "$ROOT/work/ml/patched.bin" "$ML" | tail -1
 
 # Must run exactly once, on the verbatim source produced in step 1: it multiplies offsets in place.
-echo; echo "== 3c. generate config.json from what the mod tree actually contains =="
-bash "$ROOT/tools/gen-config.sh"
+# THE AUTHORING TREE IS c00 AND THE CARD GETS AN ADDED SLOT, so the last asset step moves one onto
+# the other. Everything above this line writes `pikachu-moveset/mod` in the host's own coordinate
+# system, which is what every generator and every gate reads; `pikachu-moveset/ship` is what deploy
+# uploads. See the header of tools/relocate-slot.sh for why this is one pass here rather than
+# eighteen edits spread across twelve tools.
+PY_BIN=""
+for c in py python3 python; do command -v "$c" >/dev/null 2>&1 && { PY_BIN="$c"; break; }; done
+[ -n "$PY_BIN" ] || { echo "  no python on PATH -- cannot declare the added slot" >&2; exit 1; }
+
+echo; echo "== 3c. relocate the built tree onto Rat of Doom's added slot =="
+bash "$ROOT/tools/relocate-slot.sh"
+
+echo; echo "== 3d. declare the added slot from what the shipped tree actually contains =="
+"$PY_BIN" "$ROOT/tools/gen-config.py"
 
 # Before the compile, so the in-game self-test always walks the list this build actually shipped.
 # The whole value of that self-test is that it names motions the CONSOLE failed to resolve, and a

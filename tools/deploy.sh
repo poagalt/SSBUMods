@@ -49,7 +49,10 @@ if [ -n "$FTP_PASS" ]; then
     CURL_AUTH=(-u "$FTP_USER:$FTP_PASS")
 fi
 NRO="$ROOT/pikachu-moveset/plugin/target/aarch64-skyline-switch/release/librat_of_doom.nro"
-MOD="$ROOT/pikachu-moveset/mod"
+# THE SHIPPED TREE, NOT THE AUTHORING ONE. `mod/` is written in the host's c00 coordinate
+# system because that is what the generators and gates read; `ship/` is the same files moved
+# onto Rat of Doom's added slot, and it is what the card must mirror exactly.
+MOD="$ROOT/pikachu-moveset/ship"
 DEST="$B/ultimate/mods/Rat%20of%20Doom"
 REMOTE_ROOT="/ultimate/mods/Rat of Doom"
 PLUGINS="$B/atmosphere/contents/01006A800016E000/romfs/skyline/plugins"

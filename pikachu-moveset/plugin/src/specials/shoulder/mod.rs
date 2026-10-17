@@ -470,46 +470,6 @@ unsafe extern "C" fn shoulder_wait_main(fighter: &mut L2CFighterCommon) -> L2CVa
     fighter.sub_shift_status_main(L2CValue::Ptr(shoulder_wait_loop as *const () as _))
 }
 
-/// The throw the input asks for, if any.
-///
-/// DK'S OWN CHECK, READ OUT OF THE BINARY. `FUN_7100022520` is the helper every Shoulder loop
-/// calls, and the public dump omits it because it could not name it. `tools/disasm` resolves the
-/// NRO's PLT against its .dynsym, so it reads plainly now:
-///
-///   LinkModule::get_node_object_id      the fighter on his shoulder
-///   ControlModule::get_clatter_time     on the VICTIM; `<= 0` returns early with no throw
-///   globalTable[0x21] & <four consecutive constants>     cat2, four bits apart
-///   L2CFighterCommon::IsThrowStick
-///   globalTable[0x20] & <an OR of four more>             cat1
-///   five change_status calls, chosen by a hash-indexed lookup
-///
-/// `globalTable[0x20]` is cat1 and `[0x21]` is cat2 -- ShoulderStart/main_loop.c and
-/// SpecialNLoop/main_loop.c in the same dump index them with named CAT1 and CAT2 constants, which
-/// is what fixes the two indices. The four consecutive cat2 constants can only be
-/// FIGHTER_PAD_CMD_CAT2_FLAG_THROW_F, _B, _HI and _LW: adjacent slots in the constant table, and
-/// bits 0x100000, 0x200000, 0x400000, 0x800000 -- the four throw commands, adjacent in the
-/// enumeration too.
-///
-/// SO THE DIRECTION IS THE ENGINE'S, NOT A THRESHOLD OF OURS. This used to compare
-/// `get_stick_x` and `get_stick_y` against 0.5. The cat2 throw commands are the same thing the
-/// game resolves for an ordinary grab, which means smash-stick deflection, the input buffer and
-/// the per-controller deadzones all behave here exactly as they do out of a normal grab -- none
-/// of which a raw stick read reproduces.
-///
-/// The button path survives as the second half of DK's own test, `IsThrowStick` together with a
-/// cat1 button mask, because that is what he does when the command flag has not fired. TRIGGER
-/// rather than held: the grab button is still down when the carry begins, and reading it as held
-/// is what committed a throw on the first carry frame and froze the game in round 2.
-/// The four cat2 throw-direction flags as one mask, for asking "was any direction asked for".
-///
-/// A `fn` rather than a `const` because the four are `Lazy` lua constants resolved at first use,
-/// which cannot be or-ed in a const initialiser.
-unsafe fn throw_dir_mask() -> i32 {
-    *FIGHTER_PAD_CMD_CAT2_FLAG_THROW_F
-        | *FIGHTER_PAD_CMD_CAT2_FLAG_THROW_B
-        | *FIGHTER_PAD_CMD_CAT2_FLAG_THROW_HI
-        | *FIGHTER_PAD_CMD_CAT2_FLAG_THROW_LW
-}
 
 unsafe fn requested_throw(fighter: &mut L2CFighterCommon) -> Option<i32> {
     let boma = fighter.module_accessor;
@@ -611,17 +571,36 @@ unsafe fn requested_throw(fighter: &mut L2CFighterCommon) -> Option<i32> {
     // Printed on any frame with a press OR a stick direction, which is rare enough to read and
     // narrow enough not to flood a carry. `lr` is the one that settles it: if it has already
     // flipped by the time ATTACK_N appears, the fix is in the turn's guard, not here.
-    if btn != 0 || cat2 & throw_dir_mask() != 0 {
-        crate::telemetry::probe::event(format!(
-            "[rat] SHOULDER throw-probe btn={btn:#x} cat2={cat2:#x} lr={:+.0} stick_x_lr={:+.3}              f/b/hi/lw={}/{}/{}/{}",
-            PostureModule::lr(boma),
-            stick_x_lr(fighter),
-            stick["f"].try_get_bool().unwrap_or(false),
-            stick["b"].try_get_bool().unwrap_or(false),
-            stick["hi"].try_get_bool().unwrap_or(false),
-            stick["lw"].try_get_bool().unwrap_or(false),
-        ));
-    }
+    // ON EVERY CARRY FRAME, NOT ONLY BUTTON FRAMES -- the first capture's blind spot.
+    //
+    // Gating this on `btn != 0` gave five lines for a whole session and none of them covered the
+    // frames that actually decide the throw: the ones where the stick is held and no button is
+    // down yet. The turn fires on one of those, and what it does to `lr` is the whole fault. Five
+    // lines was enough to see the RESULT (`lr=-1 stick_x_lr=+1.000 f=true` on a throw the player
+    // entered by holding BACK) and not enough to see it happen.
+    //
+    // A carry is a handful of seconds a few times a session, so one line per frame of it is a
+    // smaller log than the jab probe writes. `turn_frame` and the two thresholds are printed with
+    // it because they are the numbers the turn is decided against, and a param read back wrong has
+    // already cost this file one round of work.
+    crate::telemetry::probe::event(format!(
+        "[rat] SHOULDER carry-probe st={} f={:.0} btn={btn:#x} cat2={cat2:#x} lr={:+.0}          stick=({:+.3},{:+.3}) x_lr={:+.3} turn<={:.3} walk>={:.3} turn_frame={:.1}/{:.1}          TURN_FLAG={} f/b/hi/lw={}/{}/{}/{}",
+        StatusModule::status_kind(boma),
+        MotionModule::frame(boma),
+        PostureModule::lr(boma),
+        ControlModule::get_stick_x(boma),
+        ControlModule::get_stick_y(boma),
+        stick_x_lr(fighter),
+        common_param_f(boma, TURN_STICK_X),
+        common_param_f(boma, WALK_STICK_X),
+        WorkModule::get_float(boma, *FIGHTER_STATUS_TURN_WORK_FLOAT_TURN_FRAME),
+        common_param_f(boma, TURN_FRAME),
+        u8::from(WorkModule::is_flag(boma, *FIGHTER_STATUS_TURN_FLAG_TURN)),
+        stick["f"].try_get_bool().unwrap_or(false),
+        stick["b"].try_get_bool().unwrap_or(false),
+        stick["hi"].try_get_bool().unwrap_or(false),
+        stick["lw"].try_get_bool().unwrap_or(false),
+    ));
 
     // DK tests them in this order: f, b, hi, lw.
     for (mask, name, status) in [

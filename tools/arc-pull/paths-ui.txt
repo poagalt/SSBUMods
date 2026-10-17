@@ -1,0 +1,8 @@
+ui/replace/chara/chara_0/chara_0_pikachu_00.bntx
+ui/replace/chara/chara_1/chara_1_pikachu_00.bntx
+ui/replace/chara/chara_2/chara_2_pikachu_00.bntx
+ui/replace/chara/chara_3/chara_3_pikachu_00.bntx
+ui/replace/chara/chara_4/chara_4_pikachu_00.bntx
+ui/replace/chara/chara_5/chara_5_pikachu_00.bntx
+ui/replace/chara/chara_6/chara_6_pikachu_00.bntx
+ui/replace/chara/chara_7/chara_7_pikachu_00.bntx

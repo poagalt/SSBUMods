@@ -16,7 +16,10 @@ PORT=${FTP_PORT:-5000}
 PASS="$(tr -d '\r\n' < "$ROOT/.ftp-credentials.local" 2>/dev/null)"
 B="ftp://$HOST:$PORT"
 REMOTE="/ultimate/mods/Rat of Doom"
-MOD="$ROOT/pikachu-moveset/mod"
+# THE SHIPPED TREE, NOT THE AUTHORING ONE. `mod/` is written in the host's c00 coordinate
+# system because that is what the generators and gates read; `ship/` is the same files moved
+# onto Rat of Doom's added slot, and it is what the card must mirror exactly.
+MOD="$ROOT/pikachu-moveset/ship"
 
 enc() { printf '%s' "$1" | sed 's/ /%20/g'; }
 listing() {
