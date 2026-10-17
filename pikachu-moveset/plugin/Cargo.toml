@@ -25,6 +25,9 @@ smash_script = { git = "https://github.com/WuBoytH/smash-script", branch = "deve
 # Change this line AND the runtime .nro together; they are one decision.
 smashline = { git = "https://github.com/HDR-Development/smashline", rev = "df194a03b918116adb7bda1c2b4565dcd82a4756" }
 smash_singletons = { git = "https://github.com/WuBoytH/smash_singletons.git" }
+# PINNED BY REV for the same reason smashline is: an unpinned git dependency silently takes
+# master, and this one reaches into the game's UI databases. e144a25 is 2026-04-27.
+the_csk_collection_api = { git = "https://github.com/Coolsonickirby/the_csk_collection_api", rev = "e144a25f97c247c058b8cd8641df0435b0ffe361" }
 
 [profile.dev]
 panic = "abort"

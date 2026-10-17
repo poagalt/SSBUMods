@@ -12,6 +12,8 @@
 
 // The ACMD macros smash-script does not export, re-exporting the ones it does. Every generated
 // module shadows `macros` with this, so a verbatim-copied script can call all of them.
+/// Rat of Doom's own character-select slot, via the CSK Collection API.
+mod charaslot;
 mod acmd_ext;
 mod normals;
 mod smashes;

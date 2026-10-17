@@ -29,9 +29,9 @@ checksum = "230c5f1ca6a325a32553f8640d31ac9b49f2411e901e427570154868b46da4f7"
 
 [[package]]
 name = "binrw"
-version = "0.11.3"
+version = "0.11.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "003da50fae3878bd26cc710742decd3412b8cfb396bc9b306e5e710106d207fb"
+checksum = "ab81d22cbd2d745852348b2138f3db2103afa8ce043117a374581926a523e267"
 dependencies = [
  "array-init",
  "binrw_derive",
@@ -353,6 +353,7 @@ dependencies = [
  "smash_script",
  "smash_singletons",
  "smashline",
+ "the_csk_collection_api",
 ]
 
 [[package]]
@@ -445,6 +446,26 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "0c790de23124f9ab44544d7ac05d60440adc586479ce501c1d6d7da3cd8c9cf5"
 
 [[package]]
+name = "smash-bgm-property"
+version = "1.2.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "719d8fcff419f09d3a7e118adadaa8776b248428d714341c0081d516c3eb9697"
+dependencies = [
+ "binrw",
+ "hash40",
+]
+
+[[package]]
+name = "smash-sli"
+version = "0.9.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "734f72fff1b9e9657bea602bbd6009eea417824dbd6337d23779d8a8d3d735a8"
+dependencies = [
+ "binrw",
+ "hash40",
+]
+
+[[package]]
 name = "smash_script"
 version = "0.1.0"
 source = "git+https://github.com/WuBoytH/smash-script?branch=development#24c5b69b79c7d7b041c3993ecd766ceccf950c2b"
@@ -518,6 +539,16 @@ dependencies = [
  "proc-macro2",
  "quote",
  "unicode-ident",
+]
+
+[[package]]
+name = "the_csk_collection_api"
+version = "0.1.0"
+source = "git+https://github.com/Coolsonickirby/the_csk_collection_api?rev=e144a25f97c247c058b8cd8641df0435b0ffe361#e144a25f97c247c058b8cd8641df0435b0ffe361"
+dependencies = [
+ "binrw",
+ "smash-bgm-property",
+ "smash-sli",
 ]
 
 [[package]]
