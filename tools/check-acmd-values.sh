@@ -72,7 +72,21 @@ while read -r f acmd fn stem mod label; do
             lt=$(printf '%s' "$wreal" | tr 'A-Z' 'a-z')
             alias_args="$alias_args --bone-alias $lf=$lt"
         done < <(awk -F'|' '/^[a-z_]+\|/' "$ROOT/tools/merge-weapons.sh")
-        out=$("$P" "$src" "${kind}_$fn" "$S/$mod/mod.rs" "pikachu_${kind}_$fn" $subset $reb $alias_args 2>&1)
+        # THE ADR 0002 STAND-INS, from the same table the generator substituted with.
+        #
+        # A row of tools/effect-subs.tsv swaps one effect ARCHIVE name for a resident `sys_` one and
+        # keeps every other argument, so the parity check has to accept that single difference or it
+        # fails its own pipeline's correct output -- which it did, on `fair_wolf`, the first time
+        # this ran. Derived from the table rather than restated, so the checker cannot come to
+        # believe in a substitution the generator did not make.
+        sub_args=""
+        if [ -f "$ROOT/tools/effect-subs.tsv" ]; then
+            while IFS=$'	' read -r s_eff t_eff _why; do
+                case "${s_eff:-#}" in \#*|"") continue ;; esac
+                [ -n "${t_eff:-}" ] && sub_args="$sub_args --effect-sub $s_eff=$t_eff"
+            done < "$ROOT/tools/effect-subs.tsv"
+        fi
+        out=$("$P" "$src" "${kind}_$fn" "$S/$mod/mod.rs" "pikachu_${kind}_$fn" $subset $reb $alias_args $sub_args 2>&1)
         rc=$?
         [ "$kind" = "game" ] && moves=$((moves+1))
         if [ "$kind" = "game" ]; then

@@ -174,6 +174,32 @@ units) because the sword's bone has a single transform.
   the checklist of what a ported spawn must leave behind.
 - **Call parity sits at 22 open entries**, every one reasoned. That is a reading list, not a defect
   list — see [parity.md](parity.md#why-call-parity-is-not-zero-and-why-that-is-correct).
+- **Every ported move still plays PIKACHU'S sound, and the fix needs the console before it needs
+  code.** The generator drops `sound_` along with `expression_` (gen-moves.sh: "Take only the game_
+  function, rename it, drop sound_/expression_"), so Pikachu's own `sound_attack11` still runs under
+  Little Mac's jab. Porting the source's script is one line in the generator and would be a
+  REGRESSION on its own: `PLAY_SE(hash40("se_littlemac_attack100"))` resolves against the banks
+  loaded for the fighter, and `se_littlemac.nus3audio` is not one of them — so the move would go from
+  the wrong sound to no sound, which is the same ADR 0002 failure the effects had, in a form nothing
+  in the harness can see.
+
+  The order is therefore bank first, script second:
+
+  1. **Pull the banks.** `tools/arc-pull/paths-sound.txt` lists 42 paths — `se_pikachu` plus the 20
+     donors, `.nus3audio` and `.tonelabel` each — and every one was checked against the archive map.
+     Pyra and Mythra are the exception worth knowing: their banks are PER COSTUME
+     (`se_eflame_c00` … `_c07`), so the list pulls `_c00`, which is the rat's slot. Needs the game
+     running, like every `arc-fetch` pull.
+  2. **Merge additively into `se_pikachu.nus3audio`.** Entries are addressed by the hash40 of their
+     label, so a donor entry copied in UNDER ITS OWN NAME is found by the donor's own `PLAY_SE`
+     call. Nothing existing is touched, which matters because Pikachu's bank has no `cNN` variants —
+     it is per-FIGHTER, so the gate in `src/charaslot` cannot reach it, and additive is the only
+     shape that does not leak to vanilla Pikachu. A renamed-over entry would change HIS jab sound on
+     all eight colours; a new entry he never asks for changes nothing.
+  3. **Then emit the `sound_` scripts**, which can be checked the same way gate 3i checks effects.
+
+  No nus3audio tooling is on hand (`vendor/tools/` has Ghidra and a JDK and nothing else), so step 2
+  starts by acquiring it. That is the first thing to do that does NOT need the console.
 
 ---
 

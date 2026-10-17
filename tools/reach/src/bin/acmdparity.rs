@@ -169,6 +169,15 @@ fn main() {
         .filter_map(|(i, _)| a.get(i + 1))
         .filter_map(|p| p.split_once('=').map(|(f, t)| (f.to_string(), t.to_string())))
         .collect();
+    // `--effect-sub from=to`, repeatable -- one per row of tools/effect-subs.tsv. See the
+    // comparison below.
+    let effect_subs: Vec<(String, String)> = a
+        .iter()
+        .enumerate()
+        .filter(|(_, x)| *x == "--effect-sub")
+        .filter_map(|(i, _)| a.get(i + 1))
+        .filter_map(|p| p.split_once('=').map(|(f, t)| (f.to_string(), t.to_string())))
+        .collect();
     if a.iter().any(|x| x == "--subset") {
         // THE SUBSET PATH HONOURS `--rebased` TOO, and it did not until 2026-09-19.
         //
@@ -180,19 +189,42 @@ fn main() {
         //
         // Only the bone is exempt, and only for effect-shaped calls where it is argument 2.
         // Every other argument is still compared exactly, which is the whole value of the check.
+        //
+        // IT HONOURS `--effect-sub` AS WELL, since 2026-10-17, and for a related reason: the one
+        // argument an ADR 0002 substitution changes is the effect ARCHIVE. `tools/effect-subs.tsv`
+        // lets a fighter-owned effect that carries information the player needs -- Wolf's f-air arc
+        // is the first -- be drawn by a resident `sys_` stand-in at the SOURCE's own joint,
+        // offsets, colour and scale. Every one of those still has to match exactly; only the name
+        // is allowed to differ, and only for a pair the table actually lists. Without this the
+        // checker failed its own pipeline's correct output again, the same way the rebase did.
+        //
+        // Argument 1 is the archive and argument 2 the joint -- `agent` is 0.
         let arg_eq = |sc: &str, sa: &Vec<String>, oa: &Vec<String>| -> bool {
             if sa == oa {
                 return true;
             }
-            if !rebased || sa.len() != oa.len() {
+            if sa.len() != oa.len() {
                 return false;
             }
-            let bone = if sc.contains("EFFECT") && !sc.contains("LAST_EFFECT_SET") {
-                2
-            } else {
+            if !(sc.contains("EFFECT") && !sc.contains("LAST_EFFECT_SET")) {
                 return false;
+            }
+            let name = |v: &String| {
+                v.trim()
+                    .trim_start_matches("Hash40::new(\"")
+                    .trim_end_matches("\")")
+                    .to_string()
             };
-            sa.iter().zip(oa.iter()).enumerate().all(|(i, (x, y))| i == bone || x == y)
+            let swapped = effect_subs
+                .iter()
+                .any(|(f, t)| name(&sa[1]) == *f && name(&oa[1]) == *t);
+            if !swapped && !rebased {
+                return false;
+            }
+            sa.iter()
+                .zip(oa.iter())
+                .enumerate()
+                .all(|(i, (x, y))| (swapped && i == 1) || (rebased && i == 2) || x == y)
         };
         let mut si = 0usize;
         let mut dropped = 0usize;
