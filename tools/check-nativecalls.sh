@@ -96,7 +96,12 @@ while IFS='|' read -r fighter status dir what; do
         fi
         # `Module::method` anywhere in the specials tree counts as reproduced. Coarse on purpose:
         # the question is whether the port knows about the call at all.
-        if grep -q "${module}::${method}\b" "$oursfile"; then
+        # `crate::articles::<method>` IS `ArticleModule::<method>`: src/articles/mod.rs wraps the
+        # ArticleModule ops a ported status may make, keyed by the cloned row's host name instead of
+        # the source's id, because the id of a cloned article is not the donor's (2026-10-12, when
+        # the up-B started driving its cloned parachute through them).
+        if grep -q "${module}::${method}\b" "$oursfile" \
+           || { [ "$module" = "ArticleModule" ] && grep -q "articles::${method}\b" "$oursfile"; }; then
             have=$((have+1))
         else
             missing="$missing ${module}::${method}"

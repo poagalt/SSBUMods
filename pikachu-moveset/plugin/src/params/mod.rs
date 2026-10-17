@@ -40,6 +40,7 @@
 // Pikachu's own keys are untouched -- every one of his is `special_s_*_` with a trailing
 // underscore and none collides with Incineroar's -- and any key not in these tables falls through
 // to the game.
+mod cshot;
 mod table;
 
 use smash::app::{lua_bind::*, utility, BattleObjectModuleAccessor};
@@ -47,6 +48,18 @@ use smash::lib::lua_const::*;
 
 /// `hash40("param_special_s")`, the param OBJECT the victim's status asks for.
 const PARAM_SPECIAL_S: u64 = 0x0f_ea97_fe73;
+
+/// `hash40("param_special_n")`, the param OBJECT Charge Shot's five numbers live in.
+///
+/// PIKACHU HAS THIS OBJECT AND IT IS THE WRONG ONE. His holds four Thunder Jolt offsets --
+/// `special_n_offset_ground_x_` and friends, all with a trailing underscore -- and none of
+/// samus's `cshot_*` keys. So every read the ported move makes would fall through to the engine
+/// and come back 0: a charge cap of 0, a recoil of 0, and a divide by 0 in the recoil's ratio.
+/// That is the same failure that cost Alolan Whip its whole victim side.
+///
+/// The two key sets cannot collide -- his all end in `_`, hers all begin `cshot_` -- so this
+/// answers hers and falls through for his, with nothing to arbitrate.
+const PARAM_SPECIAL_N: u64 = 0x0f_8991_92aa;
 
 /// THE WHOLE OBJECT, GENERATED. `table.rs` is written by tools/gen-paramprovider.sh straight from
 /// `extracted/fighter/gaogaen/param/vl.prc`, and the int/float split is the prc's own.
@@ -64,6 +77,7 @@ const PARAM_SPECIAL_S: u64 = 0x0f_ea97_fe73;
 ///
 /// Generated rather than transcribed because fifty hand-typed floats is fifty chances to typo a
 /// value that then looks like a physics bug.
+use cshot::{CSHOT_FLOATS, CSHOT_INTS};
 use table::{FLOATS, INTS};
 
 /// Is this accessor a Pikachu?
@@ -81,6 +95,41 @@ unsafe fn get_param_int_hook(
     object: u64,
     key: u64,
 ) -> i32 {
+    // THE JAB COMBO IS NOT ANSWERED HERE ANY MORE, AND THAT IS THE WHOLE LESSON OF IT.
+    //
+    // All seven of its params -- attack_combo_max, combo_attack_12_end, combo_attack_13_end,
+    // attack100_type, attack_100_enable_cnt, attack_100_rebound_count and attack_combo_type --
+    // now live in `fighter/common/param/fighter_param.prcxml`, where tools/gen-params.sh patches
+    // PIKACHU'S OWN ROW of the game's table.
+    //
+    // They had to, and it took two playtests to accept it. This hook replaces
+    // `WorkModule::get_param_int`, which is the LUA accessor. The combo WINDOW
+    // (`combo_attack_1N_end`) and the rapid jab's master switch (`attack100_type`) are read by
+    // the engine's NATIVE ComboModule, which never calls it -- so a hook that answered them
+    // looked right, logged that it had answered, and changed nothing a player could see.
+    // `attack_combo_type` was the last holdout, kept here on the argument that every reader in
+    // the decomp is lua2cpp; the telemetry duly showed it being asked and answered 1, and the
+    // combo went on misbehaving anyway, because the engine's own readers were still getting
+    // Pikachu's `fighter_combo_type_none` out of the real table. A value that two mechanisms
+    // disagree about is worse than one neither provides.
+    //
+    // What remains below is the two OBJECTS Pikachu genuinely does not have: Incineroar's
+    // `param_special_s` and Samus's `param_special_n`. Those are read through this accessor by
+    // transcribed lua2cpp, which is what this hook is for.
+    if object == PARAM_SPECIAL_N && is_pikachu(boma) {
+        if let Some(i) = CSHOT_INTS.iter().position(|(k, _, _)| *k == key) {
+            let (_, value, name) = CSHOT_INTS[i];
+            announce_cshot(std::ptr::addr_of_mut!(SEEN_CSHOT_INT), i, name, value as f32);
+            return value;
+        }
+        // Same int/float coercion as below, and for the same reason: `cshot_charge_frame` is
+        // stored as an INT and `SpecialN`'s windup reads it with `get_param_float`.
+        if let Some(i) = CSHOT_FLOATS.iter().position(|(k, _, _)| *k == key) {
+            let (_, value, name) = CSHOT_FLOATS[i];
+            announce_cshot(std::ptr::addr_of_mut!(SEEN_CSHOT_FLOAT), i, name, value);
+            return value as i32;
+        }
+    }
     if object == PARAM_SPECIAL_S && is_pikachu(boma) {
         if let Some(i) = INTS.iter().position(|(k, _, _)| *k == key) {
             let (_, value, name) = INTS[i];
@@ -104,6 +153,23 @@ unsafe fn get_param_float_hook(
     object: u64,
     key: u64,
 ) -> f32 {
+    if object == PARAM_SPECIAL_N && is_pikachu(boma) {
+        if let Some(i) = CSHOT_FLOATS.iter().position(|(k, _, _)| *k == key) {
+            let (_, value, name) = CSHOT_FLOATS[i];
+            announce_cshot(std::ptr::addr_of_mut!(SEEN_CSHOT_FLOAT), i, name, value);
+            return value;
+        }
+        // `cshot_charge_frame` IS AN INT IN THE PRC AND IS READ AS A FLOAT. samus's own windup
+        // does exactly that -- `FUN_7100005770` is one `get_param_float(param_special_n,
+        // cshot_charge_frame)` -- so without this coercion the charge cap reads 0 and every shot
+        // is a fully-charged one fired instantly. The same trap as
+        // `special_s_lariat_offset_x1`, which cost the whip its lariat window.
+        if let Some(i) = CSHOT_INTS.iter().position(|(k, _, _)| *k == key) {
+            let (_, value, name) = CSHOT_INTS[i];
+            announce_cshot(std::ptr::addr_of_mut!(SEEN_CSHOT_INT), i, name, value as f32);
+            return value as f32;
+        }
+    }
     if object == PARAM_SPECIAL_S && is_pikachu(boma) {
         if let Some(i) = FLOATS.iter().position(|(k, _, _)| *k == key) {
             let (_, value, name) = FLOATS[i];
@@ -149,8 +215,8 @@ unsafe fn get_param_float_hook(
 /// silent hook would leave the most important question about this whole module unanswerable: does
 /// the engine actually read these, or is the whip's victim side never reaching that code at all?
 /// One line per key answers it and costs twelve lines total.
-unsafe fn announce(seen: *mut u16, i: usize, name: &str, value: f32) {
-    let bit = 1u16 << i;
+unsafe fn announce(seen: *mut u64, i: usize, name: &str, value: f32) {
+    let bit = 1u64 << i;
     if *seen & bit != 0 {
         return;
     }
@@ -161,11 +227,37 @@ unsafe fn announce(seen: *mut u16, i: usize, name: &str, value: f32) {
     ));
 }
 
+/// The same, for Charge Shot's `param_special_n`. A separate function only because the sentence is
+/// different: this one names Samus, and says what Pikachu's own object would have answered.
+unsafe fn announce_cshot(seen: *mut u64, i: usize, name: &str, value: f32) {
+    let bit = 1u64 << i;
+    if *seen & bit != 0 {
+        return;
+    }
+    *seen |= bit;
+    crate::telemetry::sink::diag(format!(
+        "[rat] PARAM the engine asked Pikachu for {name} -- answered {value} (Samus's; his own \
+         param_special_n has no cshot_* key and would read 0)"
+    ));
+}
+
 /// One bit per table entry, so a key announces itself once and then costs a mask test. A raw
-/// pointer rather than `&mut`, because a reference to a `static mut` is a warning the rest of
-/// this plugin avoids by only ever indexing them.
-static mut SEEN_INT: u16 = 0;
-static mut SEEN_FLOAT: u16 = 0;
+/// pointer rather than `&mut`, because a reference to a `static mut` is a warning the rest of this
+/// plugin avoids by only ever indexing them.
+///
+/// `u64`, AND THESE WERE `u16` WHILE INCINEROAR'S INT TABLE HAD 32 ROWS. The release profile has
+/// no `overflow-checks`, so `1u16 << i` masks the shift to `i & 15`: row 16 aliased row 0, row 17
+/// row 1, and so on, and whichever of each pair the engine asked for SECOND never announced. That
+/// is worse than noise. These lines are read as evidence -- "the engine never asked for X" has
+/// settled more than one diagnosis here -- and half the table could produce a false "never".
+///
+/// 64 is now a hard ceiling rather than an accident: tools/gen-paramprovider.sh and
+/// tools/gen-cshotparams.sh refuse to emit a table longer than this, so a future prc that grows
+/// past it fails the build instead of quietly re-creating the aliasing.
+static mut SEEN_INT: u64 = 0;
+static mut SEEN_FLOAT: u64 = 0;
+static mut SEEN_CSHOT_INT: u64 = 0;
+static mut SEEN_CSHOT_FLOAT: u64 = 0;
 
 /// `FIGHTER_GAOGAEN_INSTANCE_WORK_ID_FLAG_SPECIAL_S_GENERATED_ROPE`, which the VICTIM reads OFF US.
 ///

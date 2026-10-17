@@ -39,6 +39,8 @@ pub mod memserve;
 // Records what the engine does when a REAL fighter holds a victim -- see enginetrace.rs.
 pub mod enginetrace;
 pub mod moves;
+/// Which line callback is in flight when the air-damage status faults. See the module doc.
+pub mod damageprobe;
 
 pub const ENABLED: bool = true;
 
@@ -187,6 +189,10 @@ unsafe extern "C" fn pikachu_telemetry(fighter: &mut L2CFighterCommon) {
         crate::victim::tick_deferred_cut(entry);
         // THE FORWARD THROW'S DESTINATION IS A SLOT IN THE GLOBAL TABLE, AND DK'S HOLDS THE CARRY.
         // This is the one assignment that makes the cargo native. See `specials::shoulder::retarget`.
+        // BISECT STEP 5, 2026-10-17: gated INSIDE the callee, not here. tools/check-blastradius.sh
+        // proves this call is inside the fighter-kind guard by its 8-space indent, so wrapping it
+        // in an `if` here fails that gate for a structural reason that has nothing to do with the
+        // experiment. See `RETARGET_THROW` in specials::shoulder.
         crate::specials::shoulder::retarget_forward_throw(fighter);
     }
 
@@ -302,6 +308,14 @@ unsafe extern "C" fn pikachu_telemetry(fighter: &mut L2CFighterCommon) {
         }
     }
 
+    // THE BACK THROW PROBE. Only ours -- a native Ness in the same match has a working back
+    // throw and logging his would double every line while answering nothing. See
+    // `probe::throw_frame` for what the two lines separate and for the static findings that
+    // make a runtime probe the only remaining step.
+    if mine {
+        probe::throw_frame(entry, boma, status, frame, end);
+    }
+
     // One flush check per frame; the sink itself decides when to actually write.
     sink::tick();
 }
@@ -366,6 +380,21 @@ unsafe extern "C" fn pikachu_telemetry(fighter: &mut L2CFighterCommon) {
 const SOURCE_TRACING: bool = false;
 
 const SOURCE_AGENTS: &[&str] = &["gaogaen", "donkey", "gamewatch", "packun"];
+
+/// `install()` split for the 2026-10-17 bisect: the per-frame callback and the memserve thread are
+/// separate suspects and have to be switchable independently. `enginetrace` is not a parameter --
+/// its own `ENABLED` is false and its installer early-returns.
+pub fn install_selective(frame: bool, memserve_on: bool) {
+    sink::diag(format!("[rat] telemetry installed; plugin BUILD {}", buildstamp::BUILD));
+    if memserve_on {
+        memserve::install();
+    }
+    if frame {
+        Agent::new("pikachu")
+            .on_line(Main, pikachu_telemetry)
+            .install();
+    }
+}
 
 pub fn install() {
     // First thing written each boot, so the log always starts with a known marker and a missing

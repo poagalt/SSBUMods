@@ -62,10 +62,31 @@ unsafe extern "C" fn pikachu_specialhi_init(fighter: &mut L2CFighterCommon) -> L
 }
 
 unsafe extern "C" fn pikachu_specialhi_main(fighter: &mut L2CFighterCommon) -> L2CValue {
-    // G&W sets FIGHTER_GAMEWATCH_INSTANCE_WORK_ID_FLAG_SPECIAL_HI here, but that id is
-    // 0x200000E2, which on Pikachu is FLAG_MTRANS_SMPL_GROUND -- so the port was corrupting his
-    // motion-transition state on every up-B. Nothing in this port ever READS the flag (only
-    // G&W's own C++ does), so the write is simply removed rather than remapped.
+    // ONE UP-B PER AIRTIME, AND THIS IS THE LINE THAT WAS MISSING.
+    //
+    // G&W sets `FIGHTER_GAMEWATCH_INSTANCE_WORK_ID_FLAG_SPECIAL_HI` here. That id is 0x200000E2,
+    // which on Pikachu is `FLAG_MTRANS_SMPL_GROUND`, so writing it corrupted his motion-transition
+    // state on every up-B -- and this file used to say "nothing in this port ever READS the flag
+    // (only G&W's own C++ does), so the write is simply removed".
+    //
+    // Both halves of that were true and the conclusion was still wrong. HIS C++ IS THE WHOLE
+    // LIMITER: the flag is set here, cleared by `SpecialHi_end` only when the next status is
+    // LANDING or LANDING_FALL_SPECIAL, and read by the engine to refuse a second up-B before
+    // touching the ground. Dropping it dropped the limit, and the parachute chain ends in plain
+    // `FALL` -- which is fully actionable -- so the playtest got what it reported: "I can up b
+    // multiple times".
+    //
+    // THE ENGINE HAS ITS OWN ID FOR EXACTLY THIS, which is what to use instead of remapping his.
+    // `FIGHTER_INSTANCE_WORK_ID_FLAG_DISABLE_SPECIAL_HI_CONTINUOUS` is 0x200000CD -- in the COMMON
+    // instance block, below the 0x200000E0 where per-fighter numbering starts, so it cannot
+    // collide with anything of Pikachu's. Steve sets it in `SpecialHiFall_main` and Banjo in
+    // `SpecialHi_end`, and no lua2cpp anywhere reads it: the engine does, and the engine also
+    // clears it on landing. So this is one line, the game's own mechanism, and nothing has to
+    // remember to undo it.
+    WorkModule::on_flag(
+        fighter.module_accessor,
+        *FIGHTER_INSTANCE_WORK_ID_FLAG_DISABLE_SPECIAL_HI_CONTINUOUS,
+    );
 
     // INSURANCE AGAINST A PERMANENTLY INVISIBLE PIKACHU.
     //
@@ -80,9 +101,28 @@ unsafe extern "C" fn pikachu_specialhi_main(fighter: &mut L2CFighterCommon) -> L
     // being wrong is a mod that looks completely broken and the cost of the call is nothing.
     VisibilityModule::set_whole(fighter.module_accessor, true);
 
+    // THE PARACHUTE, AS GAME & WATCH'S OWN SPECIAL_HI MAIN DRIVES IT (0x710000c6c0).
+    //
+    // Pikachu has the article now -- `parachute` is an installed row of articles::CANDIDATES,
+    // cloned from WEAPON_KIND_GAMEWATCH_PARACHUTE -- and until 2026-10-12 nothing here touched it,
+    // which is the four ArticleModule calls tools/check-nativecalls.sh listed as not made. The
+    // source spawns it, hides it straight away, and sets its motion to the one the body is about
+    // to play; the drift (../specialhifall) is where it is shown, by its own `special_hi_open`.
+    // Arguments are the source's: generate(false, -1), visibility off on TARGET_ALL, motion with
+    // (false, -1.0). Through crate::articles, so each call is a no-op if the row is ever off.
+    //
+    // NOT TRANSCRIBED: the same three calls on FIGHTER_GAMEWATCH_GENERATE_ARTICLE_RESCUE, the
+    // firemen and trampoline. That weapon is not a CANDIDATES row, so Pikachu has no id for it,
+    // and passing G&W's id 1 would drive one of Pikachu's own articles.
+    let boma = fighter.module_accessor;
+    crate::articles::generate_article(boma, "parachute", false, -1);
+    crate::articles::set_visibility_whole(boma, "parachute", false, ArticleOperationTarget(*ARTICLE_OPE_TARGET_ALL));
+
     if fighter.global_table[0x16] != *SITUATION_KIND_GROUND {
+        crate::articles::change_motion(boma, "parachute", Hash40::new("special_air_hi"), false, -1.0);
         MotionModule::change_motion(fighter.module_accessor, Hash40::new("special_air_hi"), 0.0, 1.0, false, 0.0, false, false);
     } else {
+        crate::articles::change_motion(boma, "parachute", Hash40::new("special_hi"), false, -1.0);
         MotionModule::change_motion(fighter.module_accessor, Hash40::new("special_hi"), 0.0, 1.0, false, 0.0, false, false);
         fighter.set_situation(SITUATION_KIND_AIR.into());
         GroundModule::correct(fighter.module_accessor, GroundCorrectKind(*GROUND_CORRECT_KIND_AIR));
@@ -184,6 +224,14 @@ unsafe extern "C" fn pikachu_specialhi_end(fighter: &mut L2CFighterCommon) -> L2
     if fighter.global_table[0xb] == *FIGHTER_STATUS_KIND_LANDING_FALL_SPECIAL {
         // gamewatch param_special_hi landing_frame = 40
         WorkModule::set_float(boma, 40.0, *FIGHTER_INSTANCE_WORK_ID_FLOAT_LANDING_FRAME);
+    }
+
+    // SOURCE (SpecialHi_end, 0x710000cd00): the parachute is removed unless the rise is handing
+    // over to the drift, which keeps it and opens it. His FIGHTER_GAMEWATCH_STATUS_KIND_SPECIAL_HI_
+    // FALL is this port's RAT_STATUS_KIND_SPECIAL_HI_OPEN. Before the early returns below, as in
+    // the source. (Its unconditional remove_exist of RESCUE is not transcribed; see _main.)
+    if fighter.global_table[0xb] != RAT_STATUS_KIND_SPECIAL_HI_OPEN {
+        crate::articles::remove(boma, "parachute", ArticleOperationTarget(*ARTICLE_OPE_TARGET_ALL));
     }
 
     // THE ROTATION MUST BE PUT BACK, AND THIS NEVER DID IT.

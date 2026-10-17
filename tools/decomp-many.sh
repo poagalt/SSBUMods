@@ -16,6 +16,13 @@ export JAVA_HOME="$ROOT/vendor/tools/jdk-21.0.12.1+1"
 G="$ROOT/vendor/tools/ghidra_12.1.3_PUBLIC"
 export PATH="$JAVA_HOME/bin:$PATH"
 
+# analyzeHeadless defaults to a 2G heap (support/analyzeHeadless.bat: MAXMEM_DEFAULT=2G), which
+# is not enough for a list this size. The 32,857-function run produced 155 MB of C and the JVM
+# sat at 1.66 GB of that 2 GB; 100,508 functions produce ~470 MB, and the heap has to hold the
+# results map plus Ghidra's own program database for 100k created functions. The decompiler pool
+# itself runs as NATIVE CHILD PROCESSES, so its memory is outside this number.
+export GHIDRA_HEADLESS_MAXMEM="${GHIDRA_HEADLESS_MAXMEM:-6G}"
+
 if [ "$MOD" = "main" ]; then
     BIN="$ROOT/vendor/main/rat-main-text.bin"; SYMS="$ROOT/vendor/main/symbols-merged.txt"
     BASE=0x0; NAME=rat-main-text.bin

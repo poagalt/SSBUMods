@@ -51,13 +51,17 @@ use crate::acmd_ext as macros;
 
 # slot|source fighter dir|acmd file|acmd function name
 NORMALS="
-jab (Chrom)|chrom|Attack11|attack11
+jab (Little Mac)|littlemac|Attack11|attack11
+jab 2 (Little Mac)|littlemac|Attack12|attack12
+jab 3 (Little Mac)|littlemac|Attack13|attack13
+rapid jab (Little Mac)|littlemac|Attack100|attack100
+rapid jab end (Little Mac)|littlemac|Attack100End|attack100end
 dash attack (Mythra)|elight|AttackDash|attackdash
-f-tilt (Mythra)|elight|AttackS3|attacks3
+f-tilt (Sheik)|sheik|AttackS3|attacks3
 f-tilt up, shares the s3 game script (Mythra)|=|attacks3hi|attacks3
 f-tilt down, shares the s3 game script (Mythra)|=|attacks3lw|attacks3
 u-tilt (Falco)|falco|AttackHi3|attackhi3
-d-tilt (R.O.B.)|robot|AttackLw3|attacklw3
+d-tilt (Incineroar)|gaogaen|AttackLw3|attacklw3
 "
 
 SMASHES="
@@ -69,36 +73,45 @@ d-smash (Game & Watch)|gamewatch|AttackLw4|attacklw4
 "
 
 AERIALS="
-n-air (Palutena)|palutena|AttackAirN|attackairn
-f-air (Kazuya)|demon|AttackAirF|attackairf
+n-air (Byleth)|master|AttackAirN|attackairn
+f-air (Wolf)|wolf|AttackAirF|attackairf
 b-air (Cloud)|cloud|AttackAirB|attackairb
 u-air (Corrin)|kamui|AttackAirHi|attackairhi
-d-air (K. Rool)|krool|AttackAirLw|attackairlw
+d-air (Pyra)|eflame|AttackAirLw|attackairlw
 "
 
 THROWS="
-grab (Palutena)|palutena|Catch|catch
-dash grab (Palutena)|palutena|CatchDash|catchdash
-pivot grab (Palutena)|palutena|CatchTurn|catchturn
+grab (Charizard)|plizardon|Catch|catch
+dash grab (Charizard)|plizardon|CatchDash|catchdash
+pivot grab (Charizard)|plizardon|CatchTurn|catchturn
 pummel (Kazuya)|demon|CatchAttack|catchattack
 f-throw cargo grab (Donkey Kong)|donkey|ThrowF|throwf
 cargo throw forward (Donkey Kong)|donkey|ThrowFF|throwff
 cargo throw back (Donkey Kong)|donkey|ThrowFB|throwfb
 cargo throw up (Donkey Kong)|donkey|ThrowFHi|throwfhi
 cargo throw down (Donkey Kong)|donkey|ThrowFLw|throwflw
-b-throw (Incineroar)|gaogaen|ThrowB|throwb
+b-throw (Ness)|ness|ThrowB|throwb
 u-throw (Mewtwo)|mewtwo|ThrowHi|throwhi
+d-throw (Dr. Mario)|mariod|ThrowLw|throwlw
 "
 
 LANDINGS="
-# Pikachu has a damaging landing hit on b-air and d-air. Of the five source fighters only
-# K. Rool defines game_landingairlw at all, so the other four get an empty script whose only
-# job is to override Pikachu's and suppress the leftover hit.
-landing n (Palutena has none)|0|-|landingairn
-landing f (Kazuya has none)|0|-|landingairf
+# Pikachu has a damaging landing hit on b-air and d-air, so every aerial's landing needs a script
+# of ours even when the source has nothing to say -- an empty one overrides his and suppresses the
+# leftover hit.
+#
+# WHICH SOURCES ACTUALLY HAVE ONE IS CHECKED, NOT REMEMBERED. This list claimed Kazuya had none for
+# the f-air landing and was right when f-air was Kazuya's; f-air became FALCO's in the ten-move
+# replacement and Falco DOES define game_landingairf, so the row went on shipping an empty
+# script and the playtest reported exactly that -- falco fair landing hitbox does not come out.
+# Re-derived against the dumps every time the source changes: master defines its landing hit,
+# and cloud, kamui, eflame and WOLF do not -- wolf's LandingAirF.txt has effect, sound and
+# expression scripts and no game_ one, so f-air moving from Falco to Wolf moved this row back.
+landing n (Byleth)|master|LandingAirN|landingairn
+landing f (Wolf has none)|0|-|landingairf
 landing b (Cloud has none)|0|-|landingairb
 landing hi (Corrin has none)|0|-|landingairhi
-landing lw (K. Rool)|krool|LandingAirLw|landingairlw
+landing lw (Pyra has none)|0|-|landingairlw
 "
 
 DEFENSIVE="

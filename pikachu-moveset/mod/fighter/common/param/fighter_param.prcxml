@@ -32,6 +32,13 @@
 			<float hash="landing_attack_air_frame_b">8</float>
 			<float hash="landing_attack_air_frame_hi">9</float>
 			<float hash="landing_attack_air_frame_lw">14</float>
+			<int hash="attack_combo_max">3</int>
+			<float hash="combo_attack_12_end">30</float>
+			<float hash="combo_attack_13_end">30</float>
+			<bool hash="attack100_type">true</bool>
+			<int hash="attack_100_enable_cnt">4</int>
+			<int hash="attack_100_rebound_count">10</int>
+			<hash40 hash="attack_combo_type">fighter_combo_type_hit</hash40>
 		</struct>
 		<hash40 index="8">dummy</hash40>
 		<hash40 index="9">dummy</hash40>

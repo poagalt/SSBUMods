@@ -59,21 +59,24 @@ if [ "$n_src" -lt 10 ]; then
     exit 1
 fi
 
-copied=0
+# ONE COPY PER COSTUME, NOT ONE PER FILE, and that is the difference between 67 seconds and
+# about five. This used to `cp` each animation individually -- 75 animations into 7 costumes is
+# 525 invocations, plus a `[ -e ]` per existing file for the retire pass. Under Git Bash a process
+# spawn costs on the order of 100ms, so the spawns WERE the phase: measured at 67s of a 249s
+# build, the single largest step in it, ahead of the 25s cargo release compile.
+#
+# WIPING IS EQUIVALENT TO THE OLD RETIRE PASS, not a shortcut past it. The old loop deleted
+# anything in a costume directory that c00 does not carry, so the destination was always a subset
+# of c00 by construction -- there is nothing costume-specific in `motion/body/cNN` for this mod to
+# preserve. Removing the directory and recreating it reaches the same state in two spawns instead
+# of a hundred, and it keeps the property that mattered: a dropped animation cannot linger here
+# after it has gone from c00, which is the shipped-but-undeclared trap deploy.sh's retire list
+# exists for and which nothing else ever looks in these directories to catch.
 for c in c01 c02 c03 c04 c05 c06 c07; do
     dst="$ROOT/pikachu-moveset/mod/fighter/pikachu/motion/body/$c"
+    rm -rf "$dst"
     mkdir -p "$dst"
-    # Retire anything the mirror no longer carries, so a dropped animation cannot linger here
-    # after it has gone from c00 -- the same shipped-but-undeclared trap deploy.sh's retire list
-    # exists for, and easier to get wrong because nothing else ever looks in these directories.
-    for f in "$dst"/*; do
-        [ -e "$f" ] || continue
-        [ -e "$SRC/$(basename "$f")" ] || rm -f "$f"
-    done
-    for f in "$SRC"/*; do
-        [ -f "$f" ] || continue
-        cp "$f" "$dst/$(basename "$f")"
-        copied=$((copied+1))
-    done
+    cp -r "$SRC/." "$dst/"
 done
+copied=$(( n_src * 7 ))
 echo "  mirrored $n_src animation(s) into 7 costume(s): $copied file(s)"

@@ -4,7 +4,12 @@
 // ask the game about one at a time. Derived from tools/ported-motions.txt, which is the single
 // list of what the mod ships; see that file for why there is exactly one.
 pub const PORTED_MOTIONS: &[&str] = &[
+    "attack_100",
+    "attack_100_end",
+    "attack_100_start",
     "attack_11",
+    "attack_12",
+    "attack_13",
     "attack_air_b",
     "attack_air_f",
     "attack_air_hi",
@@ -56,6 +61,12 @@ pub const PORTED_MOTIONS: &[&str] = &[
     "special_air_lw",
     "special_air_lw_start",
     "special_air_lw_turn",
+    "special_air_n_c",
+    "special_air_n_f",
+    "special_air_n_f_max",
+    "special_air_n_h",
+    "special_air_n_jump_c",
+    "special_air_n_s",
     "special_air_s_end",
     "special_air_s_failure",
     "special_air_s_lariat",
@@ -68,6 +79,11 @@ pub const PORTED_MOTIONS: &[&str] = &[
     "special_lw",
     "special_lw_start",
     "special_lw_turn",
+    "special_n_c",
+    "special_n_f",
+    "special_n_f_max",
+    "special_n_h",
+    "special_n_s",
     "special_s_end",
     "special_s_failure",
     "special_s_lariat",
@@ -81,4 +97,5 @@ pub const PORTED_MOTIONS: &[&str] = &[
     "throw_f_hi",
     "throw_f_lw",
     "throw_hi",
+    "throw_lw",
 ];

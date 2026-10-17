@@ -117,11 +117,29 @@ fi
 # thing about the status-graph reachability test.
 own=""
 for fn in victim_still_ours still_held; do
+    # THE FILE LIST IS COMPUTED FIRST, AND AN EMPTY ONE IS HANDLED, BECAUSE AN UNGUARDED `awk`
+    # WITH NO FILE OPERANDS READS STDIN AND HANGS FOREVER.
+    #
+    # `victim_still_ours` was renamed out of the plugin at some point and nothing noticed: with no
+    # match, `$(grep -rl ...)` expanded to nothing, `awk` fell back to stdin, and the whole
+    # harness stopped at this gate. It only showed up when the harness was run with a terminal
+    # attached -- under `nohup` stdin is /dev/null, so awk saw EOF and the gate passed in
+    # silence. A check that hangs on one machine and passes vacuously on another is worse than
+    # either.
+    #
+    # A missing function is now a NOTE rather than a failure. The gate's question is "does this
+    # function ask the engine", and a function that does not exist cannot; but it is worth saying
+    # out loud, because the list above is hand-maintained and this is how it goes stale.
+    files=$(grep -rl "unsafe fn $fn" "$S" 2>/dev/null || true)
+    if [ -z "$files" ]; then
+        echo "  -   no \`unsafe fn $fn\` in the plugin; nothing to check for this one"
+        continue
+    fi
     body=$(awk -v f="unsafe fn $fn" '
         index($0, f) { inside = 1 }
         inside { print }
         inside && /^}/ { inside = 0 }
-    ' $(grep -rl "unsafe fn $fn" "$S") 2>/dev/null)
+    ' $files </dev/null 2>/dev/null)
     # Matched in bash rather than through a pipe -- see the note in tools/check.sh step 3j.
     if [[ "$body" =~ CaptureModule::(is_capture|catch_object_id)|StatusModule::status_kind ]]; then
         own="$own $fn"

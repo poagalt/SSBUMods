@@ -76,4 +76,16 @@ HDR
     printf '];\n'
 } > "$OUT"
 
+# NO TABLE MAY EXCEED 64 ROWS. src/params dedupes its "the engine asked for X" lines with one bit
+# per row in a u64, and the release build has no overflow-checks, so a 65th row would silently
+# alias row 0 and suppress one of the two announcements -- which is exactly the bug the bitsets
+# had while they were u16 against a 32-row table. Refused here, where the table is made.
+for tbl in $(sed -n 's/^pub static \([A-Z_]*\):.*/\1/p' "$OUT"); do
+    rows=$(awk -v t="pub static $tbl:" 'index($0,t)==1{f=1;next} f&&/^\];/{exit} f&&/^    \(0x/{n++} END{print n+0}' "$OUT")
+    if [ "$rows" -gt 64 ]; then
+        echo "REFUSING: $tbl has $rows rows; src/params/mod.rs tracks at most 64 per table" >&2
+        exit 1
+    fi
+done
+
 echo "  wrote $OUT: $(grep -c '^    (0x' "$OUT") param(s)"

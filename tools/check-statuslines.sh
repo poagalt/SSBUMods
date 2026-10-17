@@ -23,7 +23,12 @@
 # the status has an EXEC line.
 set -uo pipefail
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"; cd "$ROOT"
-D=vendor/ssbu-status/ghidra_scripts
+# THE COMPLETE TREE, NOT THE FIVE-FIGHTER ONE. This read `vendor/ssbu-status` until Charge Shot
+# needed samus, who is not in it -- and `vendor/ssbu-status-all` has all 284 fighters with a
+# byte-identical layout (verified: the file lists for all five of the small tree's fighters match
+# exactly). A gate whose source of truth covers five of the fighters this moveset ports from is a
+# gate that silently stops checking the sixth.
+D=vendor/ssbu-status-all/ghidra_scripts
 rc=0; missing=""; checked=0
 
 # RAT_STATUS_KIND_SPECIAL_HI_OPEN IS DELIBERATELY ABSENT FROM THE TABLE BELOW, and its absence is
@@ -61,6 +66,11 @@ RAT_STATUS_KIND_THROW_F_F|donkey|ThrowFF
 RAT_STATUS_KIND_THROW_F_B|donkey|ThrowFB
 RAT_STATUS_KIND_THROW_F_HI|donkey|ThrowFHi
 RAT_STATUS_KIND_THROW_F_LW|donkey|ThrowFLw
+RAT_STATUS_KIND_SPECIAL_N_H|samus|SpecialNH
+RAT_STATUS_KIND_SPECIAL_N_C|samus|SpecialNC
+RAT_STATUS_KIND_SPECIAL_N_E|samus|SpecialNE
+RAT_STATUS_KIND_SPECIAL_N_F|samus|SpecialNF
+RAT_STATUS_KIND_SPECIAL_N_JUMP_CANCEL|samus|SpecialNJumpCancel
 "
 
 while IFS='|' read -r kind f dir; do

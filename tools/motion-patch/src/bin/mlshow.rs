@@ -69,8 +69,49 @@ fn main() {
     // scripts, which is legitimate for a vanilla entry the game deliberately shares and is a bug
     // for one we synthesised.
     if a.get(1).map(|s| s == "--all-scripts").unwrap_or(false) {
-        let only: Vec<&str> = a[2..].iter().map(|s| s.as_str()).collect();
+        // `--vanilla <motion_list.bin>` NARROWS THE TEST FROM A PROXY TO THE REAL INVARIANT, and
+        // Samus's Charge Shot is what forced it.
+        //
+        // The rule this mode enforces is "a synthesised entry must not run one of PIKACHU'S OWN
+        // scripts" -- that is what hid the up-B, when `special_hi_open` inherited
+        // `expression_specialairhi1` and Quick Attack's expression script called
+        // `VisibilityModule::set_whole(false)`. The test for it was "the script base equals the
+        // entry's own name", which is a PROXY: it holds whenever a source fighter names her
+        // scripts after her motions, and every donor did until samus.
+        //
+        // Hers do not. `special_n_s` names `game_specialnstart` and `special_n_f` names
+        // `game_specialnfire`, IN HER OWN MOTION LIST. Copying them verbatim is correct -- it is
+        // what synth.rs's header argues for -- and the result is a name Pikachu has no script
+        // under, which resolves to nothing and runs nothing. Under the proxy that reads as eleven
+        // failures.
+        //
+        // So with a vanilla list to check against, a mismatch is a FAILURE only when the name it
+        // resolves to is one PIKACHU ACTUALLY HAS. Anything else is reported and counted
+        // separately: absent, therefore a no-op, therefore the state synth.rs deliberately aims
+        // for. Without the flag the old behaviour is unchanged.
+        let mut vanilla: std::collections::HashSet<u64> = std::collections::HashSet::new();
+        let mut have_vanilla = false;
+        let mut only: Vec<&str> = Vec::new();
+        let mut ai = 2usize;
+        while ai < a.len() {
+            if a[ai] == "--vanilla" {
+                let path = a.get(ai + 1).expect("--vanilla needs a motion_list.bin");
+                let v = motion_lib::open(path).expect("open vanilla motion_list");
+                for m in v.list.values() {
+                    vanilla.insert(m.game_script.0);
+                    for sc in &m.scripts {
+                        vanilla.insert(sc.0);
+                    }
+                }
+                have_vanilla = true;
+                ai += 2;
+                continue;
+            }
+            only.push(a[ai].as_str());
+            ai += 1;
+        }
         let mut wrong = 0usize;
+        let mut absent = 0usize;
         let mut checked = 0usize;
         for want in &only {
             let h = hash40(want);
@@ -82,8 +123,19 @@ fn main() {
             checked += 1;
             let base: String = want.chars().filter(|c| *c != '_').collect();
             let mut bad: Vec<String> = Vec::new();
+            let mut foreign: Vec<String> = Vec::new();
+            // Which bucket a mismatch lands in. Without `--vanilla` everything is a failure,
+            // exactly as before.
+            let mut note = |h: u64, what: String, bad: &mut Vec<String>, foreign: &mut Vec<String>| {
+                if have_vanilla && !vanilla.contains(&h) {
+                    foreign.push(what);
+                } else {
+                    bad.push(what);
+                }
+            };
             if m.game_script.0 != hash40(&format!("game_{base}")).0 {
-                bad.push(format!("game_script={}", name_of(m.game_script.0)));
+                note(m.game_script.0, format!("game_script={}", name_of(m.game_script.0)),
+                     &mut bad, &mut foreign);
             }
             // The order of `scripts` is not fixed, so this asks whether the SET is right rather
             // than matching position by position.
@@ -93,16 +145,35 @@ fn main() {
                 .collect();
             for s in &m.scripts {
                 if !want_set.contains(&s.0) {
-                    bad.push(format!("scripts has {}", name_of(s.0)));
+                    note(s.0, format!("scripts has {}", name_of(s.0)), &mut bad, &mut foreign);
                 }
             }
-            if bad.is_empty() {
-                continue;
+            if !bad.is_empty() {
+                wrong += 1;
+                println!("{want:<26} {}", bad.join(", "));
+            } else if !foreign.is_empty() {
+                absent += 1;
+                println!(
+                    // NOT "resolves to nothing", WHICH WOULD BE FALSE FOR THE `game_` NAME.
+                    // The moveset registers its own `game_specialnstart` and friends through
+                    // smashline, so those DO run -- they are just not Pikachu's. The trio
+                    // (expression/sound/effect) really is absent, which is the safe state. What
+                    // this line asserts is only the thing that matters: none of them is one of
+                    // HIS.
+                    "  -   {want:<22} names {} -- none of them one of pikachu's own, so each                      runs this moveset's own registration or nothing",
+                    foreign.join(", ")
+                );
             }
-            wrong += 1;
-            println!("{want:<26} {}", bad.join(", "));
         }
-        println!("\n{wrong} of {checked} entry(ies) name another motion's scripts");
+        if have_vanilla {
+            println!();
+            println!(
+                "{wrong} of {checked} entry(ies) run one of pikachu's own scripts ({absent} name a script he does not have, which is a no-op)"
+            );
+        } else {
+            println!();
+            println!("{wrong} of {checked} entry(ies) name another motion's scripts");
+        }
         std::process::exit(if wrong > 0 { 1 } else { 0 });
     }
 

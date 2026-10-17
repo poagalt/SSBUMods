@@ -88,6 +88,17 @@ next `conflicts.json` still listed `sd:/ultimate/mods/.Ken Sugimori style Pikach
 entries. The dot-prefix convention comes from older loaders; 4.x uses workspaces/presets. Moving
 the folder outside `ultimate/mods/` is what actually works.
 
+**And renaming does NOT disable a SKYLINE PLUGIN either — Skyline loads EVERY file in
+`romfs/skyline/plugins/`, whatever its extension.** Found on 2026-09-17 while trying to isolate a
+crash: `librat_of_doom.nro` was renamed to `librat_of_doom.nro.bak` on the assumption that only
+`*.nro` is loaded. The next boot ran the moveset anyway — `rat-telemetry.log` grew from 204 bytes
+to 71,450 with a full SELFTEST and live MIRROR lines — so the "plugin disabled" control run was
+never a control at all, and would have been read as "the platform crashes even without the mod"
+had it crashed.
+
+The same rule as the mods directory applies: **move the file OUT of `plugins/`**, do not rename it
+in place. And a `.bak` left in that directory is not inert, it is a second loaded plugin.
+
 It conflicted with this mod on six files:
 `fighter/pikachu/model/body/c00/model.{adjb,numatb,numdlb,numshb,numshexb,nusktb}`. Only one mod
 can own those, and ours carries the Falchion mesh. Re-enabling it means the restyle wins and the

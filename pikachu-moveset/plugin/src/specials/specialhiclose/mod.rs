@@ -40,6 +40,9 @@ unsafe extern "C" fn pikachu_specialhiclose_pre(fighter: &mut L2CFighterCommon) 
 }
 
 unsafe extern "C" fn pikachu_specialhiclose_main(fighter: &mut L2CFighterCommon) -> L2CValue {
+    // SOURCE (SpecialHiClose_main, 0x710000dd10): the parachute folds with its own
+    // `special_hi_close`, (false, -1.0), ahead of the body's motion of the same name.
+    crate::articles::change_motion(fighter.module_accessor, "parachute", Hash40::new("special_hi_close"), false, -1.0);
     MotionModule::change_motion(fighter.module_accessor, Hash40::new("special_hi_close"), 0.0, 1.0, false, 0.0, false, false);
     fighter.sub_shift_status_main(L2CValue::Ptr(pikachu_specialhiclose_main_loop as *const () as _))
 }
@@ -72,6 +75,9 @@ unsafe extern "C" fn pikachu_specialhiclose_end(fighter: &mut L2CFighterCommon) 
         let jump_count_max = WorkModule::get_int(fighter.module_accessor, *FIGHTER_INSTANCE_WORK_ID_INT_JUMP_COUNT_MAX);
         WorkModule::set_int(fighter.module_accessor, jump_count_max, *FIGHTER_INSTANCE_WORK_ID_INT_JUMP_COUNT);
     }
+    // SOURCE (SpecialHiClose_end, 0x710000dee0): unconditionally, after the branch above -- this
+    // is the end of the parachute's life on every path out of the close.
+    crate::articles::remove_exist(fighter.module_accessor, "parachute", ArticleOperationTarget(*ARTICLE_OPE_TARGET_ALL));
     0.into()
 }
 

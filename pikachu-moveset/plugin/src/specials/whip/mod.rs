@@ -743,20 +743,23 @@ unsafe extern "C" fn special_s_main(fighter: &mut L2CFighterCommon) -> L2CValue 
         whip_move_flags(fighter, false);
     }
 
-    // DELIBERATELY NOT TRANSCRIBED: `GroundModule::select_cliff_hangdata` at 0x71000043c4.
+    // SOURCE: `GroundModule::select_cliff_hangdata` at 0x71000043c4, GATED (WHIP_CLIFF_HANGDATA).
     //
-    // Its argument is `lua_const[0xb610]`, which is not one of the 19,310 offsets
-    // `vendor/ssbu-status/lua_dict.txt` names -- but the dict makes the shape unmistakable, because
-    // every constant of this family is fighter-scoped:
+    // Its argument is `lua_const[0xb610]` = FIGHTER_GAOGAEN_CLIFF_HANG_DATA_SPECIAL_S = 1
+    // (vendor/main/lua-const-table.tsv): an INDEX into the fighter's own `cliff_hang_data` list in
+    // vl.prc, which native GroundModule code reads. Incineroar's list has four boxes; Pikachu's has
+    // one, so passing 1 on its own would index past the end of his -- which is why this was omitted
+    // until the box could be put there. `tools/gen-vlprc.sh` now does that when this flag is on:
+    // Incineroar's [1] becomes Pikachu's [1], scaled 1.00/0.96, beside his own [0].
     //
-    //     3380:FIGHTER_LINK_CLIFF_HANG_DATA_AIR_LASSO
-    //     5598:FIGHTER_FOX_CLIFF_HANG_DATA_SPECIAL_S
-    //
-    // So 0xb610 is `FIGHTER_GAOGAEN_CLIFF_HANG_DATA_SPECIAL_S`: an index into GAOGAEN's own
-    // cliff-hang data table. It is exactly the class of value ADR 0006's rule forbids reusing --
-    // Pikachu's table has no whip entry, and passing gaogaen's index would select whatever happens
-    // to sit at that index for him. Omitted rather than guessed; the cost is that the whip does not
-    // get its own ledge-grab box while it runs, which is a bounded, stated gap.
+    // NO RESET IS ADDED, because the source has none: neither this status, nor any other in
+    // lua2cpp_gaogaen, nor anything in lua2cpp_common outside the air-lasso statuses calls it again
+    // (tools/code-index.py callers ... GroundModule__select_cliff_hangdata_impl). Whatever the
+    // engine does with the selection afterwards, it then does for Pikachu exactly what it does for
+    // Incineroar -- ADR 0006: transcribe the call, not its consequences.
+    if WHIP_CLIFF_HANGDATA {
+        GroundModule::select_cliff_hangdata(boma, WHIP_CLIFF_HANGDATA_INDEX);
+    }
     fighter.sub_shift_status_main(L2CValue::Ptr(special_s_main_loop as *const () as _))
 }
 
@@ -2258,6 +2261,20 @@ unsafe fn whip_followup_loop(fighter: &mut L2CFighterCommon) -> L2CValue {
 unsafe extern "C" fn followup_main_loop(fighter: &mut L2CFighterCommon) -> L2CValue {
     whip_followup_loop(fighter)
 }
+
+/// Whether the whip selects its own ledge-grab box, as Incineroar's SPECIAL_S main does (see the
+/// SOURCE note at the end of `special_s_main`).
+///
+/// OFF BY DEFAULT, AND ARMING IT IS A SINGLE-VARIABLE EXPERIMENT FOR A WATCHED BOOT. It needs the
+/// box at index 1 of Pikachu's vl.prc, and `tools/gen-vlprc.sh` ships that file exactly when this
+/// line reads `true` -- it greps this line, so the flag and the file cannot disagree. The last
+/// vl.prc this mod shipped crashed on fighter load and that cause is not settled (gen-vlprc.sh's
+/// header and check.sh 3b read it differently), so the observable on arming is, first, that
+/// Pikachu loads at all, and then how the whip behaves at a ledge against Incineroar's.
+pub const WHIP_CLIFF_HANGDATA: bool = false;
+/// `FIGHTER_GAOGAEN_CLIFF_HANG_DATA_SPECIAL_S` (const-table offset 0xb610, value 1): the index the
+/// source passes, and the one `gen-vlprc.sh` asserts the appended box lands at.
+const WHIP_CLIFF_HANGDATA_INDEX: u32 = 1;
 
 /// All six statuses, pre / main / end, each transcribed from the address named on it.
 ///

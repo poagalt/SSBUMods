@@ -5,7 +5,7 @@ version = 4
 [[package]]
 name = "acmd-engine"
 version = "0.1.0"
-source = "git+https://github.com/HDR-Development/smashline#fdc151fcef981b09d4ab4b4ba62ca1a8850022a2"
+source = "git+https://github.com/HDR-Development/smashline?rev=df194a03b918116adb7bda1c2b4565dcd82a4756#df194a03b918116adb7bda1c2b4565dcd82a4756"
 dependencies = [
  "hash40",
  "locks",
@@ -227,8 +227,8 @@ checksum = "1256a11d163c7288d94909f8120ede53294d8c233df314b0e4f01cf0269707da"
 
 [[package]]
 name = "locks"
-version = "1.6.7"
-source = "git+https://github.com/HDR-Development/smashline#fdc151fcef981b09d4ab4b4ba62ca1a8850022a2"
+version = "1.6.6"
+source = "git+https://github.com/HDR-Development/smashline?rev=df194a03b918116adb7bda1c2b4565dcd82a4756#df194a03b918116adb7bda1c2b4565dcd82a4756"
 dependencies = [
  "skyline",
 ]
@@ -465,7 +465,7 @@ dependencies = [
 [[package]]
 name = "smashline"
 version = "0.1.0"
-source = "git+https://github.com/HDR-Development/smashline#fdc151fcef981b09d4ab4b4ba62ca1a8850022a2"
+source = "git+https://github.com/HDR-Development/smashline?rev=df194a03b918116adb7bda1c2b4565dcd82a4756#df194a03b918116adb7bda1c2b4565dcd82a4756"
 dependencies = [
  "acmd-engine",
  "locks",
@@ -477,7 +477,7 @@ dependencies = [
 [[package]]
 name = "smashline-macro"
 version = "0.1.0"
-source = "git+https://github.com/HDR-Development/smashline#fdc151fcef981b09d4ab4b4ba62ca1a8850022a2"
+source = "git+https://github.com/HDR-Development/smashline?rev=df194a03b918116adb7bda1c2b4565dcd82a4756#df194a03b918116adb7bda1c2b4565dcd82a4756"
 dependencies = [
  "proc-macro-crate",
  "proc-macro-error",

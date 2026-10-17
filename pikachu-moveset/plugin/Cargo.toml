@@ -14,7 +14,16 @@ crate-type = ["cdylib"]
 skyline = { git = "https://github.com/ultimate-research/skyline-rs" }
 skyline_smash = { git = "https://github.com/ultimate-research/skyline-smash", features = ["weak_l2cvalue"] }
 smash_script = { git = "https://github.com/WuBoytH/smash-script", branch = "development" }
-smashline = { git = "https://github.com/HDR-Development/smashline" }
+# PINNED TO THE RUNTIME ON THE CARD, AND IT MUST STAY THAT WAY.
+# smashline carries hardcoded `main` offsets -- `create_agent.rs` registers status scripts at
+# literal addresses and `crates/resources` reads FilesystemInfo at one -- so the crate compiled
+# into this plugin is game-version-specific, not just an ABI shim. An unpinned git dependency
+# silently takes master, which is how a 13.0.5 crate (fdc151fce) ended up talking to a 13.0.4
+# runtime (v1.6.6) on the second console.
+#   df194a03 = v1.6.6  -> Smash 13.0.4   (the second console)
+#   fdc151fc = v1.6.7+ -> Smash 13.0.5   (the development card)
+# Change this line AND the runtime .nro together; they are one decision.
+smashline = { git = "https://github.com/HDR-Development/smashline", rev = "df194a03b918116adb7bda1c2b4565dcd82a4756" }
 smash_singletons = { git = "https://github.com/WuBoytH/smash_singletons.git" }
 
 [profile.dev]

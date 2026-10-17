@@ -38,3 +38,7 @@ work/acquire/
 
 # Reference clones (param-labels, motion lists, prc-rs), 58 MB, see tools/fetch-refs.sh.
 vendor/refs/
+
+# Python bytecode from tools/*.py
+__pycache__/
+*.pyc

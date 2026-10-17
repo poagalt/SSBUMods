@@ -22,10 +22,20 @@ ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 HOST=<console-ip>
 PORT=5000
 B="ftp://$HOST:$PORT"
+
+# CREDENTIALS, THE SAME ONES tools/deploy.sh USES. Anonymous access worked for a while and then
+# stopped with `430 Access denied`, which reads like a data-connection fault and is not one -- it
+# is authentication. deploy.sh has always read this file; these tools never did, so they broke the
+# first time the server wanted a login and the error pointed nowhere near the cause.
+FTP_USER="${FTP_USER:-poaga}"
+FTP_PASS="$(cat "$ROOT/.ftp-credentials.local" 2>/dev/null | tr -d '\r\n')"
+CURL_AUTH=()
+[ -n "$FTP_PASS" ] && CURL_AUTH=(-u "$FTP_USER:$FTP_PASS")
+
 OUT="$ROOT/work/crash"
 mkdir -p "$OUT"
 
-if ! curl -s --connect-timeout 5 --max-time 10 -l "$B/" >/dev/null 2>&1; then
+if ! curl -s "${CURL_AUTH[@]}" --connect-timeout 5 --max-time 10 -l "$B/" >/dev/null 2>&1; then
     echo "no FTP on $HOST:$PORT."
     echo "Smash must be closed and ftpd-classic relaunched (hbmenu -> ftpd) before this can run."
     exit 1
@@ -37,7 +47,7 @@ pull_dir() {
     echo
     echo "== $label ($remote) =="
     local listing
-    listing=$(curl -s --max-time 30 -l "$B$enc/" 2>/dev/null | tr -d '\r' | grep -v '^\.\{1,2\}$' || true)
+    listing=$(curl -s "${CURL_AUTH[@]}" --max-time 30 -l "$B$enc/" 2>/dev/null | tr -d '\r' | grep -v '^\.\{1,2\}$' || true)
     if [ -z "$listing" ]; then
         echo "  (empty or absent)"
         return
@@ -54,7 +64,7 @@ pull_dir() {
         [ -z "$f" ] && continue
         local fenc="${f// /%20}"
         printf "  %-44s " "$f"
-        if curl -s --max-time 60 -o "$OUT/$f" "$B$enc/$fenc" 2>/dev/null; then
+        if curl -s "${CURL_AUTH[@]}" --max-time 60 -o "$OUT/$f" "$B$enc/$fenc" 2>/dev/null; then
             echo "$(wc -c < "$OUT/$f") bytes"
         else
             echo "FAILED"
@@ -71,7 +81,7 @@ echo "== Skyline log =="
 for p in /skyline/log.txt /atmosphere/logs/skyline.log /skyline.log; do
     enc="${p// /%20}"
     printf "  %-44s " "$p"
-    if curl -s --max-time 30 -o "$OUT/skyline-latest.txt" "$B$enc" 2>/dev/null \
+    if curl -s "${CURL_AUTH[@]}" --max-time 30 -o "$OUT/skyline-latest.txt" "$B$enc" 2>/dev/null \
        && [ -s "$OUT/skyline-latest.txt" ]; then
         echo "$(wc -c < "$OUT/skyline-latest.txt") bytes"
         break

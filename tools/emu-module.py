@@ -50,8 +50,13 @@ WORK = os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "work", "e
 BASE = 0x4DD3C04000
 SEGS = [
     # name      file                   module offset  size        prot
-    ("text",   "rat-main-text.bin",   0x0000000,     0x39C9000,  "rx"),
-    ("rodata", "rat-main-rodata.bin", 0x39C9000,     0x154E000,  "r"),
+    ("text",   "rat-main-text.bin",   0x0000000,     0x39C9000,  "rwx"),  # rwx for the
+    # same reason as rodata: one registering function stores through a pointer that
+    # lands in .text. Instructions are decoded from the file copy, not from Unicorn,
+    # so a stray write cannot change what this tool reads.
+    ("rodata", "rat-main-rodata.bin", 0x39C9000,     0x154E000,  "rw"),  # rw: one
+    # registering function writes into its own .rodata-adjacent statics, and read-only
+    # mapping cost 6,227 constants. Nothing here depends on catching stray writes.
     ("data",   "rat-main-data.bin",   0x4F17000,     0x0393000,  "rw"),
     ("bss",    "rat-main-bss.bin",    0x52AA000,     0x219E000,  "rw"),
 ]
@@ -235,12 +240,13 @@ def cmd_find(args):
 
 def build_uc():
     from unicorn import Uc, UC_ARCH_ARM64, UC_MODE_ARM, UC_PROT_READ, UC_PROT_WRITE, \
-        UC_PROT_EXEC, UC_HOOK_MEM_UNMAPPED
+        UC_PROT_EXEC, UC_PROT_ALL, UC_HOOK_MEM_UNMAPPED
     from unicorn.arm64_const import UC_ARM64_REG_SP
 
     uc = Uc(UC_ARCH_ARM64, UC_MODE_ARM)
     prot_map = {"r": UC_PROT_READ, "rw": UC_PROT_READ | UC_PROT_WRITE,
-                "rx": UC_PROT_READ | UC_PROT_EXEC}
+                "rx": UC_PROT_READ | UC_PROT_EXEC,
+                "rwx": UC_PROT_ALL}
     for name, fn, off, size, prot in SEGS:
         with open(os.path.join(VENDOR, fn), "rb") as f:
             blob = f.read()
@@ -283,49 +289,142 @@ def read_cstr(uc, addr, limit=512):
     return out.decode("latin-1")
 
 
-def cmd_consts(args):
-    """Emulate the registering function; record every constant it registers.
+def function_extent(addr, entries, cap=0x200000):
+    """[start, end) for a function, from the sorted entry-point list.
 
-    The register call is hooked by ADDRESS (found by `find`), and each call carries
-    x1 = name string, x2 = value. Returning immediately from it keeps the registering
-    function walking its list instead of descending into the game's allocator.
+    Functions are contiguous in .text, so the next entry point after `addr` is this
+    one's end. Capped, because the last function in a run has no successor.
+    """
+    import bisect
+    i = bisect.bisect_right(entries, addr)
+    end = entries[i] if i < len(entries) else addr + cap
+    return addr, min(end, addr + cap)
+
+
+def emulate_body(uc, start, end, text, on_call, scratch):
+    """Run ONE function's own instructions, and let no other code run at all.
+
+    Every `bl`/`blr`/`br` is skipped rather than entered, with `on_call(target)` given
+    the chance to read the arguments first. This is the difference between 1,107
+    constants and all of them: emulating the registering function for real means the
+    first allocator call returns garbage, a vtable dispatch off that garbage jumps to
+    an address that is not code, and the run dies 1,107 entries into a list of 3,338.
+
+    Skipping is sound HERE specifically because the registration arguments are built
+    in the registering function itself -- `x1` from an `adrp`/`add` pair against
+    .rodata, `w2` from an immediate -- and never come back from a callee. Nothing this
+    reads depends on a call's return value.
+    """
+    from unicorn import UC_HOOK_CODE, UC_SECOND_SCALE, UcError
+    from unicorn.arm64_const import UC_ARM64_REG_PC, UC_ARM64_REG_X0, UC_ARM64_REG_LR, \
+        UC_ARM64_REG_SP
+
+    state = {"insns": 0, "calls": 0}
+
+    def hook(uc, address, size, user):
+        state["insns"] += 1
+        off = address - BASE
+        if not (0 <= off < TEXT_SZ - 4):
+            return
+        w = struct.unpack_from("<I", text, off)[0]
+        is_bl = (w & 0xFC000000) == 0x94000000
+        is_reg_ind = (w & 0xFFFFFC1F) in (0xD63F0000, 0xD61F0000)
+        if not (is_bl or is_reg_ind):
+            return
+        target = None
+        if is_bl:
+            imm = w & 0x03FFFFFF
+            if imm & (1 << 25):
+                imm -= 1 << 26
+            target = off + imm * 4
+        state["calls"] += 1
+        on_call(uc, target, address)
+        # Pretend the call happened and returned. x0 gets a writable scratch pointer
+        # so that a returned-object pattern does not fault on the next store.
+        uc.reg_write(UC_ARM64_REG_X0, scratch)
+        uc.reg_write(UC_ARM64_REG_PC, address + 4)
+
+    h = uc.hook_add(UC_HOOK_CODE, hook, begin=BASE + start, end=BASE + end)
+    uc.reg_write(UC_ARM64_REG_SP, STACK_BASE + STACK_SZ - 0x20000)
+    uc.reg_write(UC_ARM64_REG_X0, scratch)
+    uc.reg_write(UC_ARM64_REG_LR, BASE + end)      # returning ends the run
+    why = "ok"
+    try:
+        uc.emu_start(BASE + start, BASE + end, timeout=120 * UC_SECOND_SCALE,
+                     count=50_000_000)
+    except UcError as e:
+        why = str(e)
+    except Exception as e:                          # noqa: BLE001 - a hook can raise
+        why = f"hook: {e}"
+    uc.hook_del(h)
+    return state, why
+
+
+def cmd_consts(args):
+    """Emulate every registering function; record each constant it registers.
+
+    13.0.5 spreads the lua constant table over 55 functions, not the one the 2.0.0
+    reference hardcoded -- `find` located the register function at 0x37289c0 and a
+    scan for its 40,338 call sites attributes them to 55 owners (work/emu/regfuncs.txt).
+    Each call carries x0 = a stack local, x1 = the name string, w2 = the value.
+    Returning straight out of it keeps the registering function walking its list
+    instead of descending into the game's allocator.
+
+    The code hook is installed with begin == end == the register address, so Unicorn
+    only calls back into Python 40,338 times instead of once per instruction. That is
+    the difference between minutes and a day: a per-instruction Python hook runs at a
+    few hundred thousand instructions a second, the JIT at tens of millions.
     """
     from unicorn import UC_HOOK_CODE, UC_SECOND_SCALE, UcError
     from unicorn.arm64_const import UC_ARM64_REG_X1, UC_ARM64_REG_X2, UC_ARM64_REG_LR, \
-        UC_ARM64_REG_PC
+        UC_ARM64_REG_PC, UC_ARM64_REG_SP, UC_ARM64_REG_X0
 
     os.makedirs(WORK, exist_ok=True)
-    entry = BASE + int(args.entry, 16)
     reg = BASE + int(args.register, 16)
-    out_path = os.path.join(WORK, "consts-1305.csv")
+
+    if args.entry:
+        entries = [(int(args.entry, 16), 0)]
+    else:
+        entries = []
+        with open(os.path.join(WORK, "regfuncs.txt")) as f:
+            for ln in f:
+                p = ln.split()
+                entries.append((int(p[0], 16), int(p[1])))
+    log(f"{len(entries)} registering function(s), register at 0x{reg:x}")
+
     uc = build_uc()
-    log(f"entry 0x{entry:x}  register 0x{reg:x}")
-
-    seen = []
-    state = {"n": 0, "last": time.time()}
+    _, text = seg_bytes("text")
+    all_eps = sorted(known_entrypoints() | set(
+        int(l, 16) for l in open(os.path.join(WORK, "ptr-entrypoints.txt"))))
+    out_path = os.path.join(WORK, "consts-1305.csv")
     out = open(out_path, "w", buffering=1)
+    out.write("# lua constants recovered from 13.0.5 main by emulating its registration\n")
+    out.write("# kind,hash40,name,value,registering_function\n")
+    seen = {}
+    cur = {"fn": 0}
+    reg_off = int(args.register, 16)
 
-    def hook(uc, address, size, user):
-        state["n"] += 1
-        if address == reg:
-            x1 = uc.reg_read(UC_ARM64_REG_X1)
-            x2 = uc.reg_read(UC_ARM64_REG_X2)
-            name = read_cstr(uc, x1)
-            if name:
-                out.write('CONST,0x%010X,"%s",0x%X\n' % (hash40(name), name, x2))
-                seen.append(name)
-            uc.reg_write(UC_ARM64_REG_PC, uc.reg_read(UC_ARM64_REG_LR))
-        if state["n"] % 2000000 == 0:
-            log(f"  {state['n']/1e6:.0f}M instructions, {len(seen)} constants")
+    def on_call(uc, target, site):
+        if target != reg_off:
+            return
+        x1 = uc.reg_read(UC_ARM64_REG_X1)
+        x2 = uc.reg_read(UC_ARM64_REG_X2) & 0xFFFFFFFF
+        name = read_cstr(uc, x1)
+        if name and name not in seen:
+            seen[name] = x2
+            out.write('CONST,0x%010X,"%s",0x%X,0x%x\n'
+                      % (hash40(name), name, x2, cur["fn"]))
 
-    uc.hook_add(UC_HOOK_CODE, hook)
-    try:
-        uc.emu_start(entry, 0, timeout=args.timeout * UC_SECOND_SCALE,
-                     count=args.max_insns)
-    except UcError as e:
-        log(f"stopped: {e}")
+    t0 = time.time()
+    for i, (addr, expect) in enumerate(entries):
+        cur["fn"] = addr
+        before = len(seen)
+        start, end = function_extent(addr, all_eps)
+        st, why = emulate_body(uc, start, end, text, on_call, HEAP_BASE + 0x100000)
+        log(f"  [{i+1}/{len(entries)}] 0x{addr:x} +0x{end-start:<6x} expected {expect:5d} "
+            f"got {len(seen)-before:5d} ({len(seen)} total) {st['insns']} insns {why}")
     out.close()
-    log(f"{len(seen)} constants -> {out_path} ({state['n']} instructions)")
+    log(f"{len(seen)} distinct constants -> {out_path} in {time.time()-t0:.0f}s")
     return 0
 
 
@@ -341,7 +440,7 @@ def cmd_indirect(args):
     Resumable at entry-point granularity: done addresses are appended to a progress
     file and skipped on restart.
     """
-    from unicorn import UC_HOOK_CODE, UC_SECOND_SCALE, UcError
+    from unicorn import UC_HOOK_BLOCK, UC_SECOND_SCALE, UcError
     from unicorn.arm64_const import UC_ARM64_REG_X0, UC_ARM64_REG_SP, UC_ARM64_REG_LR
 
     os.makedirs(WORK, exist_ok=True)
@@ -365,35 +464,70 @@ def cmd_indirect(args):
     uc = build_uc()
     _, text = seg_bytes("text")
     targets = {}
+    if os.path.exists(out_path):            # so a resumed run does not re-append
+        with open(out_path) as f:
+            for ln in f:
+                if ln.startswith("0x"):
+                    targets[int(ln.split()[0], 16)] = -1
+        log(f"resuming: {len(targets)} targets already recorded")
     out = open(out_path, "a", buffering=1)
     prog = open(prog_path, "a", buffering=1)
 
-    cur = {"pc": 0}
+    cur = {"pc": 0, "prev_end": 0}
 
     def hook(uc, address, size, user):
-        # Read the instruction about to run; BLR/BR name their target in a register.
-        off = address - BASE
-        if not (0 <= off < TEXT_SZ - 4):
-            return
-        w = struct.unpack_from("<I", text, off)[0]
-        if (w & 0xFFFFFC1F) == 0xD63F0000 or (w & 0xFFFFFC1F) == 0xD61F0000:  # BLR / BR Xn
-            rn = (w >> 5) & 0x1F
-            try:
-                from unicorn.arm64_const import UC_ARM64_REG_X0 as R0
-                tgt = uc.reg_read(R0 + rn) if rn < 29 else 0
-            except Exception:
-                return
-            if BASE <= tgt < BASE + TEXT_SZ and (tgt - BASE) % 4 == 0:
-                t = tgt - BASE
-                if t not in targets:
-                    targets[t] = cur["pc"]
-                    out.write("0x%010x from 0x%010x\n" % (t, cur["pc"]))
+        """Per BLOCK, not per instruction -- the only way this finishes in hours.
 
-    uc.hook_add(UC_HOOK_CODE, hook)
+        A block hook fires on each basic block entered. If the previous block ENDED
+        in `blr`/`br Xn`, then this block's start address is where that register
+        pointed, which is the resolved indirect target. Reading it here costs one
+        callback per block instead of one per instruction (~100x fewer), and needs
+        no register read at all.
+        """
+        pe = cur["prev_end"]
+        cur["prev_end"] = address + size
+        if pe:
+            off = pe - 4 - BASE
+            if 0 <= off < TEXT_SZ - 4:
+                w = struct.unpack_from("<I", text, off)[0]
+                # BLR Xn (D63F0000) is a CALL, so its target is a function entry by
+                # definition. BR Xn (D61F0000) is not: the compiler emits it for switch
+                # jump tables and tail calls, so most of its targets are blocks INSIDE a
+                # function. Recording both together made 712 of 724 "new entry points"
+                # jump-table labels -- only 12 of the 724 had a stack prologue. Tag the
+                # kind and let the reader filter.
+                op = w & 0xFFFFFC1F
+                if op in (0xD63F0000, 0xD61F0000):
+                    kind = "blr" if op == 0xD63F0000 else "br"
+                    t = address - BASE
+                    if 0 <= t < TEXT_SZ and t % 4 == 0 and t not in targets:
+                        targets[t] = cur["pc"]
+                        out.write("0x%010x %s from 0x%010x\n" % (t, kind, cur["pc"]))
+
+    uc.hook_add(UC_HOOK_BLOCK, hook)
+
+    # Restoring .data/.bss periodically, rather than per seed or never. One Uc is
+    # reused across every seed because mapping 90 MB costs ~1s and there are 100,508
+    # of them -- but a seed that stores through a garbage pointer dirties the very
+    # vtables the next seed needs, so the writable segments go back to their
+    # as-dumped state every RESTORE_EVERY seeds. That costs ~10 ms.
+    RESTORE_EVERY = 2000
+    _, data_blob = seg_bytes("data")
+    _, bss_blob = seg_bytes("bss")
+
+    def restore():
+        uc.mem_write(BASE + 0x4F17000, data_blob[:0x393000])
+        uc.mem_write(BASE + 0x52AA000, bss_blob)
 
     t0 = time.time()
     for i, a in enumerate(todo):
+        if i % RESTORE_EVERY == 0:
+            restore()
         cur["pc"] = a
+        # Without this the first block of a new seed looks like it followed the last
+        # block of the previous one, and if THAT ended in a `blr` the seed's own entry
+        # gets recorded as an indirect target. A false entry point, from bookkeeping.
+        cur["prev_end"] = 0
         uc.reg_write(UC_ARM64_REG_SP, STACK_BASE + STACK_SZ - 0x10000)
         uc.reg_write(UC_ARM64_REG_X0, HEAP_BASE + 0x10000)   # a plausible `this`
         uc.reg_write(UC_ARM64_REG_LR, BASE)                  # return lands in .text[0]
@@ -415,6 +549,49 @@ def cmd_indirect(args):
     return 0
 
 
+def cmd_table(args):
+    """Join the const-table offsets to the values `consts` recovered.
+
+    Every fighter's status code reads its constants as `ldr wN, [xTABLE, #off]` out of one i32
+    array, so a disassembly shows offsets and nothing else. `vendor/ssbu-status/lua_dict.txt`
+    gives offset -> NAME; `consts` gives NAME -> value. Joining them makes any such load
+    readable without a running game, which is what `lua_const[0x250]` needed for this whole
+    project -- it is STATUS_KIND_NONE = 0xFFFFFFFF.
+    """
+    dict_path = os.path.join(os.path.dirname(VENDOR), "ssbu-status", "lua_dict.txt")
+    csv_path = os.path.join(WORK, "consts-1305.csv")
+    out_path = os.path.join(WORK, "lua-const-table-1305.tsv")
+    if not os.path.exists(dict_path):
+        log(f"missing {dict_path} -- see handbook/sources-of-truth.md")
+        return 1
+
+    import csv as _csv
+    vals = {}
+    with open(csv_path, newline="") as f:
+        for row in _csv.reader(f):
+            if row and row[0] == "CONST":
+                vals[row[2]] = row[3]
+    log(f"{len(vals)} constants with values")
+
+    named = resolved = 0
+    with open(dict_path) as f, open(out_path, "w") as out:
+        out.write("# offset\tname\tvalue\t(13.0.5 const_value_table__ byte offsets)\n")
+        for ln in f:
+            ln = ln.strip()
+            if not ln or ":" not in ln:
+                continue
+            off, name = ln.split(":", 1)
+            # The offsets in lua_dict.txt are HEX WITHOUT a 0x prefix. Parsing them as decimal
+            # fails on the first one containing a letter, which is the third line of the file.
+            named += 1
+            v = vals.get(name)
+            if v:
+                resolved += 1
+            out.write("0x%x\t%s\t%s\n" % (int(off, 16), name, v or "?"))
+    log(f"{resolved}/{named} offsets resolved to a value -> {out_path}")
+    return 0
+
+
 def main():
     ap = argparse.ArgumentParser(description=__doc__.splitlines()[0])
     sub = ap.add_subparsers(dest="cmd", required=True)
@@ -424,18 +601,22 @@ def main():
     f = sub.add_parser("find", help="locate the registration call site by xref")
     f.add_argument("--const", default="FIGHTER_PAD_ATTACK_TRIGGER")
 
-    c = sub.add_parser("consts", help="emulate the registering function")
-    c.add_argument("--entry", required=True, help="registering function, module-relative hex")
-    c.add_argument("--register", required=True, help="register function, module-relative hex")
-    c.add_argument("--timeout", type=int, default=3600)
-    c.add_argument("--max-insns", type=int, default=0)
+    c = sub.add_parser("consts", help="emulate the registering functions")
+    c.add_argument("--entry", default=None,
+                   help="one registering function (default: all of work/emu/regfuncs.txt)")
+    c.add_argument("--register", default="37289c0",
+                   help="the register function, module-relative hex (13.0.5: 0x37289c0)")
+    c.add_argument("--timeout", type=int, default=120, help="seconds per function")
+    c.add_argument("--max-insns", type=int, default=200_000_000)
 
     i = sub.add_parser("indirect", help="sweep every entry point for indirect targets")
     i.add_argument("--budget", type=int, default=20000, help="instructions per entry point")
 
+    sub.add_parser("table", help="join the const-table offsets to their values")
+
     args = ap.parse_args()
     return {"ptrs": cmd_ptrs, "find": cmd_find, "consts": cmd_consts,
-            "indirect": cmd_indirect}[args.cmd](args) or 0
+            "indirect": cmd_indirect, "table": cmd_table}[args.cmd](args) or 0
 
 
 if __name__ == "__main__":

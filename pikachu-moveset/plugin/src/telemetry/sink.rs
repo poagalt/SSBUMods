@@ -135,11 +135,27 @@ fn flush_locked(s: &mut Sink) {
             // So the previous log is ROTATED to `.prev` first, and this one is appended to. Two
             // sessions survive at once, which is what "it crashed, then I restarted and played
             // more" actually needs.
+            // THE DESTINATION IS REMOVED FIRST, AND THE RESULT IS REPORTED. Horizon's filesystem
+            // fails a rename onto an existing path rather than replacing it, and this discarded
+            // the error -- so `.prev` was created by the FIRST run that ever wrote a log and then
+            // froze there forever, while every later session was truncated by the `write` below
+            // at the next launch. The intent described above was never once achieved.
+            //
+            // Found 2026-09-18 when the log from the Yato playtest was wanted and `.prev` turned
+            // out to hold build 2e8065d from 2026-09-10, eight days and many sessions earlier.
+            // That is the exact failure the comment above says this code exists to prevent.
             let prev = format!("{prefix}{NAME}.prev");
-            let _ = std::fs::rename(&candidate, &prev);
+            let _ = std::fs::remove_file(&prev);
+            let rotated = std::fs::rename(&candidate, &prev).is_ok();
             match std::fs::write(&candidate, b"[rat] telemetry sink opened\n") {
                 Ok(()) => {
-                    println!("[rat] telemetry sink: writing to {candidate}, previous run kept as {prev}");
+                    // Says whether the rotation ACTUALLY happened, because silently believing it
+                    // had is what lost eight days of logs.
+                    if rotated {
+                        println!("[rat] telemetry sink: writing to {candidate}, previous run kept as {prev}");
+                    } else {
+                        println!("[rat] telemetry sink: writing to {candidate}, no previous run to rotate");
+                    }
                     s.path = Some(candidate);
                     break;
                 }

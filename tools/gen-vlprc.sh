@@ -59,16 +59,36 @@
 # a weapon clone and a vl.prc article param, and this generator is where that would start.
 SHIP_PARAM_SPECIAL_S=0
 # ============================================================================================
+# THE WHIP'S LEDGE BOX (2026-10-12), the one other thing a vl.prc can give that the hook cannot.
+#
+# Incineroar's SPECIAL_S main calls `GroundModule::select_cliff_hangdata(boma,
+# FIGHTER_GAOGAEN_CLIFF_HANG_DATA_SPECIAL_S)`, and that constant is 1: an INDEX into the fighter's
+# own `cliff_hang_data` list in vl.prc, which native GroundModule code reads -- so the param hook
+# cannot answer it. Incineroar's list has four boxes; Pikachu's has one, his ordinary ledge grab.
+# `vlappend` adds Incineroar's [1] as Pikachu's [1], scaled by 1.00 / 0.96 (tools/scales.tsv) like
+# a top-anchored offset, and keeps Pikachu's [0] untouched.
+#
+# NOT DERIVED FROM A FLAG HERE: it follows `WHIP_CLIFF_HANGDATA` in plugin/src/specials/whip/mod.rs,
+# so the plugin's call and the box it selects cannot disagree. Off by default, because the last
+# vl.prc this mod shipped crashed on fighter load (above) and that cause is not settled -- see
+# check.sh 3b's comment, which reads the same crash differently. Arming it is a single-variable
+# experiment for a watched boot, like CLONE_ENABLED.
+# ============================================================================================
 set -euo pipefail
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 VAN="$ROOT/extracted/fighter/pikachu/param/vl.prc"
 OUT="$ROOT/pikachu-moveset/mod/fighter/pikachu/param/vl.prc"
 VLMERGE="$ROOT/tools/prc-tool/target/release/vlmerge.exe"
+VLAPPEND="$ROOT/tools/prc-tool/target/release/vlappend.exe"
+WHIP_SRC="$ROOT/pikachu-moveset/plugin/src/specials/whip/mod.rs"
+SHIP_WHIP_CLIFF_HANG=0
+grep -q '^pub const WHIP_CLIFF_HANGDATA: bool = true;' "$WHIP_SRC" && SHIP_WHIP_CLIFF_HANG=1
 
-if [ "$SHIP_PARAM_SPECIAL_S" = "0" ]; then
+if [ "$SHIP_PARAM_SPECIAL_S" = "0" ] && [ "$SHIP_WHIP_CLIFF_HANG" = "0" ]; then
     rm -f "$OUT"
     echo "  param_special_s override DISABLED -- Pikachu keeps his vanilla vl.prc"
     echo "  (it null-dereferenced in smashline's load_fighter_effects on fighter load)"
+    echo "  whip ledge box DISABLED (WHIP_CLIFF_HANGDATA = false in specials/whip/mod.rs)"
     exit 0
 fi
 
@@ -77,5 +97,16 @@ fi
 mkdir -p "$(dirname "$OUT")"
 # Always rebuild from the VANILLA file, never from the previous output. Rerunning against our own
 # product is how topscale ended up double-scaling every offset.
-"$VLMERGE" --replace \
-  "$VAN" "$ROOT/extracted/fighter/gaogaen/param/vl.prc" param_special_s "$OUT" | sed 's/^/  /'
+TMP="$OUT.tmp"
+cp "$VAN" "$TMP"
+if [ "$SHIP_PARAM_SPECIAL_S" = "1" ]; then
+    "$VLMERGE" --replace \
+      "$TMP" "$ROOT/extracted/fighter/gaogaen/param/vl.prc" param_special_s "$TMP" | sed 's/^/  /'
+fi
+if [ "$SHIP_WHIP_CLIFF_HANG" = "1" ]; then
+    # Incineroar's scale over Pikachu's, from the game's own fighter_param.prc via tools/scales.tsv.
+    ratio=$(awk '$1=="gaogaen"{g=$3} $1=="pikachu"{p=$3} END{printf "%.7f", g/p}' "$ROOT/tools/scales.tsv")
+    "$VLAPPEND" "$TMP" "$ROOT/extracted/fighter/gaogaen/param/vl.prc" cliff_hang_data 1 1 "$TMP" \
+      --scale "$ratio" | sed 's/^/  /'
+fi
+mv "$TMP" "$OUT"

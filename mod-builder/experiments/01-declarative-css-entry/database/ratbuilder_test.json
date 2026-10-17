@@ -1,0 +1,19 @@
+{
+  "character_database_entries": [
+    {
+      "ui_chara_id": "ui_chara_ratbuilder",
+      "name_id": "ratbuilder",
+      "clone_from_ui_chara_id": "ui_chara_pikachu",
+      "fighter_kind": "fighter_kind_pikachu",
+      "color_num": 1,
+      "can_select": true,
+      "is_hidden_boss": false
+    }
+  ],
+  "layout_database_entries": [
+    {
+      "ui_layout_id": "ui_layout_ratbuilder",
+      "clone_from_ui_layout_id": "ui_layout_pikachu"
+    }
+  ]
+}

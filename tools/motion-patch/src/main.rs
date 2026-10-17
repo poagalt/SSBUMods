@@ -11,21 +11,21 @@ use std::collections::BTreeMap;
 // motion entry -> source fighter
 const MAP: &[(&str, &str, &str)] = &[
     // normals
-    ("attack_11", "attack_11", "chrom"),
+    ("attack_11", "attack_11", "littlemac"),
     ("attack_dash", "attack_dash", "elight"),
-    ("attack_s3_s", "attack_s3_s", "elight"), ("attack_s3_hi", "attack_s3_s", "elight"), ("attack_s3_lw", "attack_s3_s", "elight"),
+    ("attack_s3_s", "attack_s3_s", "sheik"), ("attack_s3_hi", "attack_s3_s", "sheik"), ("attack_s3_lw", "attack_s3_s", "sheik"),
     ("attack_hi3", "attack_hi3", "falco"),
-    ("attack_lw3", "attack_lw3", "robot"),
+    ("attack_lw3", "attack_lw3", "gaogaen"),
     // smashes
     ("attack_s4_s", "attack_s4_s", "littlemac"),     ("attack_s4_hold", "attack_s4_hold", "littlemac"),
     ("attack_hi4", "attack_hi4", "fox"), ("attack_hi4_hold", "attack_hi4_hold", "fox"),
     ("attack_lw4", "attack_lw4", "gamewatch"), ("attack_lw4_hold", "attack_lw4_hold", "gamewatch"),
     // aerials + their landing lag
-    ("attack_air_n", "attack_air_n", "palutena"), ("landing_air_n", "landing_air_n", "palutena"),
-    ("attack_air_f", "attack_air_f", "demon"),    ("landing_air_f", "landing_air_f", "demon"),
+    ("attack_air_n", "attack_air_n", "master"), ("landing_air_n", "landing_air_n", "master"),
+    ("attack_air_f", "attack_air_f", "wolf"),     ("landing_air_f", "landing_air_f", "wolf"),
     ("attack_air_b", "attack_air_b", "cloud"),    ("landing_air_b", "landing_air_b", "cloud"),
     ("attack_air_hi", "attack_air_hi", "kamui"),   ("landing_air_hi", "landing_air_hi", "kamui"),
-    ("attack_air_lw", "attack_air_lw", "krool"),   ("landing_air_lw", "landing_air_lw", "krool"),
+    ("attack_air_lw", "attack_air_lw", "eflame"),   ("landing_air_lw", "landing_air_lw", "eflame"),
     // Specials whose motion Pikachu ALREADY has, so synth skips them and only motion-patch can
     // give them the source's flags and FAF. Missing this cost Alolan Whip its entire lunge:
     // Incineroar's d01specialsstart carries 34.93 units of root motion in Trans, which the engine
@@ -40,15 +40,15 @@ const MAP: &[(&str, &str, &str)] = &[
     ("special_lw", "special_lw", "gaogaen"),
     ("special_air_lw", "special_air_lw", "gaogaen"),
     // grab / throws
-    ("catch", "catch", "palutena"), ("catch_dash", "catch_dash", "palutena"), ("catch_turn", "catch_turn", "palutena"),
-    ("catch_wait", "catch_wait", "palutena"), ("catch_pull", "catch_pull", "palutena"), ("catch_cut", "catch_cut", "palutena"),
+    ("catch", "catch", "plizardon"), ("catch_dash", "catch_dash", "plizardon"), ("catch_turn", "catch_turn", "plizardon"),
+    ("catch_wait", "catch_wait", "plizardon"), ("catch_pull", "catch_pull", "plizardon"), ("catch_cut", "catch_cut", "plizardon"),
     ("catch_attack", "catch_attack", "demon"),
     // The cargo GRAB. Paired deliberately with the anim-dropin entry for e01throwf.nuanmb: the
     // flags and the animation have to arrive together, or this entry takes DK's `move` flag over
     // Pikachu's own f-throw animation and applies his root motion to the wrong pose.
     ("throw_f", "throw_f", "donkey"),
-    ("throw_b", "throw_b", "gaogaen"),
-    ("throw_hi", "throw_hi", "mewtwo"),
+    ("throw_b", "throw_b", "ness"),
+    ("throw_hi", "throw_hi", "mewtwo"), ("throw_lw", "throw_lw", "mariod"),
     // defensive
     ("down_attack_u", "down_attack_u", "koopa"), ("down_attack_d", "down_attack_d", "koopa"), ("slip_attack", "slip_attack", "koopa"),
     ("cliff_attack_quick", "cliff_attack_quick", "ganon"),

@@ -25,6 +25,14 @@ W=$(mktemp -d); trap 'rm -rf "$W"' EXIT
 # A literal carriage return, because this jq writes CRLF and word-splitting keeps the CR. See the
 # long note in tools/ship-textures.sh -- it cost an hour there before the bytes were read with od.
 CR=$(printf '\r')
+# AND `jqr` IS `jq` WITH THE CARRIAGE RETURN ALREADY OFF, WITHOUT A SECOND PROCESS.
+#
+# `$(jqr ...)` appeared twenty times in this file, and each one paid for a `tr`
+# spawn -- 151 of them in a run, at 50-70ms each under Git Bash on Windows. Bash strips the CR
+# with a parameter expansion for nothing, so the pipe was buying a process to do what the shell
+# already does. `$CR` stays for the few places that strip CRs off something that is not a jq
+# result.
+jqr() { local o; o=$(jq "$@"); printf '%s' "${o//$'\r'/}"; }
 rc=0
 
 # The three lists, each read from its own file rather than restated here.
@@ -43,9 +51,43 @@ rc=0
 # are parsed here; the declaration carries no data.
 WEAPONS_BLOCK=$(sed -n '/^const WEAPONS/,/^\];/p' pikachu-moveset/plugin/src/sword/mod.rs \
                 | tail -n +2 | grep -v '^\s*//')
-TABLE=$(awk -F'|' '/^[a-z_]+\|/{print $1}' tools/merge-weapons.sh | sort -u)
-RUST=$(printf '%s' "$WEAPONS_BLOCK" | tr '\n' ' ' | sed 's/&\[[^]]*\]//g' \
-       | grep -oE '"[a-z_]+"' | tr -d '"' | sort -u)
+# THE MODEL NOW HAS TWO AUTHORS, and every table-driven gate in this file was written when it had
+# one. `tools/merge-weapons.sh` grafts five weapons; `tools/graft-pyra-sword.py` appends a sixth.
+# Each gate below iterates "the weapons", so "the weapons" has to mean all of them -- otherwise a
+# gate silently stops covering whatever the newest tool added. That is not hypothetical: pyra_sword
+# arrived with its eleven textures, its bind bone and its bounding sphere unchecked, and the first
+# gate then reported it as "shown but not in the model" for a mesh that is demonstrably in it.
+#
+# So the rows come from BOTH grafting tools, each parsed out of the tool that creates the mesh.
+# Nothing is restated here. A weapon named in this file but built by no tool would be a third copy
+# of the same list, which is the exact drift tools/check-lists.sh exists to catch.
+#
+# The `_l` twins are deliberately NOT rows. Each is a byte-identical copy of a row's geometry on
+# the mirrored bone, created and asserted by `python tools/dual-wield.py --verify`, and a row here
+# would test it against the table's `bone` column -- which for a twin is wrong by construction.
+weapon_rows() {
+    awk -F'|' '/^[a-z_]+\|/' tools/merge-weapons.sh
+    # The row is a parenthesised Python string literal, possibly split across lines, so the quoted
+    # segments are concatenated rather than read as one.
+    awk '/^TABLE_ROW *=/{f=1} f{print; if (/\)[[:space:]]*$/) exit}' tools/graft-pyra-sword.py         | grep -oE '"[^"]*"' | tr -d '"' | tr -d '
+'
+    echo
+}
+if [ "$(weapon_rows | grep -cE '^[a-z_]+\|')" -lt 6 ]; then
+    echo "  FAIL weapon_rows found fewer than the 6 grafted weapons -- a grafting tool moved or its"
+    echo "       table row was renamed; every gate below would silently stop covering it"
+    rc=1
+fi
+
+TABLE=$(weapon_rows | awk -F'|' '{print $1}' | sort -u)
+# THE ROWS NOW CARRY TWO NAMES, and taking "every quoted string" broke this check the moment they
+# did. A `Weapon` is `{ mesh, article, motions }`: `mesh` is the merged mesh object in Pikachu's
+# body model and `article` is a cloned article's host name, and a weapon has one, the other, or
+# both. Only `mesh` belongs in the comparison against merge-weapons.sh, and an empty one means the
+# weapon has no mesh at all -- the parachute never had one, because its canopy opens on its own
+# `model.nuanmb` and a grafted bone sits at bind pose.
+RUST=$(printf '%s' "$WEAPONS_BLOCK" | tr '\n' ' ' \
+       | grep -oE 'mesh: *"[a-z_]*"' | sed 's/.*"\(.*\)"/\1/' | grep -v '^$' | sort -u)
 
 echo "== the merge table and the Rust visibility table name the same weapons =="
 if [ "$TABLE" = "$RUST" ]; then
@@ -57,10 +99,35 @@ else
     rc=1
 fi
 
+# AND EVERY ARTICLE NAME MUST BE A REAL CANDIDATE ROW. `src/sword/mod.rs` names the article it
+# wants by host name and `src/articles/mod.rs` decides which host names exist and get cloned; a
+# typo in either would silently fall back to the merged mesh, which is the failure that looks
+# exactly like "the article path does not work".
+echo; echo "== every article a weapon names exists in the candidate table =="
+ARTS=$(printf '%s' "$WEAPONS_BLOCK" | tr '\n' ' ' \
+       | grep -oE 'article: *"[a-z_]*"' | sed 's/.*"\(.*\)"/\1/' | grep -v '^$' | sort -u)
+CANDS=$(sed -n 's/.*Candidate *{ *host_name: *"\([^"]*\)".*/\1/p' \
+        pikachu-moveset/plugin/src/articles/mod.rs | sort -u)
+if [ -z "$ARTS" ]; then
+    echo "  ok  no weapon names an article"
+else
+    miss=$(comm -23 <(echo "$ARTS") <(echo "$CANDS"))
+    if [ -n "$miss" ]; then
+        echo "  FAIL src/sword/mod.rs names article(s) with no Candidate row:"
+        printf '%s\n' "$miss" | sed 's/^/       /'
+        rc=1
+    else
+        echo "  ok  $(echo "$ARTS" | wc -l) article name(s) all present: $(echo $ARTS | tr '\n' ' ')"
+    fi
+fi
+
 echo; echo "== every weapon is actually in the shipped model =="
 if [ ! -f "$MODEL/model.numshb" ]; then
     echo "  FAIL no model at $MODEL -- run: bash tools/merge-weapons.sh"; rc=1
 else
+    # VANILLA PIKACHU'S SKELETON, CONVERTED ONCE. Two places used to convert it -- one of them
+    # INSIDE the per-weapon loop, so it ran six times for an answer that cannot change.
+    "$T" extracted/fighter/pikachu/model/body/c00/model.nusktb "$W/vanillabone.json" >/dev/null 2>&1         || echo '{"bones":[]}' > "$W/vanillabone.json"
     "$T" "$MODEL/model.numshb"  "$W/mesh.json" >/dev/null 2>&1
     "$T" "$MODEL/model.nusktb"  "$W/bone.json" >/dev/null 2>&1
     "$T" "$MODEL/model.numdlb"  "$W/modl.json" >/dev/null 2>&1
@@ -75,7 +142,7 @@ else
         # skeleton any more -- it is `Sword`, `Sword1`, `fusionsword1` or `Stick`, and grafting
         # none of them is the point. What must exist is whatever the mesh actually binds to, read
         # off the model rather than derived a second time here.
-        bb=$(jq -r --arg n "$name" '[.objects[]|select(.name==$n)][0].parent_bone_name' "$W/mesh.json" 2>/dev/null | tr -d "$CR")
+        bb=$(jqr -r --arg n "$name" '[.objects[]|select(.name==$n)][0].parent_bone_name' "$W/mesh.json" 2>/dev/null)
         if [ -n "${bb:-}" ]; then
             jq -e --arg b "$bb" '[.bones[].name]|index($b)' "$W/bone.json" >/dev/null || miss="$miss bindbone:$bb"
         fi
@@ -87,7 +154,7 @@ else
         else
             echo "  ok  $name (bone $bone, material $material)"
         fi
-    done < <(awk -F'|' '/^[a-z_]+\|/' tools/merge-weapons.sh)
+    done < <(weapon_rows)
 fi
 
 echo; echo "== no skinned mesh names a bone the skeleton does not have =="
@@ -149,7 +216,7 @@ if [ -f "$MODEL/model.numshb" ]; then
     # can both exist under one name, so each is checked on its own.
     while IFS='|' read -r name dir mesh material bone parent sphere radius realise; do
         case "${name:-}" in '' | \#*) continue ;; esac
-        nsub=$(jq -r --arg n "$name" '[.objects[]|select(.name==$n)]|length' "$W/mesh.json" 2>/dev/null | tr -d "$CR")
+        nsub=$(jqr -r --arg n "$name" '[.objects[]|select(.name==$n)]|length' "$W/mesh.json" 2>/dev/null)
         if [ "${nsub:-0}" = "0" ]; then
             bad="$bad ${name}:absent-from-shipped-mesh"
         fi
@@ -171,7 +238,7 @@ if [ -f "$MODEL/model.numshb" ]; then
         for a in work/fk/${fighter}_*.json; do
             [ -f "$a" ] || continue
             case "$a" in *_skel.json) continue ;; esac
-            na=$(jq -r --arg b "$bone" '[.. | objects | select(.name? == $b)] | length' "$a" 2>/dev/null | tr -d "$CR")
+            na=$(jqr -r --arg b "$bone" '[.. | objects | select(.name? == $b)] | length' "$a" 2>/dev/null)
             [ "${na:-0}" != "0" ] && { animated=1; break; }
         done
         # IS THIS WEAPON BAKED? The same two-part test merge-weapons.sh makes, recomputed here
@@ -188,7 +255,6 @@ if [ -f "$MODEL/model.numshb" ]; then
         # place reported four of the five weapons' sources "unreadable" and then silently decided
         # that none of them was baked -- so the gate failed Mythra for being bound where she is
         # supposed to be bound.
-        "$T" extracted/fighter/pikachu/model/body/c00/model.nusktb "$W/vanillabone.json"             >/dev/null 2>&1 || echo '{"bones":[]}' > "$W/vanillabone.json"
         srcnin=0
         srcmesh=""
         for sroot in extracted/fighter work/arc-weapons/fighter; do
@@ -198,7 +264,7 @@ if [ -f "$MODEL/model.numshb" ]; then
             fi
         done
         if [ -n "$srcmesh" ] && "$T" "$srcmesh" "$W/srcmesh.json" >/dev/null 2>&1; then
-            srcnin=$(jq -r --arg m "$mesh" '[.objects[]|select(.name==$m)][0].bone_influences|length' "$W/srcmesh.json" 2>/dev/null | tr -d "$CR")
+            srcnin=$(jqr -r --arg m "$mesh" '[.objects[]|select(.name==$m)][0].bone_influences|length' "$W/srcmesh.json" 2>/dev/null)
         else
             bad="$bad ${name}:source-mesh-unreadable-under-extracted-or-arc-weapons-for-${dir}"
         fi
@@ -208,15 +274,15 @@ if [ -f "$MODEL/model.numshb" ]; then
         # See the A/B in its bake block: Palutena's staff in two geometrically IDENTICAL
         # configurations behaved differently, and the only difference was vanilla index 17 versus
         # appended index 88.
-        van=$(jq -r --arg b "$bone" '[.bones[]|select(.name==$b)]|length'               "$W/vanillabone.json" 2>/dev/null | tr -d "$CR")
+        van=$(jqr -r --arg b "$bone" '[.bones[]|select(.name==$b)]|length'               "$W/vanillabone.json" 2>/dev/null)
         baked=0
         if [ "$animated" = "0" ]            && { [ "${srcnin:-0}" != "0" ] || [ "${van:-0}" = "0" ]; }; then
             baked=1
         fi
         i=0
         while [ "$i" -lt "${nsub:-0}" ]; do
-            nin=$(jq -r --arg n "$name" --argjson i "$i" \
-                  '[.objects[]|select(.name==$n)][$i]|.bone_influences|length' "$W/mesh.json" 2>/dev/null | tr -d "$CR")
+            nin=$(jqr -r --arg n "$name" --argjson i "$i" \
+                  '[.objects[]|select(.name==$n)][$i]|.bone_influences|length' "$W/mesh.json" 2>/dev/null)
             # THERE IS NO BAKE ANY MORE, so the expected bind is simply where the source model
             # binds the mesh -- or the `realise` bone where the table names one. The playtest
             # retired the bake: see the long note in merge-weapons.sh. Cloud was CORRECT on his
@@ -235,8 +301,8 @@ if [ -f "$MODEL/model.numshb" ]; then
                 else
                     expect="${realise:-$bone}"
                 fi
-                pb=$(jq -r --arg n "$name" --argjson i "$i" \
-                     '[.objects[]|select(.name==$n)][$i]|.parent_bone_name' "$W/mesh.json" 2>/dev/null | tr -d "$CR")
+                pb=$(jqr -r --arg n "$name" --argjson i "$i" \
+                     '[.objects[]|select(.name==$n)][$i]|.parent_bone_name' "$W/mesh.json" 2>/dev/null)
                 [ "$pb" = "$expect" ] || bad="$bad ${name}#${i}:rigid-bound-to-${pb:-none}-not-${expect}"
             elif [ "$baked" = "1" ]; then
                 # A BAKED WEAPON MUST NOT SHIP ANY SKINNED SUBINDEX. The bake clears the weights
@@ -255,12 +321,12 @@ if [ -f "$MODEL/model.numshb" ]; then
         done
         # The BIND bone, for the same reason as the block above: the table's source bone is
         # deliberately absent from the skeleton now.
-        bb2=$(jq -r --arg n "$name" '[.objects[]|select(.name==$n)][0].parent_bone_name' "$W/mesh.json" 2>/dev/null | tr -d "$CR")
+        bb2=$(jqr -r --arg n "$name" '[.objects[]|select(.name==$n)][0].parent_bone_name' "$W/mesh.json" 2>/dev/null)
         if [ -n "${bb2:-}" ]; then
             jq -e --arg b "$bb2" '[.bones[].name]|index($b)' "$W/bone.json" >/dev/null 2>&1 \
                 || bad="$bad ${name}:bindbone-${bb2}-absent"
         fi
-    done < <(awk -F'|' '/^[a-z_]+\|/' tools/merge-weapons.sh)
+    done < <(weapon_rows)
     if [ -n "$bad" ]; then
         echo "  FAIL mesh/bone binding is wrong:"; printf '       %s\n' $bad; rc=1
     else
@@ -289,8 +355,8 @@ while IFS='|' read -r name dir mesh material bone parent sphere radius realise; 
     [ -f "$src" ] || { echo "  ..  $name: no $src, cannot verify the realised bind"; continue; }
 
     # 1. the realised bone hangs off the same parent the source bone does
-    rp=$(jq -r --arg b "$realise" '(.bones|to_entries) as $bs | $bs[] | select(.value.name==$b)
-          | $bs[.value.parent_index].value.name' "$W/bone.json" 2>/dev/null | tr -d "$CR")
+    rp=$(jqr -r --arg b "$realise" '(.bones|to_entries) as $bs | $bs[] | select(.value.name==$b)
+          | $bs[.value.parent_index].value.name' "$W/bone.json" 2>/dev/null)
     [ "$rp" = "$parent" ] \
       && echo "  ok  $realise is parented to $parent, as $bone is in ${fighter}" \
       || { echo "  FAIL $realise is parented to ${rp:-none}, not $parent -- rerun tools/add-bones.sh"; rc=1; }
@@ -311,10 +377,21 @@ while IFS='|' read -r name dir mesh material bone parent sphere radius realise; 
 
     # 3. every shipped animation that used to drive the source bone now drives the realised one
     badanim=""
-    for a in pikachu-moveset/mod/fighter/pikachu/motion/body/c00/*.nuanmb; do
+    # PREFILTERED ON THE RAW BYTES, AND THAT IS 91 PROCESS SPAWNS SAVED PER RUN.
+    #
+    # This converted EVERY shipped animation to JSON and ran a jq over it -- three spawns each,
+    # 91 animations, and under Git Bash on Windows a spawn is 50-70ms. Measured, it was most of
+    # this gate's 148 seconds and this gate was most of the harness's.
+    #
+    # A `.nuanmb` stores its node names as plain strings, so a file whose BYTES do not contain
+    # the bone's name cannot possibly have a node called that. `grep -l` answers that for the
+    # whole directory in one spawn, and only the survivors -- normally none -- pay for the
+    # conversion. The authoritative test is unchanged and still runs on anything that matches;
+    # the prefilter can only ever admit too many, never too few.
+    for a in $(grep -rl --include='*.nuanmb' -F "$bone"                     pikachu-moveset/mod/fighter/pikachu/motion/body/c00/ 2>/dev/null); do
         [ -f "$a" ] || continue
         "$T" "$a" "$W/an.json" >/dev/null 2>&1 || continue
-        hs=$(jq -r --arg b "$bone" '[.. | objects | select(.name? == $b)] | length' "$W/an.json" 2>/dev/null | tr -d "$CR")
+        hs=$(jqr -r --arg b "$bone" '[.. | objects | select(.name? == $b)] | length' "$W/an.json" 2>/dev/null)
         [ "${hs:-0}" != "0" ] && badanim="$badanim $(basename "$a")"
     done
     [ -z "$badanim" ] \
@@ -329,11 +406,22 @@ while IFS='|' read -r name dir mesh material bone parent sphere radius realise; 
     if [ -n "$stale" ]; then
         echo "  FAIL hitboxes still anchored to \"$lb\" in: $stale -- check tools/bone-remap.sed"; rc=1
     elif [ "$got" = "0" ]; then
-        echo "  FAIL no hitbox anchors to \"$lr2\" at all -- the remap produced nothing"; rc=1
+        # NOT A FAILURE ANY MORE, and the distinction matters. This check has two jobs, and only
+        # the first is load-bearing: no hitbox may be left on the UN-REALISED source bone (the
+        # `stale` branch above, still a hard failure). The second -- that something anchors to the
+        # realised bone -- assumed the weapon is used by a move whose hitboxes ride it, and those
+        # came apart on 2026-09-19.
+        #
+        # Byleth's n-air replaced Palutena's, so nothing anchors to `mouth` any more. The staff is
+        # still SHOWN, for her grab, but a grab's CATCH capsules are top-anchored. So the remap
+        # having nothing to do is the correct state of a correct tree, and failing on it would
+        # block every build until Charizard's grab retires the staff entirely.
+        echo "  -   nothing anchors to \"$lr2\"; no ported move's hitboxes ride $bone, so the"
+        echo "      remap has nothing to do (the stale-$lb check above is the one that matters)"
     else
         echo "  ok  hitboxes anchor to \"$lr2\" in $got file(s), and none to \"$lb\""
     fi
-done < <(awk -F'|' '/^[a-z_]+\|/' tools/merge-weapons.sh)
+done < <(weapon_rows)
 
 echo; echo "== the skeleton matches the game's own structure around the hold bones =="
 # THE ONE STRUCTURAL DEVIATION FROM NATIVE THAT THIS PROJECT EVER MADE, NOW ASSERTED AGAINST.
@@ -352,9 +440,9 @@ echo; echo "== the skeleton matches the game's own structure around the hold bon
 #   - every bone a weapon binds to matches its SOURCE skeleton's parent and bind transform, so a
 #     grafted bone occupies the frame the game authored for it rather than an invented one.
 if [ -f "$MODEL/model.nusktb" ]; then
-    hlp=$(jq -r '(.bones|to_entries) as $bs | $bs[] | select(.value.name=="HaveL")
+    hlp=$(jqr -r '(.bones|to_entries) as $bs | $bs[] | select(.value.name=="HaveL")
            | (if .value.parent_index==null then "ROOT" else $bs[.value.parent_index].value.name end)' \
-          "$W/bone.json" 2>/dev/null | tr -d "$CR")
+          "$W/bone.json" 2>/dev/null)
     if [ "$hlp" = "HandL" ]; then
         echo "  ok  HaveL is parented to HandL, as it is in every fighter in the game"
     else
@@ -365,7 +453,6 @@ if [ -f "$MODEL/model.nusktb" ]; then
 
     bad=""
     # Vanilla Pikachu's own bone list, to tell a graft from a bone he already had.
-    "$T" extracted/fighter/pikachu/model/body/c00/model.nusktb "$W/vanillabone.json"         >/dev/null 2>&1 || echo '{"bones":[]}' > "$W/vanillabone.json"
     while IFS='|' read -r name dir mesh material bone parent sphere radius realise; do
         case "${name:-}" in '' | \#*) continue ;; esac
         # The bind bone lives in the SOURCE MODEL's skeleton for a weapon model, or the source
@@ -394,16 +481,16 @@ if [ -f "$MODEL/model.nusktb" ]; then
         # Present in both, or there is nothing to compare.
         for side in src ours; do
             j=$([ "$side" = src ] && echo "$W/ssk.json" || echo "$W/bone.json")
-            n=$(jq -r --arg b "$bone" '[.bones[]|select(.name==$b)]|length' "$j" | tr -d "$CR")
+            n=$(jqr -r --arg b "$bone" '[.bones[]|select(.name==$b)]|length' "$j")
             [ "$n" = "1" ] || bad="$bad ${name}:${bone}-appears-${n}-times-in-${side}"
         done
         case "$bad" in *"${name}:"*) continue ;; esac
 
         # The bind TRANSFORM must be the source's, to the last bit ssbh_data round-trips.
-        st=$(jq -c --arg b "$bone" '[.bones[]|select(.name==$b)][0].transform' "$W/ssk.json" | tr -d "$CR")
-        ot=$(jq -c --arg b "$bone" '[.bones[]|select(.name==$b)][0].transform' "$W/bone.json" | tr -d "$CR")
+        st=$(jqr -c --arg b "$bone" '[.bones[]|select(.name==$b)][0].transform' "$W/ssk.json")
+        ot=$(jqr -c --arg b "$bone" '[.bones[]|select(.name==$b)][0].transform' "$W/bone.json")
         [ "$st" = "$ot" ] || bad="$bad ${name}:${bone}-bind-transform-differs-from-source"
-    done < <(awk -F'|' '/^[a-z_]+\|/' tools/merge-weapons.sh)
+    done < <(weapon_rows)
     if [ -n "$bad" ]; then
         echo "  FAIL a weapon's bind bone does not match the frame its source authored:"
         printf '       %s\n' $bad
@@ -433,20 +520,20 @@ if [ -f "$MODEL/model.numshb" ]; then
     bad=""
     while IFS='|' read -r name dir mesh material bone parent sphere radius realise; do
         case "${name:-}" in '' | \#*) continue ;; esac
-        out=$(jq -r --arg n "$name" '
+        out=$(jqr -r --arg n "$name" '
           ( [ .mesh_object_groups[] | select(.mesh_object_name==$n) ][0].bounding_sphere ) as $bs
           | if $bs == null then "nogroup" else
               ( [ $bs.center.x, $bs.center.y, $bs.center.z, $bs.radius ] | @tsv ) end
-        ' "$W/mx.json" 2>/dev/null | tr -d "$CR")
+        ' "$W/mx.json" 2>/dev/null)
         [ "$out" = "nogroup" ] && { bad="$bad ${name}:no-numshexb-group"; continue; }
-        need=$(jq -r --arg n "$name" --argjson bs "$(jq -c --arg n "$name" '[.mesh_object_groups[]|select(.mesh_object_name==$n)][0].bounding_sphere' "$W/mx.json" | tr -d "$CR")" '
+        need=$(jqr -r --arg n "$name" --argjson bs "$(jq -c --arg n "$name" '[.mesh_object_groups[]|select(.mesh_object_name==$n)][0].bounding_sphere' "$W/mx.json" | tr -d "$CR")" '
           [ .objects[] | select(.name==$n) | .positions[0].data.Vector3[]
             | ((.[0]-$bs.center.x)|.*.) + ((.[1]-$bs.center.y)|.*.) + ((.[2]-$bs.center.z)|.*.) ]
-          | max | sqrt' "$W/mesh.json" 2>/dev/null | tr -d "$CR")
+          | max | sqrt' "$W/mesh.json" 2>/dev/null)
         r=$(printf '%s' "$out" | cut -f4)
         awk -v r="$r" -v n="$need" 'BEGIN{exit !(r + 0.001 < n)}' \
             && bad="$bad ${name}:sphere-r=${r}-but-geometry-reaches-${need}"
-    done < <(awk -F'|' '/^[a-z_]+\|/' tools/merge-weapons.sh)
+    done < <(weapon_rows)
     if [ -n "$bad" ]; then
         echo "  FAIL a bounding sphere does not contain its mesh (the renderer will cull it):"
         printf '       %s\n' $bad; rc=1
@@ -469,14 +556,14 @@ echo; echo "== every numshexb group has one entry_flags per subindex =="
 # Joined on `mesh_object_full_name`, because `mesh_object_name` is the SHORT name in vanilla
 # (`Pikachu_LEye` for `Pikachu_LEye_VIS_O_OBJShape`) and joining on it silently matches nothing.
 if [ -f "$MODEL/model.numshb" ]; then
-    out=$(jq -r --slurpfile me "$W/mesh.json" '
+    out=$(jqr -r --slurpfile me "$W/mesh.json" '
       [ .mesh_object_groups[] as $g
         | { n: $g.mesh_object_name,
             f: ($g.entry_flags|length),
             s: ([ $me[0].objects[] | select(.name == $g.mesh_object_full_name) ] | length) } ]
       | map(select(.s > 0)) | map(select(.f != .s))
       | if length == 0 then "OK" else map("\(.n): \(.f) flag(s) for \(.s) subindex(es)") | join(" ") end
-    ' "$W/mx.json" 2>/dev/null | tr -d "$CR")
+    ' "$W/mx.json" 2>/dev/null)
     if [ "$out" = "OK" ]; then
         echo "  ok  every group's entry_flags count equals its mesh's subindex count"
     else
@@ -522,12 +609,14 @@ MODELDIR=pikachu-moveset/mod/fighter/pikachu/model/body/c00
 # The merged `model.numdlb` maps the graft's own mesh name to every material it actually uses, and
 # the merged `model.numatb` holds those materials. That is what the game will read, so that is
 # what is checked.
-"$T" "$MODEL/model.numdlb" "$W/mmodl.json" >/dev/null 2>&1
-"$T" "$MODEL/model.numatb" "$W/mmatl.json" >/dev/null 2>&1
+# ALREADY CONVERTED ABOVE. `modl.json` and `matl.json` are the same two files from the same
+# model; re-converting them was two more spawns for bytes already on disk.
+cp "$W/modl.json" "$W/mmodl.json" 2>/dev/null
+cp "$W/matl.json" "$W/mmatl.json" 2>/dev/null
 while IFS='|' read -r name dir mesh material bone parent sphere radius realise; do
     case "${name:-}" in '' | \#*) continue ;; esac
-    mats=$(jq -r --arg n "$name" '[.entries[]|select(.mesh_object_name==$n)|.material_label]|unique|.[]' \
-           "$W/mmodl.json" 2>/dev/null | tr -d "$CR")
+    mats=$(jqr -r --arg n "$name" '[.entries[]|select(.mesh_object_name==$n)|.material_label]|unique|.[]' \
+           "$W/mmodl.json" 2>/dev/null)
     if [ -z "$mats" ]; then
         echo "  FAIL $name has no material entry in the merged numdlb"; rc=1; continue
     fi
@@ -543,7 +632,7 @@ while IFS='|' read -r name dir mesh material bone parent sphere radius realise; 
         fi
     done
     done
-done < <(awk -F'|' '/^[a-z_]+\|/' tools/merge-weapons.sh)
+done < <(weapon_rows)
 [ $rc -eq 0 ] && echo "  ok  every referenced texture is a real file in the shipped model directory"
 
 echo

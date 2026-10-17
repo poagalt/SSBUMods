@@ -2471,8 +2471,57 @@ unsafe fn linked_victim(boma: *mut BattleObjectModuleAccessor, entry: usize, who
 /// in it: everything else there is keyed by ENTRY and reads or writes only this plugin's own
 /// statics, which are per-entry and therefore private to whoever is at that entry. This one wrote
 /// into the ENGINE'S table. A shared callback may only touch shared state through a guard.
+/// The statuses in which `globalTable[0x45..0x48]` really ARE the four throw destinations.
+///
+/// WHY THIS LIST EXISTS: IT IS THE AIR-DAMAGE CRASH OF 2026-10-17. `retarget_forward_throw` ran
+/// from `telemetry`'s per-frame callback in EVERY status and wrote those four slots whenever they
+/// did not already hold what we wanted. Those slots are `CONT_THROW_F/B/HI/LW` only inside a
+/// catch or carry; everywhere else the engine keeps something else there, and stamping ints over
+/// it corrupted whatever `sys_line_status_system_control` was holding. The symptom was an
+/// `Instruction Abort` at PC=0 -- a call through a null pointer -- out of
+/// `ftStatusUniqProcessDamageAir_init`, on the same system line, as soon as anyone was hit.
+///
+/// Found by bisect, not by reading: with the whole plugin out of `plugins/` the crash stopped,
+/// and five one-variable boots walked it down to this single call. `specials`, `params`, `cues`,
+/// `clone_weapon`, both prcxml patches, the motion list and the smashline pin were all cleared
+/// on the way, each by measurement.
+///
+/// NOT A RANGE. `0x1F7..=0x205` looks contiguous and is not -- `RAT_STATUS_KIND_SPECIAL_LW_HIT`
+/// (0x201) sits inside it and is not a carry status.
+const CARRY_STATUSES: &[i32] = &[
+    RAT_STATUS_KIND_SHOULDER_START,
+    RAT_STATUS_KIND_SHOULDER_WAIT,
+    RAT_STATUS_KIND_SHOULDER_WALK,
+    RAT_STATUS_KIND_SHOULDER_TURN,
+    RAT_STATUS_KIND_SHOULDER_FALL,
+    RAT_STATUS_KIND_SHOULDER_LANDING,
+    RAT_STATUS_KIND_THROW_F_F,
+    RAT_STATUS_KIND_THROW_F_B,
+    RAT_STATUS_KIND_THROW_F_HI,
+    RAT_STATUS_KIND_THROW_F_LW,
+    RAT_STATUS_KIND_SHOULDER_JUMP_SQUAT,
+    RAT_STATUS_KIND_SHOULDER_JUMP_SQUAT_B,
+    RAT_STATUS_KIND_SHOULDER_JUMP,
+    RAT_STATUS_KIND_SHOULDER_PASS,
+];
+
+/// Is this fighter somewhere those four slots are the throw destinations?
+///
+/// `CATCH`(55) through `THROW`(64) is the engine's own contiguous catch family -- that is where
+/// `CatchCont` reads the slots and so the only vanilla context where writing them means anything.
+unsafe fn in_throw_context(boma: *mut BattleObjectModuleAccessor) -> bool {
+    let st = StatusModule::status_kind(boma);
+    (st >= *FIGHTER_STATUS_KIND_CATCH && st <= *FIGHTER_STATUS_KIND_THROW)
+        || CARRY_STATUSES.contains(&st)
+}
+
 pub unsafe fn retarget_forward_throw(fighter: &mut L2CFighterCommon) {
     const CONT_THROW_F: i32 = 0x45;
+    // SCOPED TO A CATCH OR CARRY. See `CARRY_STATUSES` -- running this in every status is what
+    // crashed the game on being hit.
+    if !in_throw_context(fighter.module_accessor) {
+        return;
+    }
     if smash::app::utility::get_kind(&mut *fighter.module_accessor) != *FIGHTER_KIND_PIKACHU {
         return;
     }
@@ -2484,4 +2533,30 @@ pub unsafe fn retarget_forward_throw(fighter: &mut L2CFighterCommon) {
              transition, so THROW is never entered and the grab is never cut"
         ));
     }
+    // THE OTHER THREE SLOTS USED TO BE HELD TO `THROW` HERE. REMOVED 2026-10-17.
+    //
+    // WHAT IS ACTUALLY KNOWN, because the first version of this note overstated it.
+    // `globalTable[0x45]` IS the forward-throw destination: handbook/grabs-and-victims.md records
+    // DK's own code putting `SHOULDER_START` there, measured rather than inferred, and the write
+    // above is kept for exactly that reason. That `[0x46..0x48]` are the b/hi/lw destinations was
+    // an INFERENCE from `[0x45]`, by adjacency, and it was never checked against anything.
+    //
+    // THREE THINGS SAY THE INFERENCE WAS WRONG. `CatchCont` in vendor/decomp/common dispatches on
+    // `FIGHTER_STATUS_TRANSITION_TERM_ID_CONT_THROW_F/B/HI/LW`, which are 0x1e00006b..0x1e00006e
+    // -- transition terms, a different mechanism from a table slot, and the relationship between
+    // the two is not established anywhere in this repo. The block never once printed the
+    // "corrected" line it existed to produce. And the back throw it was written to fix never
+    // worked: `telemetry::probe::throw_frame` logged four down-throws entering THROW and not one
+    // back throw.
+    //
+    // WHAT IT COST. Writing ints into L2C slots nobody had identified killed the game on the NEXT
+    // air-damage status after any cargo throw: an Instruction Abort at PC=0 out of
+    // `ftStatusUniqProcessDamageAir_init + 0x580`. That address is a `BL` to the import stub at
+    // 0x52f9f0, whose GOT slot 0x8010b0 had been zeroed -- and the symbol behind it,
+    // `FighterStatusDamage__get_damage_stop_motion_intp_frame`, is DEFINED inside lua2cpp_common
+    // (shndx 2, value 0x13cc0), so a null there is memory corruption and never a binding failure.
+    // The delay between the throw and the crash is why this looked like a damage bug for a day.
+    //
+    // The back throw still needs doing, through the transition term, and belongs in BACKLOG.md.
+
 }

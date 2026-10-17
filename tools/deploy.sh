@@ -19,8 +19,11 @@
 set -uo pipefail
 
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"
-HOST=<console-ip>
-PORT=5000
+# THE HOST IS OVERRIDABLE because there are now two consoles -- the 13.0.5 development card and
+# a second one on 13.0.4 at a different address. Same convention as tools/ftpq.sh, so one
+# exported FTP_HOST steers every tool that talks to a card.
+HOST=${FTP_HOST:-<console-ip>}
+PORT=${FTP_PORT:-5000}
 B="ftp://$HOST:$PORT"
 
 # CREDENTIALS, AND WHY THIS MATTERS MORE THAN IT LOOKS.
@@ -126,6 +129,18 @@ FORCE_ALL=0
 UPLOADED=()
 VERIFY_ONLY=0
 [ "${1:-}" = "--verify-only" ] && VERIFY_ONLY=1
+# SKIPPING THE RETIRE PASS, for iterating. Each retirement is one DELE on its own connection at
+# roughly a second, so dropping ARTICLE_SLOTS from `all` to `c00` leaves 626 costume-slot files to
+# delete -- ten minutes of a deploy that otherwise moves 87 files. They are harmless while they
+# sit there: gen-config.sh regenerates config.json from the tree, so an un-retired file is
+# shipped-but-undeclared and never loads.
+#
+# IT IS NOT FREE, THOUGH, AND THAT IS WHY IT IS OPT-IN RATHER THAN THE DEFAULT. A card that holds
+# files the tree does not is exactly the divergence that cost a playtest this week -- the plugin
+# was a build behind and nothing said so. Run a plain `deploy.sh` before anything that matters.
+SKIP_RETIRE=0
+[ "${1:-}" = "--no-retire" ] && SKIP_RETIRE=1
+[ "${SKIP_RETIRE:-0}" = "1" ] && SKIP_RETIRE=1
 fail=0
 warn=0
 
@@ -141,6 +156,19 @@ if ! curl -s "${CURL_AUTH[@]}" --connect-timeout 5 --max-time 10 -l "$B/" >/dev/
     exit 1
 fi
 
+# A GUARD THAT REFUSED TO DEPLOY WHILE THE GAME RAN WAS HERE, AND IT WAS WRONG. Removed
+# 2026-09-19, same day it was added.
+#
+# It was justified by ONE mid-match deploy that left three files absent after three retries each.
+# The counter-evidence was in the very next log and went unread: the deploy immediately after it,
+# with Smash CLOSED, needed FIVE repairs and could not list one directory at all. Failures happen
+# in both states, which is why the verify-and-repair pass below exists and why this file's own
+# header has always said "FTP works REGARDLESS of what the console is running, as long as the
+# login is supplied". Deploying mid-match is how this project worked before the guard existed.
+#
+# The real protection is verification, not abstinence. One bad upload out of eighty is the
+# measured rate; the repair pass catches it either way.
+
 if [ "$VERIFY_ONLY" = "1" ]; then
   echo "== verify only: not uploading anything =="
 else
@@ -148,6 +176,41 @@ echo "== deploying plugin =="
 printf "  %-56s " "librat_of_doom.nro"
 curl -s "${CURL_AUTH[@]}" --max-time 180 -T "$NRO" "$PLUGINS/librat_of_doom.nro" -w "http=%{http_code} %{size_upload}\n"
 mark "plugin upload"
+
+# READ THE PLUGIN BACK AND COMPARE IT BYTE FOR BYTE, EVERY RUN.
+#
+# This is the one check whose absence has actually cost playtests. The plugin is deployed outside
+# the mod folder, so it was never in `UPLOADED` or `ALLFILES` -- which meant the verification pass
+# below could not see it, and on any run where the mod tree happened to be unchanged the deploy
+# printed "nothing was uploaded, so there is nothing new to verify" and exited 0 while saying
+# nothing at all about the only file that had changed. That is exactly the state that produced two
+# consecutive rounds of "behaviour is the same": the card was holding md5 367475d6, an older build
+# whose own log said `CLONE_ENABLED=false`, while the local tree was 00e6ce31.
+#
+# sys-ftpd truncates roughly one upload in eighty to zero bytes -- measured, and the reason the mod
+# folder gets a size check at all -- so an unverified 254 KB upload is not a theoretical risk. A
+# read-back costs about a second and is the only thing that can tell "uploaded" from "landed".
+#
+# curl, not tools/ftpq.sh: ftpq strips NULs, which is harmless for a listing and fatal for an
+# aarch64 binary.
+printf "  %-56s " "verify plugin"
+PLUGIN_BACK="$ROOT/work/.plugin-readback"
+rm -f "$PLUGIN_BACK"
+curl -s "${CURL_AUTH[@]}" --max-time 180 -o "$PLUGIN_BACK" "$PLUGINS/librat_of_doom.nro" || true
+LOCAL_MD5=$(md5sum < "$NRO" | cut -d' ' -f1)
+CARD_MD5=$(md5sum < "$PLUGIN_BACK" 2>/dev/null | cut -d' ' -f1)
+if [ -s "$PLUGIN_BACK" ] && [ "$LOCAL_MD5" = "$CARD_MD5" ]; then
+    echo "byte-identical on card, md5 ${LOCAL_MD5:0:8}"
+    rm -f "$PLUGIN_BACK"
+else
+    echo "MISMATCH"
+    echo "  !! the plugin on the card is not the plugin that was just built." >&2
+    echo "     local $LOCAL_MD5 $(stat -c%s "$NRO") bytes" >&2
+    echo "     card  ${CARD_MD5:-<absent>} $(stat -c%s "$PLUGIN_BACK" 2>/dev/null || echo 0) bytes" >&2
+    echo "     re-run tools/deploy.sh; do NOT playtest this build." >&2
+    exit 1
+fi
+mark "plugin verify"
 
 echo "== deploying mod folder =="
 cd "$MOD"
@@ -157,13 +220,21 @@ mapfile -t FILES < <(find . -type f | sed 's|^\./||' | sort)
 # those 68 files are byte-identical to the last deploy. Ten minutes per iteration throttles
 # everything upstream of it.
 #
-# SAFE BECAUSE SKIPPING IS NOT TRUSTED. The verification pass below still checks EVERY file's size
-# against the card, and the repair pass re-uploads anything that disagrees -- so a wrong skip
-# costs one extra round trip, not a broken install. The manifest is written only after
-# verification passes, so a failed deploy cannot poison the next one into skipping.
+# SKIPPING IS TRUSTED, AND THAT COMMENT USED TO SAY OTHERWISE. The verification pass only checks
+# the files THIS run uploaded (see the VERIFY_ONLY/FORCE_ALL condition further down), so a
+# wrong skip IS a broken install and nothing downstream catches it. The claim that every file
+# was re-checked was false and it cost a whole deploy: on 2026-10-17 this script was pointed at
+# a second console carrying a months-old mod tree, loaded the FIRST console's manifest, skipped
+# 827 files as 'unchanged' and left Chrom's jab and Incineroar's back throw on the card -- which
+# then crashed, because the plugin's ACMD expects the animation it shipped.
 #
 # Pass --all to force a full upload.
-MANIFEST="$ROOT/work/.deploy-manifest"
+# ONE MANIFEST PER CONSOLE. It records what was verified ON A CARD, so it is only meaningful for
+# the card it was written against -- and there are now two. A single shared file silently means
+# "whatever the last card I talked to had", which is how the deploy above went wrong. Keying it
+# by host makes a never-before-seen console start with no manifest, i.e. a full upload and a full
+# verify, which is exactly the right default for one.
+MANIFEST="$ROOT/work/.deploy-manifest-$HOST"
 declare -A PREV=()
 if [ "$FORCE_ALL" = "0" ] && [ -f "$MANIFEST" ]; then
     # Two fields: "<size>:<sha1>\t<path>". The signature is stored as one opaque string so the
@@ -294,6 +365,13 @@ elif [ -f "$MANIFEST" ]; then
     done < "$MANIFEST"
 fi
 echo
+if [ "$SKIP_RETIRE" = "1" ]; then
+    n_stale=$(printf '%s\n' "$RETIRED
+$STALE" | grep -c . || true)
+    echo "== retiring files the mod no longer ships -- SKIPPED (--no-retire), $n_stale pending =="
+    echo "  they are undeclared in config.json and never load; run a plain deploy.sh to clear them"
+    mark "retire"
+else
 echo "== retiring files the mod no longer ships =="
 while read -r f; do
     [ -z "${f// }" ] && continue
@@ -309,6 +387,7 @@ while read -r f; do
 done <<< "$RETIRED
 $STALE"
 mark "retire"
+fi
 fi
 
 cd "$MOD"
@@ -347,8 +426,9 @@ else
 fi
 echo
 if [ "${#FILES[@]}" -eq 0 ]; then
-    echo "== nothing was uploaded, so there is nothing new to verify =="
-    echo "  ok  all ${#ALLFILES[@]} files unchanged since the last verified deploy"
+    echo "== no MOD FILE was uploaded, so there is nothing new to verify there =="
+    echo "  ok  all ${#ALLFILES[@]} mod files unchanged since the last verified deploy"
+    echo "      (the plugin is read back and compared on every run, above, whatever this says)"
     mark "verify"
     echo
     echo "DEPLOY OK"
@@ -518,15 +598,52 @@ if [ "$bad" -gt 0 ] && [ "$VERIFY_ONLY" = "0" ]; then
             # itself returned "absent", so under load nothing it says is reliable.
             [ "$attempt" -gt 1 ] && sleep $(( (attempt - 1) * 4 ))
             printf "  %-52s try %d " "$f" "$attempt"
-            code=$(curl -s "${CURL_AUTH[@]}" --max-time 300 --ftp-create-dirs -T "$f" "$DEST/$enc" -w "%{http_code}")
+            # THE REPAIR UPLOAD DROPS `--ftp-create-dirs` FROM THE SECOND TRY ON, AS AN EXPERIMENT
+            # WITH A KNOWN CONTROL.
+            #
+            # `fighter/pikachu/model/cshot/c00/model.xmb` came out of every deploy run at zero
+            # bytes -- four runs, twelve attempts -- while the same file sent by hand with a bare
+            # `curl -T`, no `--ftp-create-dirs`, landed at 1108 and byte-matched on RETR every
+            # single time. That flag is the ONE difference between the command that fails and the
+            # command that works, and by the repair stage the directory provably exists (its
+            # fifteen siblings just verified). So try 1 is unchanged, and tries 2-3 are the
+            # working command. The log line says which variant landed it, which settles the cause
+            # on the next run with the console up instead of adding another theory.
+            if [ "$attempt" -eq 1 ]; then
+                variant="create-dirs"
+                code=$(curl -s "${CURL_AUTH[@]}" --max-time 300 --ftp-create-dirs -T "$f" "$DEST/$enc" -w "%{http_code}")
+            else
+                variant="plain"
+                code=$(curl -s "${CURL_AUTH[@]}" --max-time 300 -T "$f" "$DEST/$enc" -w "%{http_code}")
+            fi
             # Confirm with a targeted SIZE, not the upload's return code and not a directory
             # listing. The return code lied once (FTP 200 on a file that landed at zero bytes) and
             # the listing lies whenever sys-ftpd is busy -- which is how the previous version of
             # this loop burned three attempts each on 36 files that were already correct.
             got=$(curl -sI "${CURL_AUTH[@]}" --max-time 45 "$DEST/$enc" 2>/dev/null \
                   | tr -d '\r' | awk '/^Content-Length:/ { print $2; exit }')
-            if [ "$got" = "$want" ]; then echo "ok ($code)"; ok=1; break; fi
-            echo "still wrong (${got:-absent})"
+            if [ "$got" = "$want" ]; then echo "ok ($code, $variant)"; ok=1; break; fi
+            # SIZE CAN BE WRONG ABOUT A FILE THAT IS RIGHT, so a disagreement is settled by
+            # reading the bytes before it is called a failure.
+            #
+            # `fighter/pikachu/model/cshot/c00/model.xmb` burned twelve attempts across four
+            # deploys on this. Every `-T` returned 226; `RETR` read back all 1108 bytes and
+            # byte-matched the local file; `LIST` showed 1108 -- and `SIZE`, which is all this
+            # loop consulted, kept answering 0. The card was correct the whole time and the
+            # deploy kept re-uploading over a correct file and calling itself failed.
+            #
+            # Deleting first was tried and is WORSE: the DELE lands, the very next `-T` in the
+            # same loop does not, and the file ends up genuinely absent. So the fix is not to
+            # write harder, it is to stop trusting one reading. A RETR costs a transfer, but only
+            # on a file SIZE has already disputed -- which is rare, and is exactly when being
+            # sure is worth a second of transfer.
+            tmpv=$(mktemp)
+            if curl -s "${CURL_AUTH[@]}" --max-time 120 "$DEST/$enc" -o "$tmpv" 2>/dev/null                && cmp -s "$tmpv" "$f"; then
+                echo "ok ($code, $variant; SIZE said ${got:-absent}, the bytes match)"
+                rm -f "$tmpv"; ok=1; break
+            fi
+            rm -f "$tmpv"
+            echo "still wrong (${got:-absent}, $variant, put=$code)"
         done
         [ "$ok" = "1" ] || still=$((still+1))
     done

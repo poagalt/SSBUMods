@@ -41,6 +41,9 @@ pub mod shoulder;
 pub mod specialhi;
 pub mod specialhiclose;
 pub mod specialhifall;
+// Samus's Charge Shot, replacing Thunder Jolt. Six statuses, one of them the common
+// SPECIAL_N overridden in place -- see the module header for why Samus and not Ptooie.
+pub mod chargeshot;
 
 pub fn install() {
     lockout::install();
@@ -52,4 +55,5 @@ pub fn install() {
     specialhi::install();
     specialhiclose::install();
     specialhifall::install();
+    chargeshot::install();
 }

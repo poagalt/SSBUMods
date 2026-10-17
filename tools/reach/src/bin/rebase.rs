@@ -375,7 +375,36 @@ fn main() {
                         .get(*from)
                         .unwrap_or_else(|| panic!("{from} not in {skel} -- run tools/add-bones.sh"))
                 };
-                if let Some(n) = rebase_line(&l, from, to, &m) {
+                // ONLY `ATTACK`-SHAPED CALLS GET THEIR OFFSETS MOVED. `rebase_line` counts
+                // commas from the bone on the assumption of
+                // `ATTACK(.., BONE, damage, angle, kbg, fkb, bkb, size, X, Y, Z, ..)`, which is
+                // true of the hitbox macros and of nothing else. An `EFFECT` call puts x/y/z
+                // immediately after the bone and its size later, so the same comma count writes
+                // the compensation into the wrong arguments.
+                //
+                // That was latent until 2026-09-19: every grafted-bone call in this port had been
+                // a hitbox until Pyra's d-air arrived with `sys_smash_flash` on her `sword1`, and
+                // the result was `EFFECT(.., 0, 0.0, 0.9, 0.0, 0, ..)` against a source reading
+                // `.., 0, 0.9, 0, 0, ..` -- a silently mangled call that still compiled.
+                //
+                // The bone is still rewritten for those, because that part is layout-independent
+                // and a grafted bone is exactly what this pass exists to get rid of. Only the
+                // offset compensation is skipped, so the effect anchors to the right joint with
+                // the source's own offsets.
+                let attack_shaped = l.contains("macros::ATTACK")
+                    || l.contains("macros::ATK_HIT_ABS")
+                    || l.contains("macros::CATCH");
+                let rewritten = if attack_shaped {
+                    rebase_line(&l, from, to, &m)
+                } else {
+                    let needle = format!("Hash40::new(\"{}\")", from.to_lowercase());
+                    if l.contains(&needle) {
+                        Some(l.replace(&needle, &format!("Hash40::new(\"{}\")", to.to_lowercase())))
+                    } else {
+                        None
+                    }
+                };
+                if let Some(n) = rewritten {
                     l = n;
                     changed = true;
                     touched += 1;

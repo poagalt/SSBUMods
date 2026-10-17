@@ -31,6 +31,7 @@ OUT="$ROOT/pikachu-moveset/mod/fighter/common/param/fighter_param.prcxml"
 PRC="$ROOT/extracted/fighter/common/param/fighter_param.prc"
 LBL="$ROOT/vendor/param-labels/ParamLabels.csv"
 GET="$ROOT/tools/prc-tool/target/release/getparam.exe"
+DUMP="$ROOT/tools/prc-tool/target/release/prcdump.exe"
 PIKACHU_INDEX=7
 TABLE_LEN=94
 mkdir -p "$(dirname "$OUT")"
@@ -42,6 +43,36 @@ mkdir -p "$(dirname "$OUT")"
 # lag block is new: each aerial takes its source fighter's own landing_attack_air_frame, because
 # leaving Pikachu's meant b-air landed with 18 frames of lag instead of Cloud's 8 and d-air with
 # 22 instead of K. Rool's 14 -- the "lag bounded by pikachu's animations" reported in playtest.
+# THE JAB COMBO PARAMS BELOW HAVE TO BE HERE RATHER THAN IN src/params, and finding that out is
+# what the second round of jab reports cost.
+#
+# src/params hooks `WorkModule::get_param_int`, which is the LUA accessor. That was enough to make
+# jab 2 and jab 3 exist -- `check_attack_mtrans` is lua2cpp and reads `attack_combo_max` through
+# it. It is NOT enough for the two things the playtest then reported, because both are decided by
+# NATIVE code that never goes through that accessor:
+#
+#   * `combo_attack_12_end` / `_13_end` are the combo WINDOW, in frames. Nothing in
+#     vendor/decomp/common reads them -- grep the whole tree and there is not one hit -- so the
+#     reader is the engine's own ComboModule. At Pikachu's 0 the window never expires; the count
+#     is then only ever cleared by `sub_status_AttackCommon` when it REACHES `attack_combo_max`,
+#     so the combo state survives indefinitely. Playtest: "his jab stores the 1, 2, 3 state
+#     instead of resetting after a certain time frame".
+#   * `attack100_type` is the rapid jab's master switch, and it is a BOOL: false on Pikachu, true
+#     on Little Mac. `status_Attack_Main_button` refuses BOTH doors into
+#     FIGHTER_STATUS_KIND_ATTACK_100 without it -- the hold-to-rapid door tests it directly, and
+#     the mash door tests `attack_100_enable_cnt <= ATTACK_WORK_INT_100_COUNT`, which on Pikachu's
+#     0 would open on the first frame and on Mac's 4 opens after four. Playtest: "I can't rapid
+#     jab with little mac".
+#
+# This file patches Pikachu's own row of the game's fighter_param_table, so the engine reads these
+# the same way it reads his weight. That is what it is for, and it is the only mechanism here that
+# native code can see.
+#
+# `attack_combo_type` IS DELIBERATELY NOT IN THE LIST. It is a hash40 (fighter_combo_type_hit),
+# which `resolve` below cannot emit -- and it does not need to be. Every consumer in the decomp
+# (`attack_mtrans_post_process`, `sub_status_AttackComboCommon_button`,
+# `sub_status_Attack100_common`, `sub_transition_group_check_ground_attack`) is lua2cpp and reads
+# it through `get_param_int`, which src/params already answers.
 ATTRS="
 weight|koopa|Bowser
 walk_speed_max|marth|Marth
@@ -66,6 +97,13 @@ landing_attack_air_frame_f|demon|f-air is Kazuya's
 landing_attack_air_frame_b|cloud|b-air is Cloud's
 landing_attack_air_frame_hi|kamui|u-air is Corrin's
 landing_attack_air_frame_lw|krool|d-air is K. Rool's
+attack_combo_max|littlemac|three jabs, not one
+combo_attack_12_end|littlemac|the jab-1 window, read natively by ComboModule
+combo_attack_13_end|littlemac|the jab-2 window, same
+attack100_type|littlemac|the rapid jab exists at all
+attack_100_enable_cnt|littlemac|how many mashes open the rapid jab
+attack_100_rebound_count|littlemac|how far the rapid jab pushes
+attack_combo_type|littlemac|the combo advances on hit, as Mac's does
 "
 
 resolve() { # resolve <param> <fighter> -> "value<TAB>type", refusing anything unusable
@@ -74,12 +112,32 @@ resolve() { # resolve <param> <fighter> -> "value<TAB>type", refusing anything u
     local val type
     val=$(printf '%s' "$out" | cut -f2)
     type=$(printf '%s' "$out" | cut -f3)
+    # A HASH40 PARAM IS NOT A SCALAR AND `getparam` SAYS SO, WHICH IS NOT THE SAME AS UNUSABLE.
+    #
+    # `attack_combo_type` is `fighter_combo_type_hit` -- a hash, not a number -- and refusing it
+    # here is why it spent a round being answered by the lua hook in src/params instead. That was
+    # a split brain: the hook answers `WorkModule::get_param_int`, so lua2cpp readers saw Mac's
+    # HIT while the engine's NATIVE readers went on seeing Pikachu's own NONE out of the real
+    # table. The prcxml format carries hash40 perfectly well -- every unchanged row in this file
+    # is `<hash40 index="N">dummy</hash40>` -- so the value belongs here with the other five and
+    # the hook keeps nothing.
+    #
+    # The label comes from prcdump rather than getparam, because getparam reports the type and
+    # not the name for a hash.
+    if [ "$val" = "NON_SCALAR" ]; then
+        local h
+        h=$("$DUMP" "$PRC" "$LBL" 2>/dev/null             | awk -v want="fighter_kind_$2" '$0 ~ ("fighter_kind = " want "$"){f=1;next} f&&/fighter_kind = /{exit} f'             | awk -v k="$1" '$1==k { print $3; exit }')
+        case "${h:-}" in
+            ""|0x*) echo "REFUSING: '$1' on $2 is non-scalar and has no label (got '${h:-nothing}')" >&2; exit 1 ;;
+            *) printf '%s	hash40' "$h"; return ;;
+        esac
+    fi
     case "$val" in
-        ""|ABSENT|NON_SCALAR)
+        ""|ABSENT)
             echo "REFUSING: $2 has no usable '$1' (got '${val:-nothing}')" >&2; exit 1 ;;
     esac
     case "$type" in
-        float|int|uint|byte|sbyte|short|ushort|bool) ;;
+        float|int|uint|byte|sbyte|short|ushort|bool|hash40) ;;
         *) echo "REFUSING: '$1' on $2 has unhandled type '$type'" >&2; exit 1 ;;
     esac
     printf '%s\t%s' "$val" "$type"

@@ -21,10 +21,37 @@ use {
 // while keeping the two lines that configure the camera it was asking for.
 use crate::acmd_ext as macros;
 
-// ---- landing n (Palutena has none) : empty override of game_landingairn ----
-unsafe extern "C" fn pikachu_game_landingairn(_agent: &mut L2CAgentBase) {}
+// ---- landing n (Byleth) : game_landingairn ----
+unsafe extern "C" fn pikachu_game_landingairn(agent: &mut L2CAgentBase) {
+    if macros::IS_EXIST_ARTICLE(agent, *FIGHTER_MASTER_GENERATE_ARTICLE_BOW) {
+        if macros::is_excute(agent) {
+            crate::articles::change_motion(agent.module_accessor, "bow", Hash40::new("landing_air_n"), false, -1.0);
+        }
+    }
+    frame(agent.lua_state_agent, 2.0);
+    if macros::is_excute(agent) {
+        macros::ATTACK(agent, 0, 0, Hash40::new("top"), 1.0, 30, 120, 0, 40, 4.25, 0.0, 7.1187496, -5.3125, Some(0.0), Some(7.1187496), Some(6.375), 0.7, 1.0, *ATTACK_SETOFF_KIND_OFF, *ATTACK_LR_CHECK_POS, true, 0, 0.0, 0, false, false, false, false, false, *COLLISION_SITUATION_MASK_GA, *COLLISION_CATEGORY_MASK_ALL, *COLLISION_PART_MASK_ALL, false, Hash40::new("collision_attr_normal"), *ATTACK_SOUND_LEVEL_S, *COLLISION_SOUND_ATTR_KICK, *ATTACK_REGION_OBJECT);
+    }
+    wait(agent.lua_state_agent, 1.0);
+    if macros::is_excute(agent) {
+        AttackModule::clear_all(agent.module_accessor);
+    }
+    frame(agent.lua_state_agent, 25.0);
+    if macros::is_excute(agent) {
+        crate::articles::remove_exist(agent.module_accessor, "bow", ArticleOperationTarget(*ARTICLE_OPE_TARGET_ALL));
+    }
+}
 
-// ---- landing f (Kazuya has none) : empty override of game_landingairf ----
+
+// ---- landing n (Byleth) : effect_landingairn, sys_ effects only (ADR 0002) ----
+unsafe extern "C" fn pikachu_effect_landingairn(agent: &mut L2CAgentBase) {
+    frame(agent.lua_state_agent, 1.0);
+    if macros::is_excute(agent) {
+        macros::LANDING_EFFECT(agent, Hash40::new("sys_down_smoke"), Hash40::new("top"), 0, 0, 0, 0, 0, 0, 1, 0, 0, 0, 0, 0, 0, false);
+    }
+}
+
+// ---- landing f (Wolf has none) : empty override of game_landingairf ----
 unsafe extern "C" fn pikachu_game_landingairf(_agent: &mut L2CAgentBase) {}
 
 // ---- landing b (Cloud has none) : empty override of game_landingairb ----
@@ -33,26 +60,16 @@ unsafe extern "C" fn pikachu_game_landingairb(_agent: &mut L2CAgentBase) {}
 // ---- landing hi (Corrin has none) : empty override of game_landingairhi ----
 unsafe extern "C" fn pikachu_game_landingairhi(_agent: &mut L2CAgentBase) {}
 
-// ---- landing lw (K. Rool) : game_landingairlw ----
-unsafe extern "C" fn pikachu_game_landingairlw(agent: &mut L2CAgentBase) {
-}
-
-
-// ---- landing lw (K. Rool) : effect_landingairlw, sys_ effects only (ADR 0002) ----
-unsafe extern "C" fn pikachu_effect_landingairlw(agent: &mut L2CAgentBase) {
-    frame(agent.lua_state_agent, 1.0);
-    if macros::is_excute(agent) {
-        macros::LANDING_EFFECT(agent, Hash40::new("sys_down_smoke"), Hash40::new("top"), 0, 0, 0, 0, 0, 0, 1, 0, 0, 0, 0, 0, 0, false);
-    }
-}
+// ---- landing lw (Pyra has none) : empty override of game_landingairlw ----
+unsafe extern "C" fn pikachu_game_landingairlw(_agent: &mut L2CAgentBase) {}
 
 pub fn install() {
     Agent::new("pikachu")
         .game_acmd("game_landingairn", pikachu_game_landingairn, Default)
+        .effect_acmd("effect_landingairn", pikachu_effect_landingairn, Default)
         .game_acmd("game_landingairf", pikachu_game_landingairf, Default)
         .game_acmd("game_landingairb", pikachu_game_landingairb, Default)
         .game_acmd("game_landingairhi", pikachu_game_landingairhi, Default)
         .game_acmd("game_landingairlw", pikachu_game_landingairlw, Default)
-        .effect_acmd("effect_landingairlw", pikachu_effect_landingairlw, Default)
         .install();
 }

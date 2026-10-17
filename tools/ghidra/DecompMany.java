@@ -89,6 +89,18 @@ public class DecompMany extends GhidraScript {
         // the output is reassembled in the caller's order afterwards. Writing straight through
         // would produce a file whose sections depend on thread scheduling, which is not something
         // a diff should have to cope with.
+        // Progress goes to a FILE, not to stdout. `decomp-many.sh` pipes this script's output
+        // through `grep`, which buffers it -- that is why a finished 4-minute run once looked like
+        // a 12-minute hang and why the post-mortem on the last long decompile asked for exactly
+        // this. The file is rewritten and flushed every PROGRESS_EVERY completions, so a watcher
+        // sees wall-clock progress without parsing anything.
+        final int total = fns.size();
+        final Path progPath = Paths.get(outPath + ".progress");
+        final java.util.concurrent.atomic.AtomicInteger done =
+                new java.util.concurrent.atomic.AtomicInteger();
+        final int PROGRESS_EVERY = 500;
+        final long startMs = System.currentTimeMillis();
+
         Map<String, String> byAddr = new ConcurrentHashMap<>();
         DecompilerCallback<Void> cb = new DecompilerCallback<Void>(currentProgram,
                 new DecompileConfigurer() {
@@ -112,6 +124,17 @@ public class DecompMany extends GhidraScript {
                         + (res.getErrorMessage() == null ? "no result" : res.getErrorMessage())
                         + " */\n");
                 }
+                int n = done.incrementAndGet();
+                if (n % PROGRESS_EVERY == 0 || n == total) {
+                    long el = (System.currentTimeMillis() - startMs) / 1000;
+                    double rate = el > 0 ? (double) n / el : 0.0;
+                    long eta = rate > 0 ? (long) ((total - n) / rate) : -1;
+                    String line = String.format(
+                        "%d/%d decompiled, %.0f/s, %ds elapsed, eta %ds%n", n, total, rate, el, eta);
+                    try {
+                        Files.write(progPath, line.getBytes());
+                    } catch (Exception e) { /* a progress write is never worth failing the run */ }
+                }
                 return null;
             }
         };
@@ -123,17 +146,28 @@ public class DecompMany extends GhidraScript {
         println("decompiled " + byAddr.size() + " function(s) in " + secs + "s");
 
         // ---- one file, in the order the list asked for ---------------------------------------
-        StringBuilder out = new StringBuilder();
-        for (int i = 0; i < fns.size(); i++) {
-            Function fn = fns.get(i);
-            String key = "0x" + fn.getEntryPoint().toString();
-            String body = byAddr.get(key);
-            out.append("/* ==== ").append(specs.get(i)).append("  ")
-               .append(fn.getName()).append(" ==== */\n");
-            out.append(body == null ? "/* the pool returned nothing for this one */\n" : body)
-               .append("\n");
+        //
+        // STREAMED, AND THE MAP IS DRAINED AS IT GOES. The previous version built the whole file
+        // in a StringBuilder and then wrote `out.toString().getBytes()`, which holds the entire
+        // output THREE times at once -- once in `byAddr`, once in the builder (which doubles its
+        // backing array as it grows), and twice more in the String and the byte[]. At 32,857
+        // functions that was 155 MB of C in a 2 GB heap and the JVM sat at 1.66 GB. At 100,508 it
+        // is ~470 MB, and three copies of that does not fit -- it would have thrown
+        // OutOfMemoryError AFTER the 25 minutes of decompilation, losing all of it.
+        //
+        // Writing through a stream and calling remove() as each function is emitted keeps exactly
+        // one copy live, shrinking.
+        try (BufferedWriter w = new BufferedWriter(
+                new OutputStreamWriter(new FileOutputStream(outPath)), 1 << 20)) {
+            for (int i = 0; i < fns.size(); i++) {
+                Function fn = fns.get(i);
+                String key = "0x" + fn.getEntryPoint().toString();
+                String body = byAddr.remove(key);
+                w.write("/* ==== " + specs.get(i) + "  " + fn.getName() + " ==== */\n");
+                w.write(body == null ? "/* the pool returned nothing for this one */\n" : body);
+                w.write("\n");
+            }
         }
-        Files.write(Paths.get(outPath), out.toString().getBytes());
         println("wrote " + outPath);
     }
 }

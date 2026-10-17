@@ -35,6 +35,13 @@
 const SOURCES: &[&str] = &[
     "CHROM", "ELIGHT", "FALCO", "ROBOT", "LITTLEMAC", "FOX", "GAMEWATCH", "PALUTENA", "DEMON",
     "CLOUD", "KAMUI", "KROOL", "GAOGAEN", "MEWTWO", "KOOPA", "GANON", "DONKEY",
+    // Added 2026-09-19 for the ten-move replacement set. CHROM, ELIGHT, ROBOT, PALUTENA, DEMON
+    // and KROOL are kept even though their moves were replaced: several still supply other moves
+    // (Mythra's dash attack, Palutena's grab until Charizard's lands), and an unused entry here
+    // costs nothing while a missing one makes build.sh refuse outright.
+    "SHEIK", "MASTER", "EFLAME", "PLIZARDON", "MARIOD", "NESS", "SAMUS",
+    // f-air moved Kazuya -> Falco -> WOLF.
+    "WOLF",
 ];
 
 // STATUS-SCOPED work ids that are deliberately KEPT.
@@ -98,7 +105,92 @@ const KEEP_STATUS_IDS: &[&str] = &[
     "FIGHTER_GAMEWATCH_STATUS_SPECIAL_HI_FLAG_LANDING_ENABLE",
     "FIGHTER_GAMEWATCH_STATUS_SPECIAL_HI_FLAG_PARACHUTE_OPEN",
     "FIGHTER_GAMEWATCH_STATUS_SPECIAL_HI_WORK_INT_ATTACK_AIR_KIND",
+    // SAMUS'S CHARGE SHOT. Added against the three-point check above:
+    //   1. the moveset registers every line of all six of her neutral-B statuses -- Pre, Main
+    //      and End on each, plus Init/Exec/Exit wherever her tree has them -- so no Pikachu
+    //      code runs inside them and the status work region is ours;
+    //   2. the indices are 0x2100000D, 0x2100000E and 0x2100000F, inside the range Pikachu's own
+    //      status flags reach (0x2100001A, Skull Bash);
+    //   3. all three are STATUS_ ids.
+    //
+    // THEY ARE WRITTEN BY HAND-WRITTEN CODE, NOT BY A GENERATED SCRIPT -- her ACMDs consist
+    // ENTIRELY of lines this file strips, so `src/specials/chargeshot/acmd.rs` writes them
+    // directly and deforeign, which only visits `src/<dir>/mod.rs`, never sees that file. Listed
+    // anyway: tools/check-keepflags.sh asks whether ANY dumped ACMD writes an id the status code
+    // reads, which hers do, and an allowlist that is right for the wrong reason today is an
+    // allowlist that is wrong the day those scripts do go through gen-moves.
+    "FIGHTER_SAMUS_STATUS_SPECIAL_N_FLAG_BULLET_DISP",
+    "FIGHTER_SAMUS_STATUS_SPECIAL_N_FLAG_CHARGE",
+    "FIGHTER_SAMUS_STATUS_SPECIAL_N_FLAG_SHOOT",
 ];
+
+// A CLONED ARTICLE'S CALL IS RETARGETED, NOT DELETED.
+//
+// Stripping is right when the article is not cloned: the id is a per-fighter enumeration and
+// `FIGHTER_MASTER_GENERATE_ARTICLE_BOW` is 0, which on Pikachu is his electro ball. It is WRONG
+// when the article IS cloned, because then a correct id exists and deleting the call throws the
+// move's visual away.
+//
+// Byleth's n-air is the case that made that visible. The entire move is the bow -- generate,
+// change_motion, remove_exist, three statements, all three stripped -- so the port shipped her
+// hitboxes with nothing to look at. Playtest: "byleth nair doesn't have visual". Samus's charge
+// shot had the same shape and was worked around by hand in `src/specials/chargeshot`; this is the
+// general answer, and that hand-written pair can go once it is proven.
+//
+// THE REWRITE PASSES A HOST NAME, NOT AN ID, because the id is not a constant -- it depends on
+// which rows of `src/articles/mod.rs` are enabled. `crate::articles::<op>` looks it up and is a
+// no-op when the row is off, so turning an article off restores exactly the old behaviour instead
+// of leaving a call with a wrong id.
+//
+// ONLY THE OPS THAT ACTUALLY OCCUR. Across every script gen-moves.sh ports there are four:
+// generate_article, change_motion and remove_exist (Byleth's bow) and add_motion_partial
+// (Pyra's esword, which this port does not clone, so it keeps being stripped). An unhandled op on
+// a cloned article is NOT silently stripped -- it is reported, because that is a call somebody
+// meant to keep.
+const RETARGET_OPS: &[&str] = &["generate_article", "change_motion", "remove_exist"];
+
+/// `(donor, DONOR_ARTICLE_IN_CAPS) -> host_name`, read out of src/articles/mod.rs so this cannot
+/// drift from the table that decides what is actually cloned.
+fn cloned_articles(src_dir: &str) -> Vec<(String, String, String)> {
+    let p = std::path::Path::new(src_dir).join("articles").join("mod.rs");
+    let Ok(txt) = std::fs::read_to_string(p) else { return Vec::new() };
+    let mut out = Vec::new();
+    for l in txt.lines() {
+        let t = l.trim_start();
+        if !t.starts_with("Candidate {") { continue }
+        let field = |k: &str| -> Option<String> {
+            let i = t.find(&format!("{k}: \""))? + k.len() + 3;
+            let rest = &t[i..];
+            Some(rest[..rest.find('"')?].to_string())
+        };
+        let (Some(host), Some(donor), Some(art)) =
+            (field("host_name"), field("donor"), field("donor_article")) else { continue };
+        if !t.contains("enabled: true") || !t.contains("clean: true") { continue }
+        out.push((donor.to_uppercase(), art.to_uppercase(), host));
+    }
+    out
+}
+
+/// If this line is an `ArticleModule::<op>(.., *FIGHTER_<DONOR>_GENERATE_ARTICLE_<ART>, ..)` for an
+/// article we clone, return the rewritten line.
+fn retarget(line: &str, arts: &[(String, String, String)]) -> Option<String> {
+    let op_at = line.find("ArticleModule::")? + "ArticleModule::".len();
+    let rest = &line[op_at..];
+    let op = &rest[..rest.find('(')?];
+    for (donor, art, host) in arts {
+        let konst = format!("*FIGHTER_{donor}_GENERATE_ARTICLE_{art}");
+        if !line.contains(&konst) { continue }
+        if !RETARGET_OPS.contains(&op) {
+            eprintln!("  ! ArticleModule::{op} on the cloned article '{host}' is not a retargeted \
+                       op -- it would be stripped, which is probably not what is wanted:\n    {}",
+                      line.trim());
+            return None;
+        }
+        return Some(line.replace("ArticleModule::", "crate::articles::")
+                        .replace(&konst, &format!("\"{host}\"")));
+    }
+    None
+}
 
 fn is_foreign(line: &str) -> bool {
     if KEEP_STATUS_IDS.iter().any(|k| line.contains(k)) {
@@ -133,6 +225,9 @@ fn main() {
     let mut total_stmts = 0usize;
     let mut total_blocks = 0usize;
     let mut total_macros = 0usize;
+    let mut total_retargeted = 0usize;
+    // Read once, from the table that decides what is actually cloned.
+    let arts = cloned_articles(&src_dir);
 
     for entry in std::fs::read_dir(&src_dir).unwrap().flatten() {
         let dir = entry.path();
@@ -147,6 +242,7 @@ fn main() {
         //    constant inside a multi-line construct would be missed, so refuse loudly instead.
         let mut stmts = 0usize;
         let mut macros_dropped = 0usize;
+        let mut retargeted = 0usize;
         let mut keep: Vec<bool> = vec![true; lines.len()];
 
         // Unsupported macro calls first, on the same statement-drop-then-cascade basis.
@@ -161,9 +257,16 @@ fn main() {
             }
         }
 
-        for (i, l) in lines.iter().enumerate() {
+        for i in 0..lines.len() {
             if !keep[i] { continue }
-            if !is_foreign(l) { continue }
+            if !is_foreign(&lines[i]) { continue }
+            // Retarget before considering the strip: a cloned article's call is kept, rewritten.
+            if let Some(r) = retarget(&lines[i], &arts) {
+                lines[i] = r;
+                retargeted += 1;
+                continue;
+            }
+            let l = &lines[i];
             let t = l.trim();
             if t.ends_with(';') && !t.starts_with("if ") && !t.contains('{') {
                 keep[i] = false;
@@ -212,14 +315,18 @@ fn main() {
             if !removed { break }
         }
 
-        if stmts > 0 || blocks > 0 || macros_dropped > 0 {
+        // `retargeted` counts too: a file whose ONLY change is a rewritten article call still has
+        // to be written back, and leaving it out of this test is how Byleth's bow would have been
+        // retargeted in memory and thrown away.
+        if stmts > 0 || blocks > 0 || macros_dropped > 0 || retargeted > 0 {
             std::fs::write(&file, lines.join("\n") + "\n").unwrap();
-            println!("  {:<10} {stmts} foreign statements, {macros_dropped} unsupported macros, {blocks} emptied blocks removed",
+            println!("  {:<10} {stmts} foreign statements, {macros_dropped} unsupported macros, {blocks} emptied blocks removed, {retargeted} article call(s) retargeted",
                      dir.file_name().unwrap().to_string_lossy());
             total_stmts += stmts;
             total_blocks += blocks;
             total_macros += macros_dropped;
+            total_retargeted += retargeted;
         }
     }
-    println!("deforeign: {total_stmts} foreign statements, {total_macros} unsupported macro calls and {total_blocks} blocks removed");
+    println!("deforeign: {total_stmts} foreign statements, {total_macros} unsupported macro calls and {total_blocks} blocks removed; {total_retargeted} cloned-article call(s) retargeted");
 }

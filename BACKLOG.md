@@ -1420,3 +1420,51 @@ than listed. What follows is the triage of what is left.
 - **`ArticleModule::*`** in all three up-B statuses and two whip statuses. Those are Game &
   Watch's parachute and Incineroar's rope, neither of which Pikachu has. Article work, tracked
   separately.
+
+---
+
+## 2026-10-12: an offline pass with the code index, and what it settled
+
+No console. Everything here was found through the new indexes (`handbook/lookup.md`:
+`tools/ssbu.py find`, `tools/code-index.py`, `tools/move-index.py`) and checked by building the
+plugin and running the offline gates. **None of it has been seen in a match.**
+
+### This backlog was behind the working tree
+
+Measured against the code, not against this file: the carry's CheckDamage line, the carry
+jumping statuses and `change_motion_inherit_frame` are already in the tree, and
+`tools/check-nativecalls.sh` reported 14 unmade calls, not 57. `CLONE_ENABLED` is `true` with
+four clean clones installed (fusionsword, parachute, cshot, bow), which also retires the "Not
+gaps" note above: Pikachu does have Game & Watch's parachute now.
+
+### Done, live in the build
+
+- **The up-B drives its parachute.** All 14 of Game & Watch's parachute calls across SPECIAL_HI,
+  _FALL and _CLOSE (`0x710000c6c0` … `0x710000dee0`, arguments named from the const table) are
+  transcribed through `crate::articles`, which gained `is_exist`, `remove` and
+  `set_visibility_whole`. The firemen-and-trampoline article (RESCUE) is not a CANDIDATES row, so
+  its calls are a stated gap. `check-nativecalls.sh` now counts the wrappers and reads **3 unmade
+  calls**, all of them the rope's.
+
+### Done, gated off, and how to arm each (one per watched boot)
+
+- **The whip's ledge box.** `select_cliff_hangdata(boma, 1)`, as Incineroar's SPECIAL_S main
+  calls it, and his `cliff_hang_data[1]` appended to Pikachu's vl.prc (`prc-tool vlappend`,
+  scaled 1.00/0.96) so index 1 exists. Gated by `WHIP_CLIFF_HANGDATA` in `specials/whip/mod.rs`,
+  which `gen-vlprc.sh` and check.sh 3b both read, because the last vl.prc this mod shipped
+  crashed on load. Arm: flip the constant, `bash tools/gen-vlprc.sh`, build, load.
+- **The rope's and the spikeball's dirty slots.** `src/articles/neutralize.rs` gives our
+  instances a private vtable with slots 40/55 (rope) and 3/55 (spikeball) pointed at the engine's
+  defaults. The derivation and the arming procedure are in `docs/the-article-path.md`, "Written,
+  2026-10-12". `check-article-donor-params.sh` verifies coverage, the defaults and both hook
+  addresses. Arm: set the row `enabled: true`.
+
+### Researched, not implemented, and why
+
+- **Revenge building from shield damage, the counter's 1.5× hitlag, the air-catch drift cap.**
+  All three params are read only by Incineroar's native code in `main` (`0xac6a10`, `0xac7860`,
+  plus his two param loaders `0xac8ec0`/`0xaca280`), which reads his own param block. Putting the
+  values in Pikachu's params changes nothing. The route is transcribing those functions, after
+  tracing which struct fields the real consumers read.
+- **The rope on screen** needs, after the neutraliser is armed and loads, the whip spawning it and
+  doing `FUN_00abede0`'s placement and bookkeeping itself (`docs/the-article-path.md`).

@@ -193,3 +193,124 @@ pub fn st_kind(k: i32, ours: bool) -> String {
         format!("{n}({k:#x})")
     }
 }
+
+// ================================================================================================
+// THE BACK THROW, WHICH IS THE ONE PORTED THROW THAT DOES NOT WORK
+// ================================================================================================
+//
+// Playtest: "trying to back throw makes pikachu let go of the opponent and immediately run
+// backwards, not actually throw."
+//
+// EVERYTHING THAT CAN BE SETTLED WITHOUT RUNNING THE GAME HAS BEEN, AND ALL OF IT IS RIGHT. That
+// list matters as much as the probe, because each item is a fix somebody would otherwise try:
+//
+//   * `game_throwb` is Ness's, copied verbatim by tools/gen-moves.sh, and it is STRUCTURALLY
+//     IDENTICAL to Pikachu's own working back throw: two `ATTACK_ABS` on frame 0 (one THROW, one
+//     CATCH), `CHECK_FINISH_CAMERA`, then one `ATK_HIT_ABS` on the `throw` node reading the three
+//     `FIGHTER_STATUS_THROW_WORK_INT_TARGET_*` work ids. Pikachu's fires on frame 26, Ness's on 27.
+//   * the animation IS Ness's. `e01throwb.nuanmb` is dropped in, 68 frames, and it still carries a
+//     `Throw` node track after the drop-in strips the 36 bones Pikachu does not have.
+//   * the motion entry carries Ness's `flags`, `blend` and FAF exactly -- `turn` set, `move`
+//     clear, faf 53. Vanilla Pikachu's own `throw_b` ALSO has `turn` (and `move`, which Ness does
+//     not need), so turning is not the difference, and `move` going away is correct: Ness's back
+//     throw has no root motion to apply.
+//   * `Throw` is in the shipped skeleton, so the node `ATK_HIT_ABS` names resolves.
+//   * THE CARGO CARRY CANNOT BE STEALING IT. `retarget_forward_throw` writes `globalTable[0x45]`
+//     and nothing else, and the common `CatchCont` sends a BACK throw to `globalTable[0x46]` --
+//     read out of vendor/decomp, not assumed. `pikachu_throw_main` delegates any throw whose
+//     `CATCH_WAIT_WORK_INT_MOTION_KIND` is not `throw_f`, and `status_Throw_Sub` proves that work
+//     id really is the chosen throw's motion hash.
+//   * NESS'S `Throw` STATUS OVERRIDE, WHICH WAS THE STANDING SUSPECT, IS COSMETIC. It was the one
+//     structural difference left: Ness is the only donor here who replaces the common Throw init,
+//     and his installs a per-frame helper into `globalTable[0x15]` -- the same slot Donkey Kong
+//     uses for his own per-frame helpers. Disassembled (ness `0x7100006190`), that helper is:
+//
+//         if arg and AttackModule::is_hit_abs(boma) then
+//             ModelModule::set_joint_translate(boma, hash40("throw"), {0.0, 2.0, 0.0}, false, true)
+//         end
+//
+//     One joint lift, two units up, only AFTER the throw has already connected. It cannot be what
+//     stops the throw connecting, and it is deliberately NOT ported: `set_joint_translate` has no
+//     matching clear in Ness's tree, so a faithful copy risks leaving the node the victim rides
+//     permanently displaced, and ADR 0005 does not allow shipping that to fix a bug it cannot
+//     cause.
+//
+// So the cause is something only the running game can show, and this is the probe for it. Two
+// lines per throw attempt, which is why it can stay on:
+//
+//   in   which motion the engine chose, the work ids the ACMD will read at frame 27, and whether
+//        the grab is still standing on the way IN. If `MOTION_KIND` is not `throw_b`, the wrong
+//        throw was selected and nothing after it matters. If `TARGET_OBJECT` is already invalid,
+//        the throw was never going to connect and the release happened BEFORE this status.
+//   out  the frame reached against the animation's length, and whether `AttackModule::is_hit_abs`
+//        ever became true. Ness's own status helper reads exactly that flag to decide the throw
+//        landed, so it is the engine's own answer to "did the throw connect", not ours.
+//
+// Between them those two lines separate the three candidate stories -- wrong motion selected, the
+// grab already gone on entry, or the status ending before frame 27 -- and no two of them want the
+// same fix.
+static mut THROW_IN: [bool; 8] = [false; 8];
+static mut THROW_HIT: [bool; 8] = [false; 8];
+static mut THROW_FRAME: [f32; 8] = [0.0; 8];
+
+/// The four throw motions by hash, so the line names the throw instead of printing a bare number
+/// the reader has to look up. `st()` exists for exactly this reason on the status side.
+fn throw_motion(h: u64) -> &'static str {
+    for name in ["throw_f", "throw_b", "throw_hi", "throw_lw", "throw_kirby"] {
+        if Hash40::new(name).hash == h {
+            return name;
+        }
+    }
+    "?"
+}
+
+/// Call once per frame with the fighter's current status. Does nothing outside `THROW`.
+pub unsafe fn throw_frame(
+    entry: usize,
+    boma: *mut BattleObjectModuleAccessor,
+    status: i32,
+    frame: f32,
+    end: f32,
+) {
+    if entry >= 8 {
+        return;
+    }
+    let in_throw = status == *FIGHTER_STATUS_KIND_THROW;
+
+    if in_throw && !THROW_IN[entry] {
+        THROW_IN[entry] = true;
+        THROW_HIT[entry] = false;
+        THROW_FRAME[entry] = 0.0;
+        let chosen = WorkModule::get_int64(boma, *FIGHTER_STATUS_CATCH_WAIT_WORK_INT_MOTION_KIND);
+        event(format!(
+            "[rat] THROW p{entry} in: chose {}({chosen:#012x}) rate={:.3} | target={:#x} \
+             group={} no={} | is_catch={} capture_object={:#x} linked={}",
+            throw_motion(chosen),
+            WorkModule::get_float(boma, *FIGHTER_STATUS_THROW_WORK_FLOAT_MOTION_RATE),
+            WorkModule::get_int64(boma, *FIGHTER_STATUS_THROW_WORK_INT_TARGET_OBJECT),
+            WorkModule::get_int64(boma, *FIGHTER_STATUS_THROW_WORK_INT_TARGET_HIT_GROUP),
+            WorkModule::get_int64(boma, *FIGHTER_STATUS_THROW_WORK_INT_TARGET_HIT_NO),
+            CatchModule::is_catch(boma),
+            CatchModule::capture_object_id(boma, false) as u32,
+            LinkModule::is_linked(boma, *LINK_NO_CAPTURE),
+        ));
+    }
+
+    if in_throw {
+        THROW_FRAME[entry] = frame;
+        if AttackModule::is_hit_abs(boma) {
+            THROW_HIT[entry] = true;
+        }
+        return;
+    }
+
+    if THROW_IN[entry] {
+        THROW_IN[entry] = false;
+        event(format!(
+            "[rat] THROW p{entry} out on frame {:.0} of {end:.0}: is_hit_abs ever true = {} -- \
+             the ATK_HIT_ABS is on frame 27, so reaching fewer than that means the status ended \
+             first and no fix to the script can help",
+            THROW_FRAME[entry], THROW_HIT[entry],
+        ));
+    }
+}

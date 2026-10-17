@@ -14,11 +14,27 @@
 # include them. Tools should report those as "not comparable" rather than as failures.
 
 # normals
-chrom:attack_11
+littlemac:attack_11
+littlemac:attack_12
+littlemac:attack_13
+littlemac:attack_100_start
+littlemac:attack_100
+littlemac:attack_100_end
+samus:special_n_s
+samus:special_n_h
+samus:special_n_c
+samus:special_n_f
+samus:special_n_f_max
+samus:special_air_n_s
+samus:special_air_n_h
+samus:special_air_n_c
+samus:special_air_n_f
+samus:special_air_n_f_max
+samus:special_air_n_jump_c
 elight:attack_dash
-elight:attack_s3_s
+sheik:attack_s3_s
 falco:attack_hi3
-robot:attack_lw3
+gaogaen:attack_lw3
 
 # smashes, including the charge holds
 littlemac:attack_s4_s
@@ -29,28 +45,29 @@ gamewatch:attack_lw4
 gamewatch:attack_lw4_hold
 
 # aerials and their landing lag
-palutena:attack_air_n
-demon:attack_air_f
+master:attack_air_n
+wolf:attack_air_f
 cloud:attack_air_b
 kamui:attack_air_hi
-krool:attack_air_lw
-palutena:landing_air_n
-demon:landing_air_f
+eflame:attack_air_lw
+master:landing_air_n
+wolf:landing_air_f
 cloud:landing_air_b
 kamui:landing_air_hi
-krool:landing_air_lw
+eflame:landing_air_lw
 
 # grab family and throws
-palutena:catch
-palutena:catch_dash
-palutena:catch_turn
+plizardon:catch
+plizardon:catch_dash
+plizardon:catch_turn
 palutena:catch_wait
 palutena:catch_pull
 palutena:catch_cut
 demon:catch_attack
 donkey:throw_f
-gaogaen:throw_b
+ness:throw_b
 mewtwo:throw_hi
+mariod:throw_lw
 
 # defensive
 koopa:down_attack_u

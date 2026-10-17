@@ -121,11 +121,16 @@ ratio_of() {
 #
 # source fighter | animation file | neutralise | move it drives
 MOVES="
-chrom     | c00attack11.nuanmb        | -    | jab
+littlemac | c00attack11.nuanmb        | -    | jab
+littlemac | c00attack12.nuanmb        | -    | jab 2 (new file)
+littlemac | c00attack13.nuanmb        | -    | jab 3 (new file)
+littlemac | c00attack100start.nuanmb  | -    | rapid jab windup (new file)
+littlemac | c00attack100.nuanmb       | -    | rapid jab loop (new file)
+littlemac | c00attackend.nuanmb       | -    | rapid jab finisher -- Mac's attack_100_end entry names THIS stem, not c00attack100end (new file)
 elight    | c00attackdash.nuanmb      | -    | dash attack
-elight    | c01attacks3s.nuanmb       | -    | f-tilt (all three angles; she has no angled animations)
+sheik     | c01attacks3s.nuanmb       | -    | f-tilt (all three angles; she has no angled animations)
 falco     | c02attackhi3.nuanmb       | -    | u-tilt
-robot     | c02attacklw3.nuanmb       | -    | d-tilt
+gaogaen   | c02attacklw3.nuanmb       | -    | d-tilt
 littlemac | c03attacks4s.nuanmb       | -    | f-smash, straight
 littlemac | c03attacks4hi.nuanmb      | -    | f-smash, up-angled (new file: see config.json new-dir-files)
 littlemac | c03attacks4lw.nuanmb      | -    | f-smash, down-angled (new file: see config.json new-dir-files)
@@ -134,25 +139,26 @@ fox       | c04attackhi4.nuanmb       | LegC | u-smash
 fox       | c04attackhi4charge.nuanmb | -    | u-smash charge hold
 gamewatch | c04attacklw4.nuanmb       | -    | d-smash
 gamewatch | c04attacklw4charge.nuanmb | -    | d-smash charge hold
-palutena  | c05attackairn.nuanmb      | -    | n-air
-demon     | c05attackairf.nuanmb      | -    | f-air
+master    | c05attackairn.nuanmb      | -    | n-air
+wolf      | c05attackairf.nuanmb      | -    | f-air
 cloud     | c05attackairb.nuanmb      | -    | b-air
 kamui     | c05attackairhi.nuanmb     | -    | u-air
-krool     | c05attackairlw.nuanmb     | -    | d-air
-palutena  | c05landingairn.nuanmb     | -    | n-air landing
-demon     | c05landingairf.nuanmb     | -    | f-air landing
+eflame    | c05attackairlw.nuanmb     | -    | d-air
+master    | c05landingairn.nuanmb     | -    | n-air landing
+wolf      | c05landingairf.nuanmb     | -    | f-air landing pose (Kazuya's, then Falco's; f-air is Wolf's now)
 cloud     | c05landingairb.nuanmb     | -    | b-air landing
 kamui     | c05landingairhi.nuanmb    | -    | u-air landing
-krool     | c05landingairlw.nuanmb    | -    | d-air landing
-palutena  | e00catch.nuanmb           | -    | grab
-palutena  | e00catchdash.nuanmb       | -    | dash grab
-palutena  | e00catchturn.nuanmb       | -    | pivot grab
-palutena  | e00catchwait.nuanmb       | -    | grab hold
-palutena  | e00catchpull.nuanmb       | -    | grab pull
-palutena  | e00catchcut.nuanmb        | -    | grab break
+eflame    | c05landingairlw.nuanmb    | -    | d-air landing
+plizardon | e00catch.nuanmb           | -    | grab
+plizardon | e00catchdash.nuanmb       | -    | dash grab
+plizardon | e00catchturn.nuanmb       | -    | pivot grab
+plizardon | e00catchwait.nuanmb       | -    | grab hold
+plizardon | e00catchpull.nuanmb       | -    | grab pull
+plizardon | e00catchcut.nuanmb        | -    | grab break
 demon     | e00catchattack.nuanmb     | -    | pummel
-gaogaen   | e01throwb.nuanmb          | -    | b-throw
+ness      | e01throwb.nuanmb          | -    | b-throw
 mewtwo    | e01throwhi.nuanmb         | -    | u-throw
+mariod    | e01throwlw.nuanmb        | -    | d-throw
 koopa     | f03downattacku.nuanmb     | -    | get-up attack, face up
 koopa     | f04downattackd.nuanmb     | -    | get-up attack, face down
 koopa     | g03slipattack.nuanmb      | -    | trip attack
@@ -187,6 +193,17 @@ donkey    | e01throwfjumpsquat.nuanmb | -    | cargo carry, jump squat (new file
 donkey    | e01throwfjump.nuanmb      | -    | cargo carry, jumping (new file)
 donkey    | e01throwffall.nuanmb      | -    | cargo carry, falling (new file)
 donkey    | e01throwflanding.nuanmb   | -    | cargo carry, landing (new file)
+samus     | d00specialnstart.nuanmb   | -    | Charge Shot windup (new file)
+samus     | d00specialnhold.nuanmb    | -    | Charge Shot charge loop (new file)
+samus     | d00specialncancel.nuanmb  | -    | Charge Shot cancel (new file)
+samus     | d00specialn.nuanmb        | -    | Charge Shot fire (same name as Pikachu's Thunder Jolt)
+samus     | d00specialnmax.nuanmb     | -    | Charge Shot fire, full charge (new file)
+samus     | d00specialairnstart.nuanmb| -    | AIR Charge Shot windup (new file)
+samus     | d00specialairnhold.nuanmb | -    | AIR Charge Shot charge loop (new file)
+samus     | d00specialairncancel.nuanmb| -   | AIR Charge Shot cancel (new file)
+samus     | d00specialairn.nuanmb     | -    | AIR Charge Shot fire (same name as Pikachu's air Thunder Jolt)
+samus     | d00specialairnmax.nuanmb  | -    | AIR Charge Shot fire, full charge (new file)
+samus     | d00specialairnjumpcancel.nuanmb| - | AIR Charge Shot jump cancel (new file)
 gamewatch | d02specialhi.nuanmb       | -    | up-B Fire, grounded (new file)
 gamewatch | d02specialairhi.nuanmb    | -    | up-B Fire, airborne (new file)
 gamewatch | d02specialhiopen.nuanmb   | -    | up-B parachute open (new file)

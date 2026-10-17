@@ -170,13 +170,37 @@ fn main() {
         .filter_map(|p| p.split_once('=').map(|(f, t)| (f.to_string(), t.to_string())))
         .collect();
     if a.iter().any(|x| x == "--subset") {
+        // THE SUBSET PATH HONOURS `--rebased` TOO, and it did not until 2026-09-19.
+        //
+        // This branch compares effect scripts and `exit`s before the skip/alias logic below ever
+        // runs, so a bone the rebase pass legitimately rewrote read as an altered call. It went
+        // unnoticed because until Pyra's d-air no ported EFFECT had ever ridden a grafted bone;
+        // her `sys_smash_flash` on `sword1` is the first, and the checker failed its own
+        // pipeline's correct output.
+        //
+        // Only the bone is exempt, and only for effect-shaped calls where it is argument 2.
+        // Every other argument is still compared exactly, which is the whole value of the check.
+        let arg_eq = |sc: &str, sa: &Vec<String>, oa: &Vec<String>| -> bool {
+            if sa == oa {
+                return true;
+            }
+            if !rebased || sa.len() != oa.len() {
+                return false;
+            }
+            let bone = if sc.contains("EFFECT") && !sc.contains("LAST_EFFECT_SET") {
+                2
+            } else {
+                return false;
+            };
+            sa.iter().zip(oa.iter()).enumerate().all(|(i, (x, y))| i == bone || x == y)
+        };
         let mut si = 0usize;
         let mut dropped = 0usize;
         for (oc, oa) in &o {
             let found = loop {
                 let Some((sc, sa)) = s.get(si) else { break false };
                 si += 1;
-                if sc == oc && sa == oa {
+                if sc == oc && arg_eq(sc, sa, oa) {
                     break true;
                 }
                 dropped += 1;

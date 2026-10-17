@@ -62,6 +62,14 @@ unsafe extern "C" fn pikachu_specialhifall_main(fighter: &mut L2CFighterCommon) 
     ControlModule::set_attack_air_kind(fighter.module_accessor, attack_air_kind);
     WorkModule::enable_transition_term_group(fighter.module_accessor, *FIGHTER_STATUS_TRANSITION_GROUP_CHK_AIR_SPECIAL);
     WorkModule::enable_transition_term_group(fighter.module_accessor, *FIGHTER_STATUS_TRANSITION_GROUP_CHK_AIR_ATTACK);
+    // SOURCE (SpecialHiFall_main, 0x710000d460): the parachute opens here. It normally survives
+    // from the rise, so it is only spawned if it is gone; then it plays its own `special_hi_open`,
+    // with the source's (false, -1.0), ahead of the body's motion of the same name.
+    let boma = fighter.module_accessor;
+    if !crate::articles::is_exist(boma, "parachute") {
+        crate::articles::generate_article(boma, "parachute", false, -1);
+    }
+    crate::articles::change_motion(boma, "parachute", Hash40::new("special_hi_open"), false, -1.0);
     MotionModule::change_motion(fighter.module_accessor, Hash40::new("special_hi_open"), 0.0, 1.0, false, 0.0, false, false);
     
     fighter.sub_shift_status_main(L2CValue::Ptr(pikachu_specialhifall_main_loop as *const () as _))
@@ -111,6 +119,9 @@ unsafe extern "C" fn pikachu_specialhifall_end(fighter: &mut L2CFighterCommon) -
     if fighter.global_table[0xb] != RAT_STATUS_KIND_SPECIAL_HI_CLOSE {
         let jump_count_max = WorkModule::get_int(fighter.module_accessor, *FIGHTER_INSTANCE_WORK_ID_INT_JUMP_COUNT_MAX);
         WorkModule::set_int(fighter.module_accessor, jump_count_max, *FIGHTER_INSTANCE_WORK_ID_INT_JUMP_COUNT);
+        // SOURCE (SpecialHiFall_end, 0x710000d7c0): in the same branch, the parachute goes unless
+        // the drift is handing over to the close, which plays it shut and removes it itself.
+        crate::articles::remove(fighter.module_accessor, "parachute", ArticleOperationTarget(*ARTICLE_OPE_TARGET_ALL));
     }
     0.into()
 }

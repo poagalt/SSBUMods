@@ -1,23 +1,28 @@
 # source | acmd file | acmd fn | animation stem | plugin module | label
 # Scale comes from tools/scales.tsv (generated from the game's fighter_param.prc), never from here.
-chrom     Attack11    attack11    c00attack11    normals   jab_chrom
+littlemac Attack11    attack11    c00attack11    normals   jab_little_mac
+littlemac Attack12    attack12    c00attack12    normals   jab2_little_mac
+littlemac Attack13    attack13    c00attack13    normals   jab3_little_mac
+littlemac Attack100   attack100   c00attack100   normals   rapidjab_little_mac
+littlemac Attack100End attack100end c00attackend  normals   rapidjabend_little_mac
 elight    AttackDash  attackdash  c00attackdash  normals   dash_attack_mythra
-elight    AttackS3    attacks3    c01attacks3s   normals   ftilt_mythra
+sheik     AttackS3    attacks3    c01attacks3s   normals   ftilt_sheik
 falco     AttackHi3   attackhi3   c02attackhi3   normals   utilt_falco
-robot     AttackLw3   attacklw3   c02attacklw3   normals   dtilt_rob
+gaogaen   AttackLw3   attacklw3   c02attacklw3   normals   dtilt_incineroar
 littlemac AttackS4    attacks4    c03attacks4s   smashes   fsmash_little_mac
 littlemac AttackS4Hi  attacks4hi  c03attacks4hi  smashes   fsmash_up_mac
 littlemac AttackS4Lw  attacks4lw  c03attacks4lw  smashes   fsmash_down_mac
 fox       AttackHi4   attackhi4   c04attackhi4   smashes   usmash_fox
 gamewatch AttackLw4   attacklw4   c04attacklw4   smashes   dsmash_gw
-palutena  AttackAirN  attackairn  c05attackairn  aerials   nair_palutena
-demon     AttackAirF  attackairf  c05attackairf  aerials   fair_kazuya
+master    AttackAirN  attackairn  c05attackairn  aerials   nair_byleth
+wolf      AttackAirF  attackairf  c05attackairf  aerials   fair_wolf
 cloud     AttackAirB  attackairb  c05attackairb  aerials   bair_cloud
 kamui     AttackAirHi attackairhi c05attackairhi aerials   uair_corrin
-krool     AttackAirLw attackairlw c05attackairlw aerials   dair_k_rool
+eflame    AttackAirLw attackairlw c05attackairlw aerials   dair_pyra
 demon     CatchAttack catchattack e00catchattack throws    pummel_kazuya
-gaogaen   ThrowB      throwb      e01throwb      throws    bthrow_incineroar
+ness      ThrowB      throwb      e01throwb      throws    bthrow_ness
 mewtwo    ThrowHi     throwhi     e01throwhi     throws    uthrow_mewtwo
+mariod    ThrowLw     throwlw     e01throwlw     throws    dthrow_dr_mario
 koopa     DownAttackU downattacku f03downattacku defensive getup_up_bowser
 koopa     DownAttackD downattackd f04downattackd defensive getup_down_bowser
 koopa     SlipAttack  slipattack  g03slipattack  defensive trip_bowser
@@ -31,7 +36,7 @@ gaogaen	SpecialSStart	specialsstart	d01specialsstart	specials_acmd	whip_lunge_in
 gaogaen	SpecialSShoulder	specialsshoulder	d01specialsshoulder	specials_acmd	whip_shoulder_incineroar
 gaogaen	SpecialSLariat	specialslariat	d01specialslariat	specials_acmd	whip_lariat_incineroar
 gaogaen	SpecialSFailure	specialsfailure	d01specialsfailure	specials_acmd	whip_failure_incineroar
-krool	LandingAirLw	landingairlw	c05landingairlw	landings	dair_landing_k_rool
+master	LandingAirN	landingairn	c05landingairn	landings	landing_n_byleth
 # Air Alolan Whip, traced from the start rather than added to the list years later.
 gaogaen	SpecialAirSStart	specialairsstart	d01specialairsstart	specials_acmd	whip_air_lunge_incineroar
 gaogaen	SpecialAirSShoulder	specialairsshoulder	d01specialairsshoulder	specials_acmd	whip_air_shoulder_incineroar
@@ -41,9 +46,9 @@ gaogaen	SpecialAirLw	specialairlw	d03specialairlw	specials_acmd	revenge_air_hit_
 # The grab, added last and it should have been first. All three of Palutena's grab boxes are
 # top-anchored CATCH capsules, which bypass the skeleton and so take the fighter `scale` param
 # straight -- exactly the case topscale exists for, and none of them were in its list or this one.
-palutena	Catch	catch	e00catch	throws	grab_palutena
-palutena	CatchDash	catchdash	e00catchdash	throws	grab_dash_palutena
-palutena	CatchTurn	catchturn	e00catchturn	throws	grab_turn_palutena
+plizardon Catch	catch	e00catch	throws	grab_charizard
+plizardon CatchDash	catchdash	e00catchdash	throws	grab_dash_charizard
+plizardon CatchTurn	catchturn	e00catchturn	throws	grab_turn_charizard
 gaogaen	SpecialSThrow	specialsthrow	d01specialsthrow	specials_acmd	whip_throw_incineroar
 gaogaen	SpecialSEnd	specialsend	d01specialsend	specials_acmd	whip_end_incineroar
 gaogaen	SpecialAirSThrow	specialairsthrow	d01specialairsthrow	specials_acmd	whip_air_throw_incineroar

@@ -116,12 +116,17 @@ const AIR_HIT_ACCEL_Y: f32 = 0.02;
 //   ceiling, and team battles cap it at 1.5 instead of 3.0. The shield case is real behaviour and
 //   worth adding; the team cap only matters in a mode this mod is not aimed at.
 //
-// NOT MODELLED: special_lw_revenge_emmisive_scale_min special_lw_revenge_emmisive_scale_max
+// MODELLED NOW: special_lw_revenge_emmisive_scale_min special_lw_revenge_emmisive_scale_max
+//   These were listed here as not modelled because the two values were known and the MAPPING was
+//   not. It is now read out of the game: `set_emmisive_scale(min + rate/rate_max * (max - min))`,
+//   with the inactive value 1.0 from `revenge_off`. See `revenge_emissive` below for the
+//   derivation and the six call sites it was found in. The native call is made with the native
+//   value, and the orange tint's alpha now carries the same ramp so the cue is visible on a model
+//   whose body material has no emissive slot.
+//
 // NOT MODELLED: special_lw_revenge_pitch_min special_lw_revenge_pitch_max
 // NOT MODELLED: special_lw_revenge_pitch_max_rate
-//   The glow intensity and voice pitch scale with the stored rate. The glow is approximated with
-//   sys_final_aura and an orange flash (ADR 0002 forbids Incineroar's own effects), and the pitch
-//   would need his voice, which is not shipped.
+//   The voice pitch scales with the stored rate and would need his voice, which is not shipped.
 //
 // NOT MODELLED: critical_frame critical_slow_rate critical_zoom_rate critical_zoom_in_frame
 // NOT MODELLED: critical_camera_offset_x critical_camera_offset_y critical_1_on_1
@@ -421,6 +426,39 @@ static mut CHECK_DMG_RAN: [bool; 8] = [false; 8];
 /// `watch_absorb_leak`.
 static mut ABSORB_ARMED: [bool; 8] = [false; 8];
 
+/// The last Revenge multipliers actually written to the engine, per entry.
+///
+/// WHY THIS CACHE EXISTS. The pair below used to be written on EVERY frame the boost was live,
+/// re-sending a value the engine already held. That is the shape of defect that caused the
+/// air-damage crash on 2026-10-17 -- `retarget_forward_throw` writing `globalTable[0x45..0x48]`
+/// every frame in every status -- and while these two are far safer (they are per-fighter slots
+/// behind a Pikachu guard, not a shared L2C table), re-telling the engine something it already
+/// knows is not how the game does it. `FighterSpecializer_Gaogaen` sets these at the transitions
+/// and resets them in `revenge_off` (`main 0xab86f0`); it does not poll.
+///
+/// NaN is the "nothing written yet" marker rather than 1.0, because 1.0 is a REAL value here --
+/// the identity the counter-attack frames write -- and seeding the cache with it would swallow
+/// the first genuine write of it.
+static mut LAST_POWER_MUL: [f32; 8] = [f32::NAN; 8];
+static mut LAST_REACTION_MUL: [f32; 8] = [f32::NAN; 8];
+
+/// Write the Revenge multipliers only when they actually change.
+unsafe fn set_revenge_muls(
+    boma: *mut BattleObjectModuleAccessor,
+    entry: usize,
+    power: f32,
+    reaction: f32,
+) {
+    if LAST_POWER_MUL[entry].to_bits() != power.to_bits() {
+        LAST_POWER_MUL[entry] = power;
+        AttackModule::set_power_mul_5th(boma, power);
+    }
+    if LAST_REACTION_MUL[entry].to_bits() != reaction.to_bits() {
+        LAST_REACTION_MUL[entry] = reaction;
+        AttackModule::set_reaction_mul_3rd(boma, reaction);
+    }
+}
+
 /// Is the counter window's `DAMAGE_NO_REACTION_MODE_ALWAYS` currently armed?
 ///
 /// `crate::cues` asks, because its armored-hit detector is "damage rose with no reaction status" --
@@ -486,16 +524,68 @@ unsafe fn aura_off(fighter: &mut L2CFighterCommon) {
     AURA_ON[e] = false;
     EffectModule::kill_kind(boma, Hash40::new(AURA), false, false);
     macros::COL_NORMAL(&mut **fighter);
+    // `FighterSpecializer_Gaogaen::revenge_off` (`main 0xab86f0`) ends its visual teardown with
+    // `ModelModule::set_emmisive_scale(1.0)` alongside resetting `set_power_mul_5th` and
+    // `set_reaction_mul_3rd` -- both of which this function already mirrors in `clear_boost`. 1.0
+    // is therefore the inactive value, read off the game rather than chosen.
+    ModelModule::set_emmisive_scale(boma, 1.0);
+}
+
+/// THE NATIVE EMISSIVE LAW, recovered from the game rather than guessed.
+///
+/// This file used to list `special_lw_revenge_emmisive_scale_min` and `_max` as NOT MODELLED, and
+/// `docs/the-weapons.md` recorded them as two param values with "no evidence for how they are
+/// interpolated", which is not enough to implement under ADR 0005. There is evidence now.
+///
+/// `ModelModule::set_emmisive_scale` is vtable `0x258` on the module at `boma+0x78` -- checked, not
+/// assumed: `ModelModule__set_emmisive_scale_impl` (`main 0x20577a0`) is four instructions,
+/// `ldr x0,[x0,#0x78]` / `ldr x8,[x0]` / `ldr x1,[x8,#0x258]` / `br x1`. That slot is called from
+/// exactly SIX places in the whole game, five of them Incineroar's, and two of those are
+///
+///     set_emmisive_scale(fVar9 + fVar16 * (fVar15 - fVar9))
+///
+/// with `fVar9` = `special_lw_revenge_emmisive_scale_min`, `fVar15` = `_max`, and `fVar16` =
+/// `WorkModule::get_float(0x4e) / special_lw_revenge_rate_max` -- every one of those three param
+/// hashes confirmed by hashing the name back (`0x25f3eddc2e`, `0x25cfe0e377`, `0x1b3f8ea8af`).
+/// `revenge_off` sets it to 1.0, which is the inactive value that was also recorded as unknown.
+///
+/// So the glow is not a fixed pulse: **it tracks how much damage is banked**, ramping as the rate
+/// climbs toward its cap. That is a real cue for the opponent and it is the one this port was
+/// approximating with a constant.
+unsafe fn revenge_emissive(boma: *mut BattleObjectModuleAccessor, rate: f32) -> f32 {
+    let obj = hash40("param_special_lw");
+    let lo = WorkModule::get_param_float(boma, obj, hash40("special_lw_revenge_emmisive_scale_min"));
+    let hi = WorkModule::get_param_float(boma, obj, hash40("special_lw_revenge_emmisive_scale_max"));
+    let cap = WorkModule::get_param_float(boma, obj, hash40("special_lw_revenge_rate_max"));
+    let t = if cap > 0.0 { (rate / cap).max(0.0).min(1.0) } else { 0.0 };
+    lo + t * (hi - lo)
 }
 
 unsafe fn aura_tick(fighter: &mut L2CFighterCommon) {
-    let e = entry_of(fighter.module_accessor);
+    let boma = fighter.module_accessor;
+    let e = entry_of(boma);
+
+    // THE NATIVE CALL, WITH THE NATIVE VALUE. Pikachu's body cannot show it -- `skin_pikachu_001`
+    // carries Texture0/4/6/7 and no emissive slot at all, so there is nothing for the scale to
+    // attenuate, which is why a tint remains the visible stand-in. It is called anyway because it
+    // is what the game does and because it is not inert on every material in this model: the
+    // merged Mythra blade ships `def_light_004_emi` and `def_light_005_emi`, so her sword really
+    // does glow with the banked rate while it is out.
+    let emissive = revenge_emissive(boma, RATE[e]);
+    ModelModule::set_emmisive_scale(boma, emissive);
+
     let t = AURA_CLOCK[e] % PULSE;
     AURA_CLOCK[e] += 1;
     // Only touch the tint on the two boundary frames, so the ordinary damage flash is not being
     // fought every single frame for the rest of the pulse.
+    //
+    // THE AMPLITUDE IS THE NATIVE ONE NOW, not the 0.35 constant that used to sit here. `emissive`
+    // spans the params' own `min`..`max`, so the orange deepens as the stored multiplier climbs
+    // and a maxed Revenge reads differently from a freshly banked one -- which is exactly what
+    // Incineroar's own glow does. Substituting the tint's alpha for the emissive scale is the
+    // ADR 0002 move: his structure, a channel this model can actually render.
     if t == 0 {
-        macros::FLASH(&mut **fighter, 1.0, 0.45, 0.0, 0.35);
+        macros::FLASH(&mut **fighter, 1.0, 0.45, 0.0, emissive);
     } else if t == PULSE / 2 {
         macros::COL_NORMAL(&mut **fighter);
     }
@@ -509,6 +599,11 @@ unsafe fn clear_boost(fighter: &mut L2CFighterCommon) {
     RATE[e] = 1.0;
     COUNTERED[e] = 0.0;
     DAMAGE_SINCE_BOOST[e] = 0.0;
+    // UNCONDITIONAL, and the cache is invalidated first. Teardown has to reach the engine even if
+    // the cache thinks 1.0 is already there -- a stale cache across a death or a re-entry would
+    // otherwise leave the boost applied with nothing tracking it.
+    LAST_POWER_MUL[e] = f32::NAN;
+    LAST_REACTION_MUL[e] = f32::NAN;
     AttackModule::set_power_mul_5th(boma, 1.0);
     AttackModule::set_reaction_mul_3rd(boma, 1.0);
     aura_off(fighter);
@@ -1255,8 +1350,7 @@ pub unsafe extern "C" fn pikachu_revenge_frame(fighter: &mut L2CFighterCommon) {
         // unexported instance floats reset, one `VisibilityModule::set` model-variant swap (the
         // red colouring, recorded in docs/the-weapons.md as unported), and one effect killed.
         if in_counter_attack {
-            AttackModule::set_power_mul_5th(boma, 1.0);
-            AttackModule::set_reaction_mul_3rd(boma, 1.0);
+            set_revenge_muls(boma, entry, 1.0, 1.0);
         } else {
             // AND KNOCKBACK IS NOT THE DAMAGE MULTIPLIER. This set both to the stored rate, so a
             // 3x boost meant 3x knockback -- roughly fifteen times too strong.
@@ -1266,8 +1360,12 @@ pub unsafe extern "C" fn pikachu_revenge_frame(fighter: &mut L2CFighterCommon) {
             // from 1x to the specified amount, proportionally to how close the damage multiplier
             // is to the maximum of 3x." The per-category ceilings are in the article's table and
             // in KB_* below; 1.2x is the most any move gets.
-            AttackModule::set_power_mul_5th(boma, RATE[entry]);
-            AttackModule::set_reaction_mul_3rd(boma, knockback_mul(RATE[entry], category_kb_ceiling(boma)));
+            set_revenge_muls(
+                boma,
+                entry,
+                RATE[entry],
+                knockback_mul(RATE[entry], category_kb_ceiling(boma)),
+            );
         }
         aura_on(fighter);
         aura_tick(fighter);

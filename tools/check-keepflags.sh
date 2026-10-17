@@ -50,6 +50,43 @@ reads=$(grep -rh --include='*.rs' -v -E '^\s*(//|///)' "$S/specials" "$S/sword" 
         | grep -oE 'FIGHTER_[A-Z0-9]+_STATUS_[A-Z_0-9]*[A-Z0-9]' \
         | grep -vE "^FIGHTER_(STATUS|INSTANCE)_" | sort -u)
 
+# THE WRITE SET, BUILT IN ONE PASS PER FIGHTER RATHER THAN ONE GREP PER ID.
+#
+# `$D` is 38,111 files. The first version of this loop ran a RECURSIVE grep over the WHOLE tree
+# for every id it checked -- twenty full walks of 38,111 files -- and on Git Bash under Windows,
+# where a bare `find` over that tree takes over a minute, it was 780 of this harness's 780
+# seconds. The per-gate clock tools/check.sh now prints is what made that visible at all.
+#
+# Two changes, and both make the answer better as well as faster:
+#
+#   * SCOPED TO THE ID'S OWN FIGHTER. An id names its namespace -- `FIGHTER_GAOGAEN_STATUS_*` is
+#     gaogaen's -- and the question here is whether the ACMD ported ALONGSIDE that status writes
+#     it. A write of gaogaen's id from an unrelated fighter's dump (Kirby's copy scripts do
+#     exactly that) was counted as evidence before and is not evidence at all.
+#   * ONE PASS PER FIGHTER, NOT PER ID. Several ids share a namespace, so the tree is walked once
+#     for each DISTINCT fighter that appears among them -- three or four, not twenty.
+#
+# The set is every `FIGHTER_<NS>_STATUS_*` identifier appearing inside a write call. `grep -o`
+# with the call name and the id in one pattern keeps the two together, so a flag merely READ by
+# the source's own ACMD does not enter the set.
+want_ns=""
+for id in $reads; do
+    ns=$(printf '%s' "$id" | sed -E 's/^FIGHTER_([A-Z0-9]+)_STATUS_.*/\1/')
+    grep -q "\"$ns\"" "$DEF" || continue
+    case "$id" in *_STATUS_KIND_*) continue ;; esac
+    case " $want_ns " in *" $ns "*) ;; *) want_ns="$want_ns $ns" ;; esac
+done
+
+WRITES=$(mktemp); trap 'rm -f "$WRITES"' EXIT
+for ns in $want_ns; do
+    lns=$(printf '%s' "$ns" | tr 'A-Z' 'a-z')
+    fdir="$D/lua2cpp_$lns"
+    [ -d "$fdir" ] || continue
+    grep -rhoE "(on_flag|off_flag|set_int|set_int64|set_float)\([^)]*\*?FIGHTER_${ns}_STATUS_[A-Z_0-9]*" "$fdir" 2>/dev/null \
+      | grep -oE "FIGHTER_${ns}_STATUS_[A-Z_0-9]*" >> "$WRITES"
+done
+sort -u -o "$WRITES" "$WRITES"
+
 for id in $reads; do
     # Engine-global ids (FIGHTER_STATUS_*, FIGHTER_STATUS_KIND_*) are not foreign; skip anything
     # whose namespace is not one of deforeign's SOURCES.
@@ -58,16 +95,17 @@ for id in $reads; do
     # A status KIND is a plain integer compared against, not a work id written by an ACMD.
     case "$id" in *_STATUS_KIND_*) continue ;; esac
 
-    # Does any ported source ACMD actually write it? If not, the status code is the only party and
+    # Does the source's own ACMD actually write it? If not, the status code is the only party and
     # there is nothing for deforeign to break.
     #
-    # THE BOUNDARY MATTERS. `FLAG_MOVE` is a prefix of `FLAG_MOVE_START`, so a substring test
-    # reported `FLAG_MOVE` as ACMD-written when the only thing the ACMD writes is `FLAG_MOVE_START`.
-    # `FLAG_MOVE` is in fact written by `whip_move_flags` in the status code, which is not stripped
-    # and needs no allowlist entry. Requiring the identifier to END here keeps the two apart.
-    if ! grep -rqE "(on_flag|off_flag|set_int|set_int64|set_float)\([^)]*\*?$id[^A-Z_0-9]" "$D" 2>/dev/null; then
-        continue
-    fi
+    # THE BOUNDARY MATTERS, AND `-x` IS WHAT ENFORCES IT. `FLAG_MOVE` is a prefix of
+    # `FLAG_MOVE_START`, so a substring test reported `FLAG_MOVE` as ACMD-written when the only
+    # thing the ACMD writes is `FLAG_MOVE_START`. `FLAG_MOVE` is in fact written by
+    # `whip_move_flags` in the status code, which is not stripped and needs no allowlist entry.
+    # A whole-line fixed match against the extracted set keeps the two apart, the same way the
+    # old `[^A-Z_0-9]` terminator did.
+    grep -qxF "$id" "$WRITES" || continue
+
     checked=$((checked+1))
     if ! grep -q "\"$id\"" "$DEF"; then
         echo "  FAIL $id"

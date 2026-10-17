@@ -61,11 +61,26 @@ case "$op" in
   # per-frame probe line a real session is 5 MB, and a 120-second ceiling on that over sys-ftpd
   # is a truncation waiting to happen -- while the game is running it is worse, because the file
   # is being appended to as it is read. One retry covers the wedge described in tools/deploy.sh.
-  get)  for a in 1 2; do
-          out=$(curl -s "${A[@]}" --max-time 300 "$B$path"; printf x)
-          out=${out%x}
-          [ -n "$out" ] && { printf "%s" "$out"; break; }
-          sleep 2
+  get)  # NOT THROUGH COMMAND SUBSTITUTION. `out=$(curl ...)` strips every NUL byte, because bash
+        # cannot hold one in a variable. The `printf x`/`${out%x}` pair preserved TRAILING
+        # NEWLINES and so looked like it had made the capture faithful -- it had not. This was
+        # correct for text and silently truncated every binary: librat_of_doom.nro came back
+        # 174096 bytes of 245760, libarc_network.nro 61123 of 86016, libnro_hook.nro 36539 of
+        # 53248. Roughly a third of an .nro is zeros.
+        #
+        # WHAT MAKES IT DANGEROUS is that it is not flaky. Five retries returned the same short
+        # length every time, so it does not read as a transfer fault -- it reads as the file's
+        # real size, and a hash comparison against a good copy then "proves" the console has a
+        # different build. Both of those conclusions were drawn here before the cause was found.
+        #
+        # Every tool that pulls a binary (pull-exedump.sh, pull-crash.sh, deploy.sh) already used
+        # `curl -o` directly and was never affected; nothing in vendor/ is contaminated.
+        for a in 1 2; do
+          t=$(mktemp)
+          if curl -s "${A[@]}" --max-time 300 -o "$t" "$B$path" && [ -s "$t" ]; then
+            cat "$t"; rm -f "$t"; break
+          fi
+          rm -f "$t"; sleep 2
         done ;;
   del)  d=$(dirname "$path"); curl -s "${A[@]}" --max-time 60 -Q "-DELE $path" "$B${d%/}/" ;;
   *) echo "unknown op $op" >&2; exit 2 ;;

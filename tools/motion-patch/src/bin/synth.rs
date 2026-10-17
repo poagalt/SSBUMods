@@ -54,10 +54,60 @@ const SYNTH: &[(&str, &str, &str, &str, bool)] = &[
     ("special_air_s_shoulder", "special_air_s_start", "gaogaen", "special_air_s_shoulder", true),
     ("special_air_s_lariat",   "special_air_s_start", "gaogaen", "special_air_s_lariat",   true),
     ("special_air_s_failure",  "special_air_s_start", "gaogaen", "special_air_s_failure",  true),
+    // LITTLE MAC'S JAB COMBO. Pikachu's jab is ONE hit -- he has `attack_11` and nothing after
+    // it -- so jab 2, jab 3 and the whole rapid jab had no motion to change into and the playtest
+    // saw exactly that: "little mac jab only has jab 1, it doesn't have access to jab 2, jab 3,
+    // or rapid jab".
+    //
+    // All five adopt Mac's animations, and all five are filenames Pikachu does not have, so each
+    // also needs a tools/anim-dropin.sh row (they get a config.json `new-dir-files` entry
+    // automatically, because gen-config.sh derives that list from what is actually shipped).
+    //
+    // `attack_100_end`'s animation is `c00attackend.nuanmb`, NOT `c00attack100end.nuanmb`. The
+    // entry name and the file name disagree in Mac's own motion list; adopting copies whatever he
+    // names, so this needs no special case here -- but the anim-dropin row does have to ship that
+    // exact stem or the entry points at a file the mod never put on the card.
+    //
+    // THE MOTIONS ARE ONLY HALF OF IT. Whether the engine ever ASKS for `attack_12` is decided by
+    // fighter params, not by the motion list: `check_attack_mtrans` gates the combo on
+    // `attack_combo_max`, which is 1 for Pikachu and 3 for Mac. See src/params/mod.rs.
+    ("attack_12",        "attack_11",            "littlemac", "attack_12",        true),
+    ("attack_13",        "attack_11",            "littlemac", "attack_13",        true),
+    ("attack_100_start", "attack_11",            "littlemac", "attack_100_start", true),
+    ("attack_100",       "attack_11",            "littlemac", "attack_100",       true),
+    ("attack_100_end",   "attack_11",            "littlemac", "attack_100_end",   true),
     // Little Mac angled f-smash -- Pikachu has only attack_s4_s, so these adopt Mac's own
     // angled animations rather than playing his straight swing.
     ("attack_s4_hi",     "attack_s4_s",          "littlemac", "attack_s4_hi",     true),
     ("attack_s4_lw",     "attack_s4_s",          "littlemac", "attack_s4_lw",     true),
+    // SAMUS'S CHARGE SHOT -- eleven motions, and Pikachu has NONE of them. His neutral-B is one
+    // motion each way (`special_n`, `special_air_n`, Thunder Jolt); hers is a windup, a charge
+    // loop, a cancel, a shot and a max-charge shot, ground and air, plus an air jump cancel.
+    //
+    // The templates are his two neutral-B entries, which is the closest thing he has and is only
+    // used for the fields that are then overwritten -- `extra`, `flags`, `game_script`, `scripts`
+    // and the animation all come from Samus.
+    //
+    // `special_n_f` and `special_air_n_f` ADOPT ANIMATION NAMES PIKACHU ALREADY HAS
+    // (`d00specialn.nuanmb` / `d00specialairn.nuanmb`, which are hers and his both), so those two
+    // are drop-in REPLACEMENTS rather than new files. The other nine are new paths and need their
+    // config.json entries -- which gen-config.sh derives from what is shipped, so shipping them
+    // in tools/anim-dropin.sh is the whole of it.
+    //
+    // `flags.loop` matters on the two hold entries and is carried by `flags`: the charge pose
+    // loops for as long as the button is down, and an entry without it would play once and end,
+    // which the status loop reads as "the animation finished".
+    ("special_n_s",         "special_n",     "samus", "special_n_s",         true),
+    ("special_n_h",         "special_n",     "samus", "special_n_h",         true),
+    ("special_n_c",         "special_n",     "samus", "special_n_c",         true),
+    ("special_n_f",         "special_n",     "samus", "special_n_f",         true),
+    ("special_n_f_max",     "special_n",     "samus", "special_n_f_max",     true),
+    ("special_air_n_s",     "special_air_n", "samus", "special_air_n_s",     true),
+    ("special_air_n_h",     "special_air_n", "samus", "special_air_n_h",     true),
+    ("special_air_n_c",     "special_air_n", "samus", "special_air_n_c",     true),
+    ("special_air_n_f",     "special_air_n", "samus", "special_air_n_f",     true),
+    ("special_air_n_f_max", "special_air_n", "samus", "special_air_n_f_max", true),
+    ("special_air_n_jump_c","special_air_n", "samus", "special_air_n_jump_c",true),
     // DK cargo throws.
     ("throw_f_f",        "throw_f",              "donkey",    "throw_f_f",        true),
     ("throw_f_b",        "throw_b",              "donkey",    "throw_f_b",        true),

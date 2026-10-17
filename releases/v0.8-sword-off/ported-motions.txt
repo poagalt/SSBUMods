@@ -1,0 +1,114 @@
+# Every motion entry this moveset replaces, as <source fighter>:<motion>.
+#
+# ONE LIST, because it was three. tools/build.sh's dropin pre-flight had its own copy inline,
+# tools/motion-patch/src/bin/mlparity.rs (then blend.rs) took its motions as command-line arguments
+# clean pass when given none), and tools/motion-patch/src/main.rs has MAP. Three lists that must
+# agree and nothing checking that they did -- which is how `throw_f` sat outside the pre-flight
+# while its animation was wrong, and how the blend audit ran on zero motions for as long as it
+# existed.
+#
+# Consumers read this with:  grep -vE '^\s*#|^\s*$' tools/ported-motions.txt
+#
+# Entries marked (synth) do not exist on vanilla Pikachu -- they are created by
+# tools/motion-patch/src/bin/synth.rs -- so a three-way comparison against his own list cannot
+# include them. Tools should report those as "not comparable" rather than as failures.
+
+# normals
+chrom:attack_11
+elight:attack_dash
+elight:attack_s3_s
+falco:attack_hi3
+robot:attack_lw3
+
+# smashes, including the charge holds
+littlemac:attack_s4_s
+littlemac:attack_s4_hold
+fox:attack_hi4
+fox:attack_hi4_hold
+gamewatch:attack_lw4
+gamewatch:attack_lw4_hold
+
+# aerials and their landing lag
+palutena:attack_air_n
+demon:attack_air_f
+cloud:attack_air_b
+kamui:attack_air_hi
+krool:attack_air_lw
+palutena:landing_air_n
+demon:landing_air_f
+cloud:landing_air_b
+kamui:landing_air_hi
+krool:landing_air_lw
+
+# grab family and throws
+palutena:catch
+palutena:catch_dash
+palutena:catch_turn
+palutena:catch_wait
+palutena:catch_pull
+palutena:catch_cut
+demon:catch_attack
+donkey:throw_f
+gaogaen:throw_b
+mewtwo:throw_hi
+
+# defensive
+koopa:down_attack_u
+koopa:down_attack_d
+koopa:slip_attack
+ganon:cliff_attack_quick
+
+# Fox dodges
+fox:escape
+fox:escape_f
+fox:escape_b
+fox:escape_air
+fox:escape_air_slide
+
+# specials Pikachu already had an entry for
+gaogaen:special_s_start
+gaogaen:special_s_end
+gaogaen:special_lw
+
+# specials that are synthesised (synth)
+littlemac:attack_s4_hi
+littlemac:attack_s4_lw
+gaogaen:special_s_shoulder
+gaogaen:special_s_lariat
+gaogaen:special_s_throw
+gaogaen:special_s_failure
+gaogaen:special_lw_start
+gaogaen:special_lw_turn
+gamewatch:special_hi
+gamewatch:special_air_hi
+gamewatch:special_hi_open
+gamewatch:special_hi_close
+donkey:throw_f_f
+donkey:throw_f_b
+donkey:throw_f_hi
+donkey:throw_f_lw
+
+# DK cargo CARRY poses (synth). Pikachu keeps his own movement statuses and locomotion; only the
+# pose is DK's -- see pikachu-moveset/plugin/src/specials/cargo/mod.rs.
+donkey:shoulder_wait
+donkey:shoulder_walk_slow
+donkey:shoulder_walk_middle
+donkey:shoulder_walk_fast
+donkey:shoulder_turn
+donkey:shoulder_jump_squat
+donkey:shoulder_jump
+donkey:shoulder_fall
+donkey:shoulder_landing
+
+# Air Alolan Whip (start and end pre-exist on Pikachu; the four follow-ups are synth)
+gaogaen:special_air_s_start
+gaogaen:special_air_s_end
+gaogaen:special_air_s_throw
+gaogaen:special_air_s_shoulder
+gaogaen:special_air_s_lariat
+gaogaen:special_air_s_failure
+
+# AIR Revenge (special_air_lw pre-exists on Pikachu; start and turn are synth)
+gaogaen:special_air_lw
+gaogaen:special_air_lw_start
+gaogaen:special_air_lw_turn
