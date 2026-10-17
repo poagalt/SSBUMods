@@ -2367,6 +2367,18 @@ unsafe extern "C" fn shoulder_exit(fighter: &mut L2CFighterCommon) -> L2CValue {
 /// The statuses that mean "still carrying", so `shoulder_exit` can tell a carry-to-carry
 /// transition from losing the carry. DK tests all eleven of his, in the order his exit lists them;
 /// this is now all ten of ours plus the four throws he also allows through.
+/// Is this one of the statuses in which Pikachu is holding somebody on his shoulder?
+///
+/// THE FOUR THROWS COUNT, AND LEAVING THEM OUT WAS THE BACK THROW BUG. `shoulder_exit` releases
+/// the victim unless the NEXT status is a carry, so with `THROW_F_*` missing from this list the
+/// release fired on the way INTO the throw -- "pikachu just immediately lets go of the opponent
+/// and runs in that direction". A cargo throw is the last frame of the carry, not the first frame
+/// after it; the victim has to still be held when the throw's own script runs, and `throw_exit` is
+/// what finally cuts them loose (DK's `ThrowFF_exit` is literally that one `catch_cut` line).
+///
+/// ONE LIST, because there were two: `in_throw_context` kept its own copy that DID list the
+/// four throws while this one did not -- the exact drift `tools/check-lists.sh` exists for. That
+/// copy is gone; `in_throw_context` calls this.
 fn is_carry_status(kind: i32) -> bool {
     kind == RAT_STATUS_KIND_SHOULDER_START
         || kind == RAT_STATUS_KIND_SHOULDER_WAIT
@@ -2378,6 +2390,10 @@ fn is_carry_status(kind: i32) -> bool {
         || kind == RAT_STATUS_KIND_SHOULDER_FALL
         || kind == RAT_STATUS_KIND_SHOULDER_LANDING
         || kind == RAT_STATUS_KIND_SHOULDER_PASS
+        || kind == RAT_STATUS_KIND_THROW_F_F
+        || kind == RAT_STATUS_KIND_THROW_F_B
+        || kind == RAT_STATUS_KIND_THROW_F_HI
+        || kind == RAT_STATUS_KIND_THROW_F_LW
 }
 
 /// Is there actually a fighter on the capture link, and says so once per carry.
@@ -2471,39 +2487,6 @@ unsafe fn linked_victim(boma: *mut BattleObjectModuleAccessor, entry: usize, who
 /// in it: everything else there is keyed by ENTRY and reads or writes only this plugin's own
 /// statics, which are per-entry and therefore private to whoever is at that entry. This one wrote
 /// into the ENGINE'S table. A shared callback may only touch shared state through a guard.
-/// The statuses in which `globalTable[0x45..0x48]` really ARE the four throw destinations.
-///
-/// WHY THIS LIST EXISTS: IT IS THE AIR-DAMAGE CRASH OF 2026-10-17. `retarget_forward_throw` ran
-/// from `telemetry`'s per-frame callback in EVERY status and wrote those four slots whenever they
-/// did not already hold what we wanted. Those slots are `CONT_THROW_F/B/HI/LW` only inside a
-/// catch or carry; everywhere else the engine keeps something else there, and stamping ints over
-/// it corrupted whatever `sys_line_status_system_control` was holding. The symptom was an
-/// `Instruction Abort` at PC=0 -- a call through a null pointer -- out of
-/// `ftStatusUniqProcessDamageAir_init`, on the same system line, as soon as anyone was hit.
-///
-/// Found by bisect, not by reading: with the whole plugin out of `plugins/` the crash stopped,
-/// and five one-variable boots walked it down to this single call. `specials`, `params`, `cues`,
-/// `clone_weapon`, both prcxml patches, the motion list and the smashline pin were all cleared
-/// on the way, each by measurement.
-///
-/// NOT A RANGE. `0x1F7..=0x205` looks contiguous and is not -- `RAT_STATUS_KIND_SPECIAL_LW_HIT`
-/// (0x201) sits inside it and is not a carry status.
-const CARRY_STATUSES: &[i32] = &[
-    RAT_STATUS_KIND_SHOULDER_START,
-    RAT_STATUS_KIND_SHOULDER_WAIT,
-    RAT_STATUS_KIND_SHOULDER_WALK,
-    RAT_STATUS_KIND_SHOULDER_TURN,
-    RAT_STATUS_KIND_SHOULDER_FALL,
-    RAT_STATUS_KIND_SHOULDER_LANDING,
-    RAT_STATUS_KIND_THROW_F_F,
-    RAT_STATUS_KIND_THROW_F_B,
-    RAT_STATUS_KIND_THROW_F_HI,
-    RAT_STATUS_KIND_THROW_F_LW,
-    RAT_STATUS_KIND_SHOULDER_JUMP_SQUAT,
-    RAT_STATUS_KIND_SHOULDER_JUMP_SQUAT_B,
-    RAT_STATUS_KIND_SHOULDER_JUMP,
-    RAT_STATUS_KIND_SHOULDER_PASS,
-];
 
 /// Is this fighter somewhere those four slots are the throw destinations?
 ///
@@ -2512,12 +2495,12 @@ const CARRY_STATUSES: &[i32] = &[
 unsafe fn in_throw_context(boma: *mut BattleObjectModuleAccessor) -> bool {
     let st = StatusModule::status_kind(boma);
     (st >= *FIGHTER_STATUS_KIND_CATCH && st <= *FIGHTER_STATUS_KIND_THROW)
-        || CARRY_STATUSES.contains(&st)
+        || is_carry_status(st)
 }
 
 pub unsafe fn retarget_forward_throw(fighter: &mut L2CFighterCommon) {
     const CONT_THROW_F: i32 = 0x45;
-    // SCOPED TO A CATCH OR CARRY. See `CARRY_STATUSES` -- running this in every status is what
+    // SCOPED TO A CATCH OR CARRY. See `is_carry_status` -- running this in every status is what
     // crashed the game on being hit.
     if !in_throw_context(fighter.module_accessor) {
         return;
