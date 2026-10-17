@@ -588,7 +588,41 @@ unsafe fn requested_throw(fighter: &mut L2CFighterCommon) -> Option<i32> {
         stick["hi"].try_get_bool().unwrap_or(false),
         stick["lw"].try_get_bool().unwrap_or(false),
     ));
-    if btn == 0 {
+    // A RESOLVED THROW COMMAND IS ENOUGH ON ITS OWN, AND REQUIRING A cat1 PRESS AS WELL IS WHAT
+    // KEPT THE BACK THROW FROM EVER COMING OUT. Measured, 2026-10-17, across 73 carry frames:
+    // `btn` was ZERO on 72 of them, and the frames where the player actually asked for a throw
+    // carry it in cat2 instead --
+    //
+    //     cat2=0x110200  stick=(+1.000,+0.000)   <- 0x100000 is CAT2_FLAG_THROW_F
+    //     cat2=0x400640  stick=(+0.317,+1.000)   <- 0x400000 is CAT2_FLAG_THROW_HI
+    //
+    // -- while `btn` stayed 0x0 and this function returned None above the direction test. The
+    // engine's input system had already decided "this is a throw, in this direction" and the port
+    // threw the answer away. With the C-stick it is worse than nothing: the carry refuses the
+    // input, the attack falls through to the ordinary attack system, and the playtest reported
+    // "pikachu letting go of the opponent, 3% damage, and an ftilt in the other direction".
+    //
+    // THE cat1 MASK STAYS FOR THE STICK PATH, which is the half it was right about. DK's helper
+    // tests `btn AND (cat2 flag OR stick[dir])`, and the raw `IsThrowStick` table has no notion of
+    // when it was asked -- it is just where the stick is pointing, so honouring it without a press
+    // would throw on the first frame of any carry with a tilted stick. A cat2 THROW flag is the
+    // opposite: it is a COMMAND, raised by the input system for a few frames around a real input
+    // and never otherwise. The measurement above shows them lasting one to four frames and absent
+    // the rest of the time.
+    //
+    // AND THE FIRST-FRAME GUARD IS KEPT, because this was tried once before and froze the game in
+    // round 2 -- "a cat2 flag alone as the trigger threw the victim on the first carry frame". The
+    // input that STARTED the carry is a forward throw, so its command is still up as the carry
+    // begins. Two frames of carry before a command-only throw is honoured is enough to miss it,
+    // and `MAX_SHIFTS_PER_FRAME` caps the whole class at eight status changes a frame now, which
+    // is the other half of what made that freeze possible.
+    let cat2_dir = cat2
+        & (*FIGHTER_PAD_CMD_CAT2_FLAG_THROW_F
+            | *FIGHTER_PAD_CMD_CAT2_FLAG_THROW_B
+            | *FIGHTER_PAD_CMD_CAT2_FLAG_THROW_HI
+            | *FIGHTER_PAD_CMD_CAT2_FLAG_THROW_LW);
+    let command_ok = cat2_dir != 0 && CARRY_FRAMES[entry_of(boma)] >= 2;
+    if btn == 0 && !command_ok {
         return None;
     }
 
@@ -620,7 +654,7 @@ unsafe fn requested_throw(fighter: &mut L2CFighterCommon) -> Option<i32> {
         (*FIGHTER_PAD_CMD_CAT2_FLAG_THROW_HI, "hi", RAT_STATUS_KIND_THROW_F_HI),
         (*FIGHTER_PAD_CMD_CAT2_FLAG_THROW_LW, "lw", RAT_STATUS_KIND_THROW_F_LW),
     ] {
-        if cat2 & mask != 0 || stick[name].try_get_bool().unwrap_or(false) {
+        if cat2 & mask != 0 || (btn != 0 && stick[name].try_get_bool().unwrap_or(false)) {
             return Some(status);
         }
     }

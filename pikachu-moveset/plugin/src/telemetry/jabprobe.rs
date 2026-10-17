@@ -112,7 +112,7 @@ unsafe extern "C" fn jab_frame(fighter: &mut L2CFighterCommon) {
     sink::diag(format!(
         "[rat] JABPROBE {who} st={status} motion={:#x} frame={:.1}/{:.1} looped={} \
          LOOPED={} CONTINUE={} CONTINUE_CHECK={} PRECEDE={} CHECK_COMBO_NUM={} \
-         100_COUNT={} CONTINUE_COUNT={} btn_off={} atk0={} atk1={} acmd_enter={} acmd_pass={}",
+         100_COUNT={} CONTINUE_COUNT={} btn_off={} atk0={} atk1={} acmd_enter={} acmd_pass={} sleep={}",
         MotionModule::motion_kind(boma),
         MotionModule::frame(boma),
         MotionModule::end_frame(boma),
@@ -155,6 +155,9 @@ unsafe extern "C" fn jab_frame(fighter: &mut L2CFighterCommon) {
         // flag is not doing what every other fighter's rapid jab depends on.
         super::probe::acmd_peek(0).0,
         super::probe::acmd_peek(0).1,
+        // Whether the VM considers the script finished. If `src/rapidjab`'s wake is the half that
+        // matters this reads 1 on the wrap frames and the enter count climbs with it.
+        u8::from(MotionAnimcmdModule::is_sleep(boma)),
     ));
 }
 
