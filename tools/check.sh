@@ -267,17 +267,22 @@ want_ss=$(grep -cx 'SHIP_PARAM_SPECIAL_S=1' "$ROOT/tools/gen-vlprc.sh" || true)
 # plugin's WHIP_CLIFF_HANGDATA rather than a flag of its own, so read the same line it reads.
 want_whip=$(grep -cx 'pub const WHIP_CLIFF_HANGDATA: bool = true;' \
             "$ROOT/pikachu-moveset/plugin/src/specials/whip/mod.rs" || true)
-want_vl=$(( want_ss + want_whip ))
+# The rope's camera_range_rope and param_rope (2026-10-18) follow its article row, read the same way
+# gen-vlprc.sh reads it.
+want_rope=$(grep -c 'host_name: "rope", .*enabled: true' "$A" || true)
+want_vl=$(( want_ss + want_whip + want_rope ))
 if [ "$want_vl" != "0" ] && [ ! -f "$V" ]; then
-  echo "  FAIL gen-vlprc.sh ships a vl.prc (param_special_s=$want_ss whip ledge box=$want_whip) but none is present"; rc=1
+  echo "  FAIL gen-vlprc.sh ships a vl.prc (param_special_s=$want_ss whip ledge box=$want_whip rope=$want_rope) but none is present"; rc=1
 elif [ "$want_vl" = "0" ] && [ -f "$V" ]; then
   echo "  FAIL a vl.prc is shipped but the override is disabled -- delete it or re-enable the gate"; rc=1
 elif [ "$want_vl" = "0" ]; then
   echo "  ok  param_special_s override off, no vl.prc shipped (vanilla, no load-time risk)"
 else
   n=$("$ROOT/tools/prc-tool/target/release/vlkeys.exe" "$V" 2>/dev/null | grep -c '^ *0x' || true)
-  if [ "$n" != "20" ]; then
-    echo "  FAIL shipped vl.prc has $n top-level entries, expected 20 -- something was ADDED, not replaced"; rc=1
+  # 20 is vanilla Pikachu; the rope's two tables are the only sanctioned additions.
+  want_n=$(( 20 + 2 * want_rope ))
+  if [ "$n" != "$want_n" ]; then
+    echo "  FAIL shipped vl.prc has $n top-level entries, expected $want_n -- something unsanctioned was ADDED"; rc=1
   fi
   if [ "$want_ss" != "0" ]; then
     tts=$("$ROOT/tools/prc-tool/target/release/prcdump.exe" "$V" \
@@ -299,6 +304,20 @@ else
     else
       echo "  ok  vl.prc carries the whip's ledge box at cliff_hang_data[1] ($n entries)"
     fi
+  fi
+  if [ "$want_rope" != "0" ]; then
+    # THE ROPE'S TWO TABLES, VERBATIM. Its module start sets its camera range from
+    # camera_range_rope in its owner's vl.prc; without it the first rope build crashed match load.
+    # Compared value for value against Incineroar's (key order may differ: the writer sorts by hash).
+    for obj in camera_range_rope param_rope; do
+      ours=$("$ROOT/tools/prc-tool/target/release/prcdump.exe" "$V" "$ROOT/vendor/param-labels/ParamLabels.csv" "$obj" --depth 6 2>/dev/null | sort)
+      his=$("$ROOT/tools/prc-tool/target/release/prcdump.exe" "$ROOT/extracted/fighter/gaogaen/param/vl.prc" "$ROOT/vendor/param-labels/ParamLabels.csv" "$obj" --depth 6 2>/dev/null | sort)
+      if [ -z "$ours" ] || [ "$ours" != "$his" ]; then
+        echo "  FAIL the rope row is on but the shipped vl.prc's $obj is missing or not Incineroar's"; rc=1
+      else
+        echo "  ok  vl.prc carries Incineroar's $obj verbatim"
+      fi
+    done
   fi
 fi
 return $rc

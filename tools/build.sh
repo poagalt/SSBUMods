@@ -147,6 +147,9 @@ bash "$ROOT/tools/add-bones.sh" | tail -1
 
 echo; echo "== 2b. ship a cloned article's model and motion files (gated on CLONE_ENABLED) =="
 bash "$ROOT/tools/gen-article-assets.sh"
+# The mod tree's config.json declarations follow the article assets just shipped or removed.
+for py in py python3 python; do command -v "$py" >/dev/null 2>&1 && break; done
+"$py" "$ROOT/tools/sync-modconfig.py"
 
 # GUARDED ON THE MERGED MODEL, because the merge is not a build step. `merge-weapons.sh` reads
 # files pulled off the running console into `work/arc-weapons`, which no fresh clone has, so the

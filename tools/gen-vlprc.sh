@@ -83,12 +83,28 @@ VLAPPEND="$ROOT/tools/prc-tool/target/release/vlappend.exe"
 WHIP_SRC="$ROOT/pikachu-moveset/plugin/src/specials/whip/mod.rs"
 SHIP_WHIP_CLIFF_HANG=0
 grep -q '^pub const WHIP_CLIFF_HANGDATA: bool = true;' "$WHIP_SRC" && SHIP_WHIP_CLIFF_HANG=1
+# THE ROPE'S OWN PARAM TABLES (2026-10-18), shipped exactly when its article row is enabled.
+#
+# The first rope build crashed match load (crash report 01792305616): the rope's vtable slot 3 is
+# its module start, and its first act is a CameraModule call that sets the weapon's camera range
+# from `camera_range_<weapon>` in its OWNER's vl.prc -- Piranha Plant has camera_range_spikeball,
+# Ganondorf camera_range_ganond, Incineroar camera_range_rope. Owned by Pikachu, the lookup found
+# nothing, the camera module's range array was never allocated, and the setter wrote to
+# null+0x108. So both of Incineroar's rope tables are copied VERBATIM (vlmerge, add-only):
+#   camera_range_rope  struct[5]  center_y 10, front 19, back -9, up 12, down -9
+#   param_rope         list[4]    back_meter, bend_time, attach areas (read by the rope's slot 40)
+# and src/articles/mod.rs whitelists camera_range_rope with smashline::add_param_object, because
+# smashline serves only `param_<article>` and whitelisted names out of the host's vl.prc.
+ART_SRC="$ROOT/pikachu-moveset/plugin/src/articles/mod.rs"
+SHIP_ROPE_PARAMS=0
+grep -q 'host_name: "rope", .*enabled: true' "$ART_SRC" && SHIP_ROPE_PARAMS=1
 
-if [ "$SHIP_PARAM_SPECIAL_S" = "0" ] && [ "$SHIP_WHIP_CLIFF_HANG" = "0" ]; then
+if [ "$SHIP_PARAM_SPECIAL_S" = "0" ] && [ "$SHIP_WHIP_CLIFF_HANG" = "0" ] && [ "$SHIP_ROPE_PARAMS" = "0" ]; then
     rm -f "$OUT"
     echo "  param_special_s override DISABLED -- Pikachu keeps his vanilla vl.prc"
     echo "  (it null-dereferenced in smashline's load_fighter_effects on fighter load)"
     echo "  whip ledge box DISABLED (WHIP_CLIFF_HANGDATA = false in specials/whip/mod.rs)"
+    echo "  rope params not shipped (the rope article row is disabled)"
     exit 0
 fi
 
@@ -108,5 +124,10 @@ if [ "$SHIP_WHIP_CLIFF_HANG" = "1" ]; then
     ratio=$(awk '$1=="gaogaen"{g=$3} $1=="pikachu"{p=$3} END{printf "%.7f", g/p}' "$ROOT/tools/scales.tsv")
     "$VLAPPEND" "$TMP" "$ROOT/extracted/fighter/gaogaen/param/vl.prc" cliff_hang_data 1 1 "$TMP" \
       --scale "$ratio" | sed 's/^/  /'
+fi
+if [ "$SHIP_ROPE_PARAMS" = "1" ]; then
+    for obj in camera_range_rope param_rope; do
+        "$VLMERGE" "$TMP" "$ROOT/extracted/fighter/gaogaen/param/vl.prc" "$obj" "$TMP" | sed 's/^/  /'
+    done
 fi
 mv "$TMP" "$OUT"
