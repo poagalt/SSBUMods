@@ -61,6 +61,17 @@ use smashline::Main;
 
 pub const ENABLED: bool = true;
 
+/// The first block AFTER `wait_loop_clear` -- the ATTACK at script frame 1.
+///
+/// `game_attack100`'s blocks are numbered by the generator in source order: 0 is the frame-0
+/// ATTACK, 1 its clear, and 2 is the first hit of the ten that follow the park. So "block 2 has
+/// fired" is exactly "the resumed script got going", which is the thing this module must wait for
+/// before it is allowed to restart anything.
+const FIRST_TAIL_BLOCK: usize = 2;
+
+/// Block 2's count at this entry's last restart, so the test is "since I last restarted".
+static mut TAIL_AT_RESTART: [u32; 8] = [0; 8];
+
 /// Last motion frame seen, per entry, so a wrap can be told from ordinary advance.
 static mut LAST_FRAME: [f32; 8] = [-1.0; 8];
 
@@ -84,6 +95,12 @@ unsafe extern "C" fn rapid_jab_frame(fighter: &mut L2CFighterCommon) {
         return;
     }
     let entry = entry_of(boma);
+    // Reset alongside the counters: `jabprobe` zeroes them when ATTACK_100 is entered, so a
+    // marker left over from the previous rapid jab would make the first restart of this one fire
+    // on a stale comparison.
+    if crate::telemetry::probe::acmd_block_count(0) == 0 {
+        TAIL_AT_RESTART[entry] = 0;
+    }
     let now = MotionModule::frame(boma);
     let prev = LAST_FRAME[entry];
     LAST_FRAME[entry] = now;
@@ -109,10 +126,28 @@ unsafe extern "C" fn rapid_jab_frame(fighter: &mut L2CFighterCommon) {
     //
     // `is_sleep` was the first candidate for this test and it is not one: measured 0 on every
     // frame of every cycle, parked or not. It stays in the probe line as a negative result.
-    let (enter, pass) = crate::telemetry::probe::acmd_peek(0);
-    if enter != pass {
+    // WAIT FOR THE TAIL TO HAVE RUN, AND `enter == pass` DOES NOT MEAN THAT. That was the gate
+    // here and it was the bug, not the fix for it. The measured cycle is:
+    //
+    //     f0  block0 (the ATTACK)   enter=2 pass=1
+    //     f1  block1 (its clear), then the script parks at wait_loop_clear
+    //     f2..f19  nothing
+    //     f0  park resumes -> pass becomes 2 -- and THIS callback then runs in the SAME frame,
+    //         reads enter==pass, restarts the motion, and the resumed script dies before block 2
+    //
+    // So the gate fired every single cycle and destroyed the ten tail hits every single cycle,
+    // which is "only around every half second does one small jab hit". `enter == pass` cannot
+    // express "the script has finished" because the resume and this check land on one frame.
+    //
+    // Block 2 can. It is the first hit after the park, so it is non-zero only once the resumed
+    // script has actually started running its tail. Restarting only after it has advanced since
+    // the last restart gives the script a whole cycle to play all ten, which is the rhythm it is
+    // written for.
+    let tail = crate::telemetry::probe::acmd_block_count(FIRST_TAIL_BLOCK);
+    if tail <= TAIL_AT_RESTART[entry] {
         return;
     }
+    TAIL_AT_RESTART[entry] = tail;
     // A FULL `change_motion`, NOT `set_frame_sync_anim_cmd`, AND THE DIFFERENCE IS THE LOOP STATE.
     //
     // The frame-sync version restarted the script and left the motion instance alone -- and the

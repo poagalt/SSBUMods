@@ -59,6 +59,14 @@ use super::sink;
 
 pub const ENABLED: bool = true;
 
+/// Previous status per entry, for spotting the frame ATTACK_100 is entered.
+static mut LAST_STATUS: [i32; 8] = [-1; 8];
+
+unsafe fn entry_of(boma: *mut BattleObjectModuleAccessor) -> usize {
+    let e = WorkModule::get_int(boma, *FIGHTER_INSTANCE_WORK_ID_INT_ENTRY_ID) as usize;
+    if e < 8 { e } else { 0 }
+}
+
 /// THE COMPARISON IS WANTED AND IS NOT TAKEN, and gate 4j is why.
 ///
 /// The obvious next measurement is one `on_line(Main, ..)` on Little Mac, reading his hitbox-live
@@ -100,6 +108,15 @@ unsafe extern "C" fn jab_frame(fighter: &mut L2CFighterCommon) {
     if !watched(status) {
         return;
     }
+    // ONE EPISODE PER READING. The counters are zeroed when ATTACK_100 is entered, so every
+    // `blocks=[...]` below describes THIS rapid jab and not the sum of every one in the session.
+    // It also makes `src/rapidjab`'s enter/pass comparison a per-episode question, which is the
+    // only thing it can honestly be -- see the note on `acmd_reset`.
+    if status == *FIGHTER_STATUS_KIND_ATTACK_100 && LAST_STATUS[entry_of(boma)] != status {
+        super::probe::acmd_reset();
+    }
+    LAST_STATUS[entry_of(boma)] = status;
+
     // Tagged, because the whole point is to read our lines against Little Mac's in one file.
     let who = if smash::app::utility::get_kind(&mut *boma) == *FIGHTER_KIND_PIKACHU {
         "rat"

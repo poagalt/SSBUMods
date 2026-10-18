@@ -405,10 +405,30 @@ pub unsafe fn acmd_take(slot: usize) -> (u32, u32) {
 /// or never created, which is somewhere else entirely.
 static mut ACMD_BLOCK: [u32; 24] = [0; 24];
 
+/// Zeroes every ACMD counter, for the start of a fresh episode.
+///
+/// THEY WERE LIFETIME TOTALS AND THAT WAS A DEFECT IN BOTH DIRECTIONS. As telemetry it makes
+/// `blocks=[...]` the sum over every rapid jab in the session, so no single episode can be read
+/// out of it. As CONTROL it is worse: `src/rapidjab` compares `enter` against `pass` to tell a
+/// parked script from a finished one, and two lifetime counters cannot express a momentary state
+/// -- once they drift by one the comparison is permanently wrong in one direction, and stays
+/// wrong for the rest of the session. The playtest describes exactly that shape: one hit per loop
+/// for the first couple of uses, then a burst of correct hits followed by nothing at all.
+pub unsafe fn acmd_reset() {
+    ACMD_ENTER = [0; 4];
+    ACMD_PASS = [0; 4];
+    ACMD_BLOCK = [0; 24];
+}
+
 pub unsafe fn acmd_block(i: usize) {
     if i < 24 {
         ACMD_BLOCK[i] = ACMD_BLOCK[i].saturating_add(1);
     }
+}
+
+/// One block's count, for code that needs to know whether a particular part of a script ran.
+pub unsafe fn acmd_block_count(i: usize) -> u32 {
+    if i < 24 { ACMD_BLOCK[i] } else { 0 }
 }
 
 /// The first `n` block counters, compactly, for printing beside a line already being written.

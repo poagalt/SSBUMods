@@ -2584,6 +2584,46 @@ unsafe fn in_throw_context(boma: *mut BattleObjectModuleAccessor) -> bool {
         || is_carry_status(st)
 }
 
+/// What the engine's four THROW DESTINATION slots actually hold during a grab.
+///
+/// THE HYPOTHESIS THIS EXISTS TO TEST, and the first one that explains the reported symptom.
+/// `globalTable[0x45]` is the forward-throw destination and `retarget_forward_throw` points it at
+/// SHOULDER_START; `[0x46]`, `[0x47]` and `[0x48]` are back, up and down, and this module USED to
+/// write all three until they were removed on 2026-10-17 for zeroing a GOT slot and crashing the
+/// game on air damage. Removing them was right. What was never checked is what they hold now.
+///
+/// If `[0x46]` is 0, then back+A in an ordinary grab is `change_status(0)` -- which is WAIT. The
+/// capture measured on 2026-10-18 has four grabs out of six running
+/// `CATCH_WAIT -> WAIT` after ten to twenty frames with no THROW status anywhere, and the playtest
+/// describes it from the other side as "3%, immediately drop the opponent and run left".
+///
+/// Printed once per grab rather than per frame: these slots are set up when the status is entered,
+/// so one reading per CATCH_WAIT says everything a hundred would.
+static mut DEST_LOGGED: [bool; 8] = [false; 8];
+
+pub unsafe fn log_throw_destinations(fighter: &mut L2CFighterCommon) {
+    let boma = fighter.module_accessor;
+    let st = StatusModule::status_kind(boma);
+    let entry = entry_of(boma);
+    if st != *FIGHTER_STATUS_KIND_CATCH_WAIT {
+        DEST_LOGGED[entry] = false;
+        return;
+    }
+    if DEST_LOGGED[entry] {
+        return;
+    }
+    DEST_LOGGED[entry] = true;
+    crate::telemetry::sink::diag(format!(
+        "[rat] CATCHDEST p{entry} throw destinations: f=[0x45]={:#x} b=[0x46]={:#x}          hi=[0x47]={:#x} lw=[0x48]={:#x}  (THROW={:#x}, SHOULDER_START={:#x}; a ZERO is a          change_status(0) straight to WAIT, which is the dropped grab)",
+        fighter.global_table[0x45].get_i32(),
+        fighter.global_table[0x46].get_i32(),
+        fighter.global_table[0x47].get_i32(),
+        fighter.global_table[0x48].get_i32(),
+        *FIGHTER_STATUS_KIND_THROW,
+        RAT_STATUS_KIND_SHOULDER_START,
+    ));
+}
+
 pub unsafe fn retarget_forward_throw(fighter: &mut L2CFighterCommon) {
     const CONT_THROW_F: i32 = 0x45;
     // SCOPED TO A CATCH OR CARRY. See `is_carry_status` -- running this in every status is what

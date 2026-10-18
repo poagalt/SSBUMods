@@ -122,6 +122,12 @@ pub unsafe extern "C" fn pikachu_cargo_frame(fighter: &mut L2CFighterCommon) {
     let motion = MotionModule::motion_kind(boma);
     let status = StatusModule::status_kind(boma);
 
+    // ONE LINE PER GRAB saying what the engine's four throw-destination slots hold. See the note
+    // on `log_throw_destinations`: four of six grabs in the 2026-10-18 capture ran
+    // CATCH_WAIT -> WAIT with no THROW status anywhere, which is what `change_status(0)` looks
+    // like, and `[0x46]` is the slot a back throw reads.
+    super::shoulder::log_throw_destinations(fighter);
+
     // WHO WE ARE HOLDING, TRACKED CONTINUOUSLY RATHER THAN READ AT THE HANDOFF.
     //
     // This used to read `CatchModule::capture_object_id` at the instant `throw_f` ENDS, which is
