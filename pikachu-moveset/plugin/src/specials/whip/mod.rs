@@ -977,7 +977,7 @@ unsafe fn update_rope_x(fighter: &mut L2CFighterCommon) {
         PostureModule::pos_x(boma) + ROPE_OFFSET_X * PostureModule::lr(boma),
     );
     // And the posts' height, latched with it: native generate_rope's no-wall branch writes the
-    // captor's `pos.y` to float 0x1000008, which src/params answers from this.
+    // captor's `pos.y` to float 0x1000008, and `rope_spawn` writes it there before it spawns.
     state::set_rope_y(entry, PostureModule::pos_y(boma));
     state::set_rope_x_set(entry, true);
 }
@@ -1015,18 +1015,30 @@ unsafe fn rope_spawn(fighter: &mut L2CFighterCommon) {
     if ArticleModule::is_exist(boma, id) {
         ArticleModule::remove_exist(boma, id, ArticleOperationTarget(*ARTICLE_OPE_TARGET_ALL));
     }
+    // WHERE THE ROPE IS BUILT IS WHAT THE SPAWN CALLBACK READS, AND IT READS IT NATIVELY.
+    //
+    // generate_article reaches FUN_00abede0 through the global weapon-kind table, and that builds
+    // the rope from the owner's status floats 0x1000007 (ROPE_X) and 0x1000008 (the posts' height)
+    // through the work module's own vtable -- C++, not lua_bind, so src/params' get_float hook never
+    // sees the read (the 10-18 log has the victim's rope_x read and no rope_y read at all). Pikachu's
+    // floats were never written, the height read 0, and the ropes stood on the main floor however
+    // high the whip was used; `set_pos` below cannot correct it, because the object is built after
+    // it. So both are written here, exactly as native generate_rope writes them before ITS
+    // generate_article: ROPE_X, and the captor's own pos.y.
+    let (rope_x, rope_y) = if state::rope_x_set(entry) {
+        (state::rope_x(entry), state::rope_y(entry))
+    } else {
+        (PostureModule::pos_x(boma) + ROPE_OFFSET_X * lr, PostureModule::pos_y(boma))
+    };
+    WorkModule::set_float(boma, rope_x, *FIGHTER_GAOGAEN_STATUS_SPECIAL_S_FLOAT_ROPE_X);
+    WorkModule::set_float(boma, rope_y, SPECIAL_S_FLOAT_ROPE_Y);
     ArticleModule::generate_article(boma, id, false, -1);
     if !ArticleModule::is_exist(boma, id) {
         crate::telemetry::sink::diag(format!("[rat] WHIP p{entry} rope did not generate"));
         return;
     }
     // ROPE_X is where the victim meets the ropes -- the same line `whip_flight` attaches them at.
-    let x = if state::rope_x_set(entry) {
-        state::rope_x(entry)
-    } else {
-        PostureModule::pos_x(boma) + ROPE_OFFSET_X * lr
-    };
-    let y = PostureModule::pos_y(boma);
+    let (x, y) = (rope_x, rope_y);
     ArticleModule::set_pos(boma, id, Vector3f { x, y, z: 0.0 });
     if let Some(abm) = crate::articles::accessor(boma, id) {
         PostureModule::set_lr(abm, -lr);
@@ -2453,6 +2465,8 @@ pub fn install() {
 /// -29.49 instead of -40.69. One frame short of the ropes, every time. "It goes 4 tiles in the
 /// training room instead of 5."
 const ROPE_OFFSET_X: f32 = -40.69;
+/// Status float 0x1000008, unnamed in the constant table: native generate_rope's posts' height.
+const SPECIAL_S_FLOAT_ROPE_Y: i32 = 0x0100_0008;
 
 /// How far the ropes give before they stop, measured from `ROPE_OFFSET_X`.
 ///
