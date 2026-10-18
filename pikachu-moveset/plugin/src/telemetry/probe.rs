@@ -341,6 +341,16 @@ pub unsafe fn throw_frame(
 // COUNTED, NOT LOGGED PER CALL, because these sit inside a script that runs every frame of a
 // twenty-frame motion: a line each would be thousands. The tally is printed when the fighter leaves
 // the status, which `jabprobe` already sees.
+// THESE ARE LOAD-BEARING NOW, NOT JUST DIAGNOSTIC. `src/rapidjab` reads them to tell a PARKED
+// script from a FINISHED one -- `wait_loop_clear` sits between the two counters, so parked is
+// `enter == pass + 1` and finished is `enter == pass` -- and that test is the whole of how the
+// rapid jab keeps its rhythm. Deleting them, or dropping `attack100` from `ACMD_TRACE` in
+// tools/gen-moves.sh, silently turns the rapid jab back into one hit per loop.
+//
+// ONE SET OF COUNTERS, NOT ONE PER ENTRY, which is a real limit and not an oversight to find
+// later: two Rat of Dooms rapid-jabbing at once would share them and both would read the other's
+// state. Single-slot is what this mod ships and the cost of being wrong is a mistimed jab rather
+// than a crash, so it is recorded here instead of being solved speculatively.
 static mut ACMD_ENTER: [u32; 4] = [0; 4];
 static mut ACMD_PASS: [u32; 4] = [0; 4];
 

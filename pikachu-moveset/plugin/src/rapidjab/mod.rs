@@ -37,10 +37,6 @@
 //! WHAT THIS DOES, AND WHY THESE TWO CALLS. On the frame the motion wraps, ask the engine to run
 //! the script again:
 //!
-//!   `MotionAnimcmdModule::is_sleep` / `set_sleep(false)` -- a script whose function has returned
-//!   is a slept script, and an unslept one is the VM's own notion of "there is more to run". This
-//!   is the gentle half: it changes no frame and no motion.
-//!
 //!   `MotionModule::set_frame_sync_anim_cmd(0.0)` -- "set the frame AND sync the animcmd", the
 //!   engine's own way of putting a motion and its script back to the same point. The motion has
 //!   just wrapped to 0 of its own accord, so as an animation change this is a no-op; what it is
@@ -96,8 +92,25 @@ unsafe extern "C" fn rapid_jab_frame(fighter: &mut L2CFighterCommon) {
     if prev < 0.0 || now >= prev {
         return;
     }
-    if MotionAnimcmdModule::is_sleep(boma) {
-        MotionAnimcmdModule::set_sleep(boma, false);
+    // ONLY WHEN THE SCRIPT HAS FINISHED, AND THE FIRST VERSION OF THIS DID NOT CHECK.
+    //
+    // Restarting on EVERY wrap made it worse in an instructive way. The counters read `e1 p0`
+    // through the first cycle, then at the wrap BOTH climbed -- `e2 p1` -- meaning the parked
+    // script resumed and the restart immediately pre-empted it. The ten hits the script plays
+    // after `wait_loop_clear` never got to run; only the frame-0 hit of each fresh start did. One
+    // hit per twenty-frame loop, which the playtest measured from the other side as "only around
+    // every half second does one small jab hit".
+    //
+    // `enter` and `pass` say which state the script is in, because `wait_loop_clear` sits between
+    // them: parked is `enter == pass + 1`, and a script that has resumed and run to its end is
+    // `enter == pass`. So restart only on equality, and the natural rhythm comes back -- one hit
+    // on the cycle that starts the script, ten on the cycle its park resumes into, repeating.
+    //
+    // `is_sleep` was the first candidate for this test and it is not one: measured 0 on every
+    // frame of every cycle, parked or not. It stays in the probe line as a negative result.
+    let (enter, pass) = crate::telemetry::probe::acmd_peek(0);
+    if enter != pass {
+        return;
     }
     // ARGUMENTS TAKEN FROM THE ENGINE'S OWN USE OF IT, not guessed. `sub_wait_motion_mtrans`
     // (common) is the canonical resync of a LOOPING motion's animcmd -- the same shape of problem
