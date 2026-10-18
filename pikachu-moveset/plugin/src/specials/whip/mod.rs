@@ -515,7 +515,9 @@ unsafe fn whip_release_teardown(fighter: &mut L2CFighterCommon) {
     let link = *LINK_NO_CAPTURE;
 
     // The rope article is retired here in the source, under `if !is_flag(THROW_ROPE_END)`.
-    // Omitted under ADR 0004: there is no rope to retire.
+    if !WorkModule::is_flag(boma, *FIGHTER_GAOGAEN_STATUS_SPECIAL_S_FLAG_THROW_ROPE_END) {
+        rope_end(boma);
+    }
 
     if LinkModule::is_link(boma, link) {
         // `link` splices the slot into both the parent and the child list, so the fighter being
@@ -846,6 +848,10 @@ unsafe extern "C" fn special_s_throw_pre(fighter: &mut L2CFighterCommon) -> L2CV
 /// different fighter, and `deforeign` exists precisely to strip that class out of generated ACMD --
 /// but it never processes hand-written status code, so nothing caught it here.
 ///
+/// SINCE 2026-10-18 THE LINE IS FAITHFUL IN THE ONLY WAY IT CAN BE: `rope_spawn` spawns Rat of Doom's
+/// OWN rope article -- id `crate::articles::article_id("rope")`, not "article 0" -- at the place
+/// `update_rope_x` computes. The note below is kept for why the call itself must never come back.
+///
 /// Omitting it is not a behaviour change of mine; it is the consequence of ADR 0004, which already
 /// decided this port ships no rope. Every CONSUMER of the rope is already omitted for that reason
 /// (the two `ArticleModule::change_status_exist` calls and the rope's `send_event_nodes`). Keeping
@@ -854,6 +860,12 @@ unsafe extern "C" fn special_s_throw_pre(fighter: &mut L2CFighterCommon) -> L2CV
 /// open question and not one to reopen silently.
 unsafe extern "C" fn special_s_throw_main(fighter: &mut L2CFighterCommon) -> L2CValue {
     let boma = fighter.module_accessor;
+
+    // WHERE generate_rope STOOD, now spawning Rat of Doom's OWN rope (see `rope_spawn`). The
+    // placement it computed is `update_rope_x`'s, refreshed here so the rope and the line the
+    // victim stops at are the same number.
+    update_rope_x(fighter);
+    rope_spawn(fighter);
 
     if fighter.global_table[0x16] == *SITUATION_KIND_GROUND {
         GroundModule::correct(boma, GroundCorrectKind(*GROUND_CORRECT_KIND_GROUND_CLIFF_STOP));
@@ -965,6 +977,104 @@ unsafe fn update_rope_x(fighter: &mut L2CFighterCommon) {
         PostureModule::pos_x(boma) + ROPE_OFFSET_X * PostureModule::lr(boma),
     );
     state::set_rope_x_set(entry, true);
+}
+
+// ---- THE ROPE ARTICLE, VISUAL ONLY -----------------------------------------------------------------
+//
+// ADR 0004 STILL HOLDS: no victim is ever linked to this rope, and nothing of the rope's own code
+// touches one. The port already flies the victim through the native victim statuses at native
+// timing and position (`whip_flight`); this only puts Incineroar's rope where his code puts it and
+// plays its animations at the same moments his code makes it play them:
+//
+//   spawn   SpecialSThrow main calls generate_rope, whose spawn callback (main FUN_00abede0) builds
+//           the rope at ROPE_X/ROPE_Y with the owner's facing NEGATED. Its own Appear status then
+//           plays `appear` and moves to Wait -- unaltered.
+//   bend    the victim entering SWING_GAOGAEN_ATTACH_ROPE is what puts a real rope into Bend, whose
+//           main plays `bend`. The Bend STATUS also unlinks the victim and messages the owner, which
+//           is the half ADR 0004 excludes, so the motion is played and the status is not.
+//   close   SpecialSEnd_end and SpecialSThrow_end both call
+//           change_status_exist(ROPE, WEAPON_GAOGAEN_ROPE_STATUS_KIND_END); the rope's End status
+//           plays `appear` reversed and removes itself with its own notify_event_msc_cmd.
+//
+// Every spawn goes through `crate::articles::rope_ready()`: the rope's class has two slots that
+// read Incineroar's params, and it is only safe once src/articles/neutralize.rs has verified its
+// hook on this game version.
+unsafe fn rope_spawn(fighter: &mut L2CFighterCommon) {
+    if !crate::articles::rope_ready() {
+        return;
+    }
+    let Some(id) = crate::articles::article_id("rope") else {
+        return;
+    };
+    let boma = fighter.module_accessor;
+    let entry = entry_of(boma);
+    let lr = PostureModule::lr(boma);
+    if ArticleModule::is_exist(boma, id) {
+        ArticleModule::remove_exist(boma, id, ArticleOperationTarget(*ARTICLE_OPE_TARGET_ALL));
+    }
+    ArticleModule::generate_article(boma, id, false, -1);
+    if !ArticleModule::is_exist(boma, id) {
+        crate::telemetry::sink::diag(format!("[rat] WHIP p{entry} rope did not generate"));
+        return;
+    }
+    // ROPE_X is where the victim meets the ropes -- the same line `whip_flight` attaches them at.
+    let x = if state::rope_x_set(entry) {
+        state::rope_x(entry)
+    } else {
+        PostureModule::pos_x(boma) + ROPE_OFFSET_X * lr
+    };
+    let y = PostureModule::pos_y(boma);
+    ArticleModule::set_pos(boma, id, Vector3f { x, y, z: 0.0 });
+    if let Some(abm) = crate::articles::accessor(boma, id) {
+        PostureModule::set_lr(abm, -lr);
+        PostureModule::update_rot_y_lr(abm);
+    }
+    crate::telemetry::sink::diag(format!(
+        "[rat] WHIP p{entry} rope spawned at ({x:.2},{y:.2}) facing {:+.0}", -lr
+    ));
+}
+
+unsafe fn rope_bend(boma: *mut BattleObjectModuleAccessor) {
+    let Some(id) = crate::articles::article_id("rope") else {
+        return;
+    };
+    if crate::articles::rope_ready() && ArticleModule::is_exist(boma, id) {
+        ArticleModule::change_motion(boma, id, Hash40::new("bend"), false, -1.0);
+    }
+}
+
+/// `change_status_exist(ROPE, END)`, once: a rope already in End is left to finish.
+unsafe fn rope_end(boma: *mut BattleObjectModuleAccessor) {
+    let Some(id) = crate::articles::article_id("rope") else {
+        return;
+    };
+    if !crate::articles::rope_ready() || !ArticleModule::is_exist(boma, id) {
+        return;
+    }
+    if let Some(abm) = crate::articles::accessor(boma, id) {
+        if StatusModule::status_kind(abm) == *WEAPON_GAOGAEN_ROPE_STATUS_KIND_END {
+            return;
+        }
+    }
+    ArticleModule::change_status_exist(boma, id, *WEAPON_GAOGAEN_ROPE_STATUS_KIND_END);
+}
+
+/// THE ONE ADDITION TO NATIVE, AND WHY. A native rope can also close itself: its Bend status runs
+/// on to the rebound. This one plays `bend` inside Wait, so if a whip ever leaves by a path neither
+/// native site covers -- he is hit after the victim reached the ropes, say -- the rope would stand
+/// there. So: no whip status and a rope still up means it closes, the same way.
+unsafe extern "C" fn rope_watch(fighter: &mut L2CFighterCommon) {
+    let boma = fighter.module_accessor;
+    let st = StatusModule::status_kind(boma);
+    let whip = st == *FIGHTER_STATUS_KIND_SPECIAL_S
+        || st == RAT_STATUS_KIND_SPECIAL_S_THROW
+        || st == RAT_STATUS_KIND_SPECIAL_S_SHOULDER
+        || st == RAT_STATUS_KIND_SPECIAL_S_LARIAT
+        || st == RAT_STATUS_KIND_SPECIAL_S_FAILURE
+        || st == RAT_STATUS_KIND_SPECIAL_S_END;
+    if !whip {
+        rope_end(boma);
+    }
 }
 
 unsafe fn whip_update_areas(fighter: &mut L2CFighterCommon) {
@@ -1989,9 +2099,11 @@ unsafe extern "C" fn end_main(fighter: &mut L2CFighterCommon) -> L2CValue {
     fighter.sub_shift_status_main(L2CValue::Ptr(followup_main_loop as *const () as _))
 }
 
-/// SOURCE, `0x7100007380`: retire the rope and nothing else -- so under ADR 0004 this status_end
-/// has nothing to do at all, and is registered only so the status is completely owned.
-unsafe extern "C" fn end_end(_fighter: &mut L2CFighterCommon) -> L2CValue {
+/// SOURCE, `0x7100007380`: retire the rope and nothing else --
+/// `change_status_exist(ROPE, WEAPON_GAOGAEN_ROPE_STATUS_KIND_END)`, which `rope_end` is. Until
+/// 2026-10-18 there was no rope to retire (ADR 0004); the visual rope is that article now.
+unsafe extern "C" fn end_end(fighter: &mut L2CFighterCommon) -> L2CValue {
+    rope_end(fighter.module_accessor);
     false.into()
 }
 
@@ -2305,6 +2417,7 @@ pub fn install() {
         .status(Pre, RAT_STATUS_KIND_SPECIAL_S_END, end_pre)
         .status(Main, RAT_STATUS_KIND_SPECIAL_S_END, end_main)
         .status(End, RAT_STATUS_KIND_SPECIAL_S_END, end_end)
+        .on_line(Main, rope_watch)
         .install();
 }
 
@@ -2509,6 +2622,7 @@ unsafe fn whip_flight(fighter: &mut L2CFighterCommon, entry: usize, off: f32) {
             // in the same units it was measured in. See `ROPE_HOLD_FRAMES`.
             state::set_rope_hold_from(entry, MotionModule::frame(boma) as i32);
             crate::victim::request_status(vboma, attached, "whip rope caught them");
+            rope_bend(boma);
         }
         return;
     }

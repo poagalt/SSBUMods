@@ -468,6 +468,11 @@ for name in $cands; do
     a_clean=$(printf '%s' "$row" | cut -d'|' -f2); a_en=$(printf '%s' "$row" | cut -d'|' -f3)
     want_on=0
     [ "$clone_on" != "0" ] && [ "$a_en" = "true" ] && [ "$a_clean" = "true" ] && want_on=1
+    # A DIRTY ROW THAT src/articles/neutralize.rs COVERS IS INSTALLED TOO -- the same test
+    # gen-article-assets.sh ships it by, so the two cannot disagree about the rope.
+    if [ "$clone_on" != "0" ] && [ "$a_en" = "true" ] && [ "$a_clean" = "false" ]        && grep -q "(\"$name\", &\[" "$ROOT/pikachu-moveset/plugin/src/articles/neutralize.rs"; then
+      want_on=1
+    fi
     # AN ARTICLE THE ARCHIVE HAS NO `model` FOR IS NOT A MISSING ASSET, and treating it as one
     # is what this reported on Samus's charge shot. `fighter/samus/model/cshot` is not a path in
     # the 590,711-path archive map at all -- only `motion/cshot/cNN/motion_list.bin` is --

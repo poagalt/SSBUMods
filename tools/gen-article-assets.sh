@@ -78,6 +78,13 @@ while IFS='|' read -r name donor donor_name clean enabled authored model_from; d
     [ -z "${name// }" ] && continue
     want=0
     [ "$clone_on" != "0" ] && [ "$enabled" = "true" ] && [ "$clean" = "true" ] && want=1
+    # A DIRTY ROW THAT src/articles/neutralize.rs COVERS SHIPS TOO: its unguarded donor reads are
+    # repointed at the engine's own `ret` default for Pikachu's instances (gated by
+    # tools/check-article-donor-params.sh), and the plugin never spawns it unless the hook's site
+    # verified at runtime. Read from that file so the two cannot disagree.
+    if [ "$clone_on" != "0" ] && [ "$enabled" = "true" ] && [ "$clean" = "false" ]        && grep -q "(\"$name\", &\[" "$ROOT/pikachu-moveset/plugin/src/articles/neutralize.rs"; then
+        want=1
+    fi
 
     if [ "$want" = "0" ]; then
         for kind in model motion; do

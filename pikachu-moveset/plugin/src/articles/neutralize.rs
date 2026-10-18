@@ -48,25 +48,54 @@ pub const NEUTRALIZED: &[(&str, &[usize])] = &[
     ("spikeball", &[3, 55]),
 ];
 
-/// main+0x339edc0: the weapon initialize-with-kind virtual (see the module doc).
-const WEAPON_INITIALIZE: usize = 0x339edc0;
-/// main+0x529d400 (.data+0x386400): 615 pointers, one class singleton per WEAPON_KIND_*.
-const WEAPON_CLASS_TABLE: usize = 0x529d400;
+/// THE HOOK SITE, PER GAME VERSION, AND IT IS VERIFIED BEFORE IT IS USED.
+///
+/// The weapon initialize-with-kind virtual is main+0x339edc0 on 13.0.5 (the dump this module was
+/// written against) and main+0x339e810 on 13.0.4 -- the 0x5B0 bump that runs through this region of
+/// `main` (smashline's own 13.0.5 commit adds `+ 0x5B0` to its offsets here), and the vendored
+/// 13.0.4 decomp has a 5,832-byte function starting at exactly 0x339e810. Console #2 runs 13.0.4.
+///
+/// A WRONG ADDRESS IS A CRASH AT MATCH LOAD, so neither is trusted: `install` reads each
+/// candidate's instructions out of the running game and hooks only the one that matches the
+/// 13.0.5 function -- its first twenty instructions with the two branch-link targets masked, plus
+/// the `str x0, [x19, #0x3bb0]` that stores the class singleton (at +0x1550 in 13.0.5). If neither
+/// matches, nothing is hooked, `active()` stays false, and the rope is never spawned.
+const INIT_1304: usize = 0x339e810;
+const INIT_1305: usize = 0x339edc0;
+const SIGNATURE: [u32; 20] = [
+    0xd10143ff, 0xa9015ff8, 0xa90257f6, 0xa9034ff4, 0xa9047bfd, 0x910103fd, 0xf9401018, 0xaa0403f5,
+    0x2a0303f6, 0x2a0203f4, 0xaa0003f3, 0x2a0103f7, 0x94000000, 0x37000060, 0x320003e8, 0x3900c308,
+    0xaa1303e0, 0x94000000, 0xaa1303e0, 0x2a1703e1,
+];
+/// Words 12 and 17 are `bl`, whose target differs between versions: compare the opcode only.
+const SIGNATURE_MASK: [u32; 20] = [
+    !0, !0, !0, !0, !0, !0, !0, !0, !0, !0, !0, !0, 0xfc000000, !0, !0, !0, !0, 0xfc000000, !0, !0,
+];
+/// `str x0, [x19, #0x3bb0]`.
+const STORE_SPECIALIZER: u32 = 0xf91dda60;
 /// Where a weapon object keeps its class singleton.
 const SPECIALIZER_AT: usize = 0x3bb0;
 const VTABLE_SLOTS: usize = 114;
 /// offset-to-top and RTTI, before the address point.
 const VTABLE_HEADER_WORDS: usize = 2;
 
-/// The defaults come from a weapon that uses them in all three slots, read at runtime so the
-/// private vtable holds the running game's own addresses. The parachute is clean and takes the
-/// majority default in slots 3, 40 and 55 -- the gate checks that too.
-unsafe fn default_donor_kind() -> i32 {
-    *WEAPON_KIND_GAMEWATCH_PARACHUTE
-}
+/// THE ENGINE'S DEFAULT FOR EVERY NEUTRALISED SLOT IS A BARE `ret`, measured: in the 13.0.5 dump the
+/// majority implementation of slot 3 (main+0x33be810, 347 of 522 vtables), slot 40 (main+0x33be9b0,
+/// 477) and slot 55 (main+0x33bea70, 381) is the single instruction `d65f03c0`. So the private
+/// vtable points those slots at THIS function, which is the same thing -- and that is why this
+/// module no longer needs the weapon class table's address or a clean donor's vtable, the two
+/// version-pinned reads the first version made.
+extern "C" fn default_slot() {}
 
 static mut PRIVATE: [usize; 2] = [0; 2];
 static mut LOGGED: [bool; 2] = [false; 2];
+static mut ACTIVE: bool = false;
+
+/// True once the weapon hook is installed on a verified site. Nothing may spawn a neutralised
+/// article unless this is true.
+pub fn active() -> bool {
+    unsafe { ACTIVE }
+}
 
 pub fn covers(host_name: &str) -> bool {
     NEUTRALIZED.iter().any(|(h, _)| *h == host_name)
@@ -115,15 +144,14 @@ unsafe fn owner_is_pikachu(entry: u32) -> bool {
     crate::victim::boma(id).map_or(false, |b| crate::charaslot::is_rat_costume(b))
 }
 
-/// The private singleton for one row, built on first use from the running game's own memory.
-unsafe fn private_singleton(row: usize, kind: i32, slots: &[usize]) -> usize {
+/// The private singleton for one row, built on first use from the object's OWN class: the
+/// specializer the engine just stored at +0x3bb0 points at its vtable's address point, so the
+/// group is copied from there and the listed slots repointed at `default_slot`.
+unsafe fn private_singleton(row: usize, singleton: usize, slots: &[usize]) -> usize {
     if PRIVATE[row] != 0 {
         return PRIVATE[row];
     }
-    let text = skyline::hooks::getRegionAddress(skyline::hooks::Region::Text) as usize;
-    let table = (text + WEAPON_CLASS_TABLE) as *const usize;
-    let point = *(*table.add(kind as usize) as *const usize) as *const usize;
-    let clean = *(*table.add(default_donor_kind() as usize) as *const usize) as *const usize;
+    let point = *(singleton as *const usize) as *const usize;
     let mut group: Vec<usize> = Vec::with_capacity(VTABLE_HEADER_WORDS + VTABLE_SLOTS);
     for i in (1..=VTABLE_HEADER_WORDS).rev() {
         group.push(*point.sub(i));
@@ -132,7 +160,7 @@ unsafe fn private_singleton(row: usize, kind: i32, slots: &[usize]) -> usize {
         group.push(*point.add(s));
     }
     for &s in slots {
-        group[VTABLE_HEADER_WORDS + s] = *clean.add(s);
+        group[VTABLE_HEADER_WORDS + s] = default_slot as usize;
     }
     let group: &'static mut [usize] = Box::leak(group.into_boxed_slice());
     let singleton: &'static mut usize = Box::leak(Box::new(group.as_ptr().add(VTABLE_HEADER_WORDS) as usize));
@@ -140,25 +168,50 @@ unsafe fn private_singleton(row: usize, kind: i32, slots: &[usize]) -> usize {
     PRIVATE[row]
 }
 
-#[skyline::hook(offset = WEAPON_INITIALIZE)]
-unsafe fn weapon_initialize(object: *mut u8, id: u32, kind: u32, entry: u32, unk: u64) {
-    call_original!(object, id, kind, entry, unk);
+unsafe fn neutralise(object: *mut u8, kind: u32, entry: u32) {
     for (row, row_kind, slots, host) in live_rows() {
         if kind as i32 != row_kind || !owner_is_pikachu(entry) {
             continue;
         }
         let at = object.add(SPECIALIZER_AT) as *mut usize;
         let before = *at;
-        let private = private_singleton(row, row_kind, slots);
+        if before == 0 {
+            continue;
+        }
+        let private = private_singleton(row, before, slots);
         *at = private;
         if !LOGGED[row] {
             LOGGED[row] = true;
             crate::telemetry::sink::diag(format!(
                 "[rat] articles: NEUTRALISED {host} (kind {row_kind:#x}) for entry {entry}: slots {slots:?} -> \
-                 defaults; specializer {before:#x} -> private {private:#x}"
+                 ret; specializer {before:#x} -> private {private:#x}"
             ));
         }
     }
+}
+
+#[skyline::hook(offset = INIT_1304)]
+unsafe fn weapon_initialize_1304(object: *mut u8, id: u32, kind: u32, entry: u32, unk: u64) {
+    call_original!(object, id, kind, entry, unk);
+    neutralise(object, kind, entry);
+}
+
+#[skyline::hook(offset = INIT_1305)]
+unsafe fn weapon_initialize_1305(object: *mut u8, id: u32, kind: u32, entry: u32, unk: u64) {
+    call_original!(object, id, kind, entry, unk);
+    neutralise(object, kind, entry);
+}
+
+/// Does main+`at` hold the weapon initialize virtual? See `SIGNATURE`.
+unsafe fn verified(at: usize) -> bool {
+    let text = skyline::hooks::getRegionAddress(skyline::hooks::Region::Text) as usize;
+    let code = (text + at) as *const u32;
+    for i in 0..SIGNATURE.len() {
+        if *code.add(i) & SIGNATURE_MASK[i] != SIGNATURE[i] {
+            return false;
+        }
+    }
+    (0..0x1800 / 4).any(|i| *code.add(i) == STORE_SPECIALIZER)
 }
 
 /// Installs the hook only when a NEUTRALIZED row is live, so a build with both rows off is the
@@ -169,6 +222,21 @@ pub fn install() {
         crate::telemetry::sink::diag("[rat] articles: no neutralised row is enabled; weapon hook not installed".into());
         return;
     }
-    crate::telemetry::sink::diag(format!("[rat] articles: installing the weapon hook for {live:?}"));
-    skyline::install_hooks!(weapon_initialize);
+    unsafe {
+        if verified(INIT_1304) {
+            skyline::install_hooks!(weapon_initialize_1304);
+            ACTIVE = true;
+            crate::telemetry::sink::diag(format!(
+                "[rat] articles: weapon hook on main+{INIT_1304:#x} (13.0.4 signature verified) for {live:?}"));
+        } else if verified(INIT_1305) {
+            skyline::install_hooks!(weapon_initialize_1305);
+            ACTIVE = true;
+            crate::telemetry::sink::diag(format!(
+                "[rat] articles: weapon hook on main+{INIT_1305:#x} (13.0.5 signature verified) for {live:?}"));
+        } else {
+            crate::telemetry::sink::diag(format!(
+                "[rat] articles: NO weapon hook -- neither main+{INIT_1304:#x} nor main+{INIT_1305:#x} matches the \
+                 initialize signature on this game version, so {live:?} will not be spawned"));
+        }
+    }
 }

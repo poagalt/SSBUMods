@@ -205,44 +205,40 @@ if os.path.exists(neu_rs):
     nsrc = open(neu_rs, encoding='utf-8').read()
     for host, sl in re.findall(r'\("([a-z_]+)",\s*&\[([0-9,\s]*)\]\)', nsrc):
         NEUTRALIZED[host] = sorted(int(x) for x in sl.replace(' ', '').split(',') if x)
-    for name in ('WEAPON_INITIALIZE', 'WEAPON_CLASS_TABLE', 'SPECIALIZER_AT'):
+    for name in ('INIT_1304', 'INIT_1305', 'SPECIALIZER_AT'):
         m = re.search(r'const %s: usize = 0x([0-9a-fA-F]+);' % name, nsrc)
         if m: neu_consts[name] = int(m.group(1), 16)
+    sig = [int(x, 16) for x in re.findall(r'0x([0-9a-f]{8})', re.search(
+        r'const SIGNATURE: \[u32; \d+\] = \[(.*?)\];', nsrc, re.S).group(1))]
+    msk_txt = re.search(r'const SIGNATURE_MASK: \[u32; \d+\] = \[(.*?)\];', nsrc, re.S).group(1)
+    msk = [0xFFFFFFFF if t.strip() == '!0' else int(t.strip(), 16) for t in msk_txt.split(',') if t.strip()]
+    store = int(re.search(r'const STORE_SPECIALIZER: u32 = 0x([0-9a-f]+);', nsrc).group(1), 16)
 neu_rc = 0
 if NEUTRALIZED:
-    # the table, as a MODULE offset: data's offset from text, plus the table's offset in data
-    tbl_mod = (DATABASE - TEXTBASE) + TBASE
-    if neu_consts.get('WEAPON_CLASS_TABLE') != tbl_mod:
-        print("  FAIL neutralize.rs WEAPON_CLASS_TABLE = %#x, but the table is at main+%#x in this dump"
-              % (neu_consts.get('WEAPON_CLASS_TABLE', -1), tbl_mod)); neu_rc = 1
-    # the initialise virtual must store the class singleton at SPECIALIZER_AT: a 64-bit
-    # `str xt, [xn, #imm]` whose imm is SPECIALIZER_AT, within the function
-    init, at = neu_consts.get('WEAPON_INITIALIZE'), neu_consts.get('SPECIALIZER_AT')
-    found = False
-    if init is not None and at is not None and at % 8 == 0:
-        for a in range(init, init + 0x1800, 4):
-            w = word(a)
-            if (w & 0xFFC00000) == 0xF9000000 and ((w >> 10) & 0xFFF) * 8 == at:
-                found = True; break
-    if not found:
-        print("  FAIL neutralize.rs WEAPON_INITIALIZE (%#x) does not store to +%#x in this dump"
-              % (init or -1, at or -1)); neu_rc = 1
-    # majority default per slot, across every distinct class vtable
+    # neutralize.rs v2 (2026-10-18) verifies its hook site at runtime and repoints the listed slots
+    # at its own `ret` stub, so what this dump can check is: (1) the 13.0.5 site really matches the
+    # signature the runtime check uses, store included, and (2) the engine's majority default in
+    # every listed slot really is a bare `ret`, which is what `default_slot` claims to be.
+    init = neu_consts.get('INIT_1305')
+    ok_sig = init is not None and len(sig) == len(msk) and all(
+        (word(init + 4*i) & msk[i]) == sig[i] for i in range(len(sig)))
+    ok_store = init is not None and any(word(init + 4*i) == store for i in range(0x1800 // 4))
+    if not (ok_sig and ok_store):
+        print("  FAIL neutralize.rs INIT_1305 (%#x) does not match its own SIGNATURE%s in this dump"
+              % (init or -1, "" if ok_sig else "") + ("" if ok_store else " (no specializer store)")); neu_rc = 1
     vts = {}
     for k in range(N_KINDS):
         ap2 = vtable_of(k)
         if ap2 is not None: vts[ap2] = [as_text(dq(ap2 + 8*i)) for i in range(VTABLE_SLOTS)]
     majority = {i: collections.Counter(v[i] for v in vts.values()).most_common(1)[0][0] for i in range(VTABLE_SLOTS)}
-    dd = wkind.get('WEAPON_KIND_GAMEWATCH_PARACHUTE')
-    dvt = vtable_of(dd) if dd is not None else None
     for host, sl in NEUTRALIZED.items():
         for i in sl:
-            if dvt is None or as_text(dq(dvt + 8*i)) != majority[i]:
-                print("  FAIL neutralize.rs copies %s's slot %d from the parachute, which does not hold the "
-                      "majority default there" % (host, i)); neu_rc = 1
+            if majority[i] is None or word(majority[i]) != 0xD65F03C0:
+                print("  FAIL neutralize.rs points %s's slot %d at a bare `ret`, but the engine's default there "
+                      "(main+%#x) is not one" % (host, i, majority[i] or -1)); neu_rc = 1
     if not neu_rc:
-        print("  ok  neutralize.rs: table main+%#x and initialise main+%#x (+%#x store) match this dump; "
-              "the parachute holds the default in every listed slot" % (tbl_mod, init, at))
+        print("  ok  neutralize.rs: the 13.0.5 site main+%#x matches the runtime signature and store; every "
+              "listed slot's engine default is a bare ret" % init)
 
 # ---- the article table, read from the Rust so it cannot drift -----------------------------------
 src = open(art_rs, encoding='utf-8').read()

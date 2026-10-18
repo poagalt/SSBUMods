@@ -244,7 +244,7 @@ pub const CANDIDATES: &[Candidate] = &[
     // the copy against the source it was copied from, so a partial source is invisible to it.
     Candidate { host_name: "bow",         donor: "master",    donor_article: "bow",         weapon_kind: "WEAPON_KIND_MASTER_BOW",          clean: true,  enabled: true,  authored: false, model_from: "" },
     Candidate { host_name: "spikeball",   donor: "packun",    donor_article: "spikeball",   weapon_kind: "WEAPON_KIND_PACKUN_SPIKEBALL",    clean: false, enabled: false, authored: false, model_from: "" },
-    Candidate { host_name: "rope",        donor: "gaogaen",   donor_article: "rope",        weapon_kind: "WEAPON_KIND_GAOGAEN_ROPE",        clean: false, enabled: false, authored: false, model_from: "" },
+    Candidate { host_name: "rope",        donor: "gaogaen",   donor_article: "rope",        weapon_kind: "WEAPON_KIND_GAOGAEN_ROPE",        clean: false, enabled: true,  authored: false, model_from: "" },
 ];
 
 /// Whether the clones are actually installed. A declared constant rather than commented-out calls,
@@ -363,10 +363,18 @@ pub fn install() {
         return;
     }
 
+    // THE HOOK FIRST, so a covered-dirty row is cloned only if its protection is actually in
+    // place. neutralize::install() verifies its hook site against the running game and stays
+    // inactive on a mismatch; cloning the rope anyway would put an article in the game whose two
+    // Incineroar-only slots nothing has repointed.
+    neutralize::install();
     for (i, c) in installed() {
-        // A row the audit calls dirty never reaches here -- `installed()` filters on `clean` -- so
-        // pointing this at the rope or the spikeball cannot brick a playtest by accident. It is
-        // filtered rather than asserted because the audit already fails the build.
+        if !c.clean && !neutralize::active() {
+            crate::telemetry::sink::diag(format!(
+                "[rat] articles: {} NOT cloned -- it needs the weapon hook, which did not verify on this game version",
+                c.host_name));
+            continue;
+        }
         let Some(kind) = weapon_kind(c) else {
             crate::telemetry::sink::diag(format!(
                 "[rat] articles: {} names {} which weapon_kind() cannot resolve -- SKIPPED",
@@ -381,8 +389,28 @@ pub fn install() {
             PIKACHU_VANILLA_ARTICLES + i as i32
         ));
     }
-    // A no-op -- the hook is not even installed -- unless a NEUTRALIZED row is enabled.
-    neutralize::install();
+}
+
+/// An installed article's own module accessor, through the engine's lookup and validated by
+/// `crate::victim::object_boma` -- the same path `src/sword` uses, shared so the whip's rope can
+/// face itself the way the native spawn does.
+pub unsafe fn accessor(
+    boma: *mut smash::app::BattleObjectModuleAccessor,
+    id: i32,
+) -> Option<*mut smash::app::BattleObjectModuleAccessor> {
+    use smash::app::lua_bind::ArticleModule;
+    let a = ArticleModule::get_article(boma, id);
+    if a.is_null() {
+        return None;
+    }
+    let object_id = smash::app::lua_bind::Article::get_battle_object_id(a) as u32;
+    crate::victim::object_boma(object_id)
+}
+
+/// The rope can be spawned: its row is installed AND the weapon hook that makes it safe verified.
+/// Every rope spawn goes through this.
+pub fn rope_ready() -> bool {
+    article_id("rope").is_some() && neutralize::active()
 }
 
 // ================================================================================================
