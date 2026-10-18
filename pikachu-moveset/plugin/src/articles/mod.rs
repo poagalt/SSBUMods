@@ -307,10 +307,21 @@ mod neutralize;
 /// A row the audit calls dirty may be installed only if neutralize.rs lists it, which gives each
 /// of OUR instances a private vtable with the unguarded donor reads pointed at engine defaults.
 /// tools/check-article-donor-params.sh fails unless that list covers every unguarded slot.
+///
+/// THE FILTER IS EXACTLY THE SET `install()` CLONES, and it was not: a row whose weapon kind
+/// `weapon_kind()` could not resolve was skipped by install() but still counted here, so the
+/// rescue row was handed article id 0xa for an article that did not exist, and every rescue call
+/// silently drove nothing (2026-10-18 playtest: "trampoline doesn't seem to appear"). A row after
+/// it would have been handed the wrong id outright. So the same three tests decide both: enabled,
+/// resolvable, and clean or covered by an ACTIVE neutralize hook.
 pub fn installed() -> impl Iterator<Item = (usize, &'static Candidate)> {
     CANDIDATES
         .iter()
-        .filter(|c| c.enabled && (c.clean || neutralize::covers(c.host_name)))
+        .filter(|c| {
+            c.enabled
+                && weapon_kind(c).is_some()
+                && (c.clean || (neutralize::covers(c.host_name) && neutralize::active()))
+        })
         .enumerate()
 }
 
@@ -335,6 +346,7 @@ fn weapon_kind(c: &Candidate) -> Option<i32> {
         "WEAPON_KIND_ELIGHT_ESWORD" => *WEAPON_KIND_ELIGHT_ESWORD,
         "WEAPON_KIND_CLOUD_FUSIONSWORD" => *WEAPON_KIND_CLOUD_FUSIONSWORD,
         "WEAPON_KIND_GAMEWATCH_PARACHUTE" => *WEAPON_KIND_GAMEWATCH_PARACHUTE,
+        "WEAPON_KIND_GAMEWATCH_RESCUE" => *WEAPON_KIND_GAMEWATCH_RESCUE,
         "WEAPON_KIND_KAMUI_DRAGONHAND" => *WEAPON_KIND_KAMUI_DRAGONHAND,
         "WEAPON_KIND_PACKUN_SPIKEBALL" => *WEAPON_KIND_PACKUN_SPIKEBALL,
         "WEAPON_KIND_GAOGAEN_ROPE" => *WEAPON_KIND_GAOGAEN_ROPE,

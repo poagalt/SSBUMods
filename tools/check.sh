@@ -455,6 +455,14 @@ local rc=0
 # IT ALSO COVERS EVERY OTHER CANDIDATE, not just the enabled ones. The table in
 # src/articles/mod.rs lists seven articles with a per-row `enabled`; assets left behind from a row
 # that was turned off are dead declared paths, which is the same failure as never shipping them.
+# EVERY ENABLED ROW'S WEAPON KIND MUST BE ONE weapon_kind() RESOLVES. That function is a hand-
+# written match on the kind's NAME, and a row it does not list is skipped at runtime with nothing
+# but a log line -- which is how the rescue shipped enabled, uncloned and invisible (2026-10-18).
+for wk in $(sed -n 's/.*Candidate *{.*weapon_kind: *"\([^"]*\)".*enabled: *true.*/\1/p' "$A"); do
+  if ! grep -q "\"$wk\" => \*$wk," "$A"; then
+    echo "  FAIL an enabled row names $wk, which weapon_kind() in src/articles/mod.rs does not resolve"; rc=1
+  fi
+done
 cands=$(sed -n 's/.*Candidate *{ *host_name: *"\([^"]*\)".*/\1/p' "$A")
 # The slot set gen-article-assets.sh would ship, honouring the same env override it does.
 art_slots="${ARTICLE_SLOTS:-$(sed -n 's/^ARTICLE_SLOTS="\${ARTICLE_SLOTS:-\(.*\)}"$/\1/p' "$ROOT/tools/gen-article-assets.sh" | head -1)}"

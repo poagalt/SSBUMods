@@ -497,29 +497,77 @@ unsafe fn entry_of(boma: *mut BattleObjectModuleAccessor) -> usize {
 //
 // `feelerca` is Incineroar's flame whiskers, and Pikachu's nearest point is his `head`. That one
 // joint is the only substitution; the other four are the same bones by name on both rigs.
+//
+// BIGGER THAN NATIVE, ON PURPOSE (2026-10-18, playtest: "a bit hard to see in pikachu's frame").
+// The effect is sized for Incineroar, and on Pikachu's frame Incineroar's five points sit close
+// together and half inside the body. So every point is scaled up by AURA_SIZE, and two points are
+// added where Pikachu has mass Incineroar's layout misses: the hip (his centre) and the tail.
 // THE NAME IS WRITTEN IN EACH CALL, not held in a constant: tools/build-effects.py and gate 4o
 // read effect names out of the call's own arguments, so a name behind a constant is invisible to
 // both -- the first build of the transplant shipped without this effect for exactly that reason.
-const AURA_BONES: [(&str, f32); 5] = [
+const AURA_BONES: [(&str, f32); 7] = [
     ("shoulderr", 0.0),
     ("shoulderl", 0.0),
     ("kneer", 0.0),
     ("kneel", 0.0),
     ("head", 3.0),
+    ("hip", 0.0),
+    ("tail3", 0.0),
 ];
+const AURA_SIZE: f32 = 1.5;
 
-unsafe fn aura_on(fighter: &mut L2CFighterCommon) {
+/// One live handle per AURA_BONES point, per entry. 0 = not requested.
+static mut AURA_HANDLE: [[u32; 7]; 8] = [[0; 7]; 8];
+/// The status in which the last re-request was logged, so a lost aura is reported once per status
+/// rather than once per frame.
+static mut AURA_LOST_LOGGED: [i32; 8] = [-1; 8];
+
+unsafe fn aura_request(fighter: &mut L2CFighterCommon, i: usize) {
+    let (bone, z) = AURA_BONES[i];
+    macros::EFFECT_FOLLOW(
+        &mut **fighter, Hash40::new("gaogaen_revenge_aura"), Hash40::new(bone),
+        0, 0, z, 0, 0, 0, AURA_SIZE, false
+    );
     let e = entry_of(fighter.module_accessor);
-    if AURA_ON[e] {
+    AURA_HANDLE[e][i] = EffectModule::get_last_handle(fighter.module_accessor) as u32;
+}
+
+/// THE AURA HOLDS FOR AS LONG AS THE BOOST DOES. Incineroar requests it once and his moves leave it
+/// alone; on Pikachu something in the borrowed moves does not -- playtest: it has to "persist
+/// through skeleton changes for other characters' moves". Rather than chase each one, every frame
+/// a boost is banked checks each of the seven handles and re-requests whichever is gone, and says
+/// in which status and motion it was lost, so the cause is in the next log.
+unsafe fn aura_on(fighter: &mut L2CFighterCommon) {
+    let boma = fighter.module_accessor;
+    let e = entry_of(boma);
+    if !AURA_ON[e] {
+        AURA_ON[e] = true;
+        AURA_LOST_LOGGED[e] = -1;
+        macros::EFFECT_OFF_KIND(&mut **fighter, Hash40::new("gaogaen_revenge_aura"), false, false);
+        for i in 0..AURA_BONES.len() {
+            aura_request(fighter, i);
+        }
         return;
     }
-    AURA_ON[e] = true;
-    macros::EFFECT_OFF_KIND(&mut **fighter, Hash40::new("gaogaen_revenge_aura"), false, false);
-    for (bone, z) in AURA_BONES {
-        macros::EFFECT_FOLLOW(
-            &mut **fighter, Hash40::new("gaogaen_revenge_aura"), Hash40::new(bone),
-            0, 0, z, 0, 0, 0, 1, false
-        );
+    let mut lost: Vec<&str> = Vec::new();
+    for i in 0..AURA_BONES.len() {
+        let h = AURA_HANDLE[e][i];
+        if h == 0 || !EffectModule::is_exist_effect(boma, h) {
+            lost.push(AURA_BONES[i].0);
+            aura_request(fighter, i);
+        }
+    }
+    if !lost.is_empty() {
+        let status = StatusModule::status_kind(boma);
+        if AURA_LOST_LOGGED[e] != status {
+            AURA_LOST_LOGGED[e] = status;
+            use crate::telemetry::probe;
+            probe::event(format!(
+                "[rat] REVENGE p{e} aura LOST on {lost:?} in {} -- re-requested; {}",
+                probe::st(status),
+                probe::ctx(boma)
+            ));
+        }
     }
 }
 
@@ -530,6 +578,7 @@ unsafe fn aura_off(fighter: &mut L2CFighterCommon) {
         return;
     }
     AURA_ON[e] = false;
+    AURA_HANDLE[e] = [0; 7];
     // `effect_speciallwrevengeend`, the whole of it.
     macros::EFFECT_OFF_KIND(&mut **fighter, Hash40::new("gaogaen_revenge_aura"), false, false);
     // `FighterSpecializer_Gaogaen::revenge_off` (`main 0xab86f0`) ends its visual teardown with
