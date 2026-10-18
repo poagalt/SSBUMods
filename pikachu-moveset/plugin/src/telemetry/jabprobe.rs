@@ -57,7 +57,10 @@ use smashline::{Agent, Main};
 
 use super::sink;
 
-pub const ENABLED: bool = true;
+/// OFF -- the question it was opened for is answered (2026-10-18). The rapid jab's script had
+/// lost its loop; see tools/restore-loop.awk. Turn back on for any future attack_100 work: it is a
+/// line per frame of every jab, which is why it cannot stay on.
+pub const ENABLED: bool = false;
 
 /// Previous status per entry, for spotting the frame ATTACK_100 is entered.
 static mut LAST_STATUS: [i32; 8] = [-1; 8];

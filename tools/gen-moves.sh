@@ -28,7 +28,7 @@ DUMP="$ROOT/vendor/SSBU-Dumped-Scripts/smashline"
 # meant to be emptied once the question is answered -- see the note on `acmd_enter` in
 # plugin/src/telemetry/probe.rs. An unknown name is silently ignored, which is the right failure
 # for a debugging aid.
-ACMD_TRACE="${ACMD_TRACE:-attack100}"
+ACMD_TRACE="${ACMD_TRACE:-}"
 
 # SCRIPTS WHOSE LOOP THE DUMP LOST -- the dump flattens a do-while(true) into straight-line code,
 # rotated by one block. tools/restore-loop.awk puts it back, and its header carries the evidence:

@@ -29,8 +29,6 @@ mod telemetry;
 mod specials;
 mod sword;
 mod cues;
-// Keeps the rapid jab's ACMD running while the motion loops -- see its header.
-mod rapidjab;
 mod articles;
 mod victim;
 // Answers the engine when it asks our Pikachu for one of Incineroar's params -- see params/mod.rs.
@@ -85,7 +83,6 @@ pub fn main() {
     if CUES {
         cues::install();
     }
-    rapidjab::install();
     if TELEMETRY_FRAME || MEMSERVE {
         telemetry::install_selective(TELEMETRY_FRAME, MEMSERVE);
     }

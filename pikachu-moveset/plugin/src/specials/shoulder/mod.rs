@@ -471,6 +471,12 @@ unsafe extern "C" fn shoulder_wait_main(fighter: &mut L2CFighterCommon) -> L2CVa
 }
 
 
+/// The carry probe (every carry frame) and CATCHDEST (once per grab). OFF -- both questions are
+/// answered (2026-10-18): the throw command needed every ground-attack cat1 flag, and the back throw
+/// was dropped because a 24-byte struct write zeroed globalTable[0x46] (see `set_table_slot`). Turn
+/// back on for any future cargo or grab work.
+const CARRY_PROBE: bool = false;
+
 unsafe fn requested_throw(fighter: &mut L2CFighterCommon) -> Option<i32> {
     let boma = fighter.module_accessor;
 
@@ -587,7 +593,7 @@ unsafe fn requested_throw(fighter: &mut L2CFighterCommon) -> Option<i32> {
     // smaller log than the jab probe writes. `turn_frame` and the two thresholds are printed with
     // it because they are the numbers the turn is decided against, and a param read back wrong has
     // already cost this file one round of work.
-    crate::telemetry::probe::event(format!(
+    if CARRY_PROBE { crate::telemetry::probe::event(format!(
         "[rat] SHOULDER carry-probe st={} f={:.0} cat1={:#x} btn={btn:#x} cat2={cat2:#x} lr={:+.0}          stick=({:+.3},{:+.3}) x_lr={:+.3} turn<={:.3} walk>={:.3} turn_frame={:.1}/{:.1}          TURN_FLAG={} f/b/hi/lw={}/{}/{}/{}",
         StatusModule::status_kind(boma),
         MotionModule::frame(boma),
@@ -608,6 +614,7 @@ unsafe fn requested_throw(fighter: &mut L2CFighterCommon) -> Option<i32> {
         stick["hi"].try_get_bool().unwrap_or(false),
         stick["lw"].try_get_bool().unwrap_or(false),
     ));
+    }
     // A cat2 THROW FLAG ALONE IS NOT ENOUGH, AND TRYING IT COST A CARRY. 2026-10-17.
     //
     // The reasoning was good and the conclusion was wrong. `btn` measured zero on 72 of 73 carry
@@ -2602,6 +2609,9 @@ unsafe fn in_throw_context(boma: *mut BattleObjectModuleAccessor) -> bool {
 static mut DEST_LOGGED: [bool; 8] = [false; 8];
 
 pub unsafe fn log_throw_destinations(fighter: &mut L2CFighterCommon) {
+    if !CARRY_PROBE {
+        return;
+    }
     let boma = fighter.module_accessor;
     let st = StatusModule::status_kind(boma);
     let entry = entry_of(boma);

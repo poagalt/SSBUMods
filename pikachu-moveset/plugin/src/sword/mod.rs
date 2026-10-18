@@ -288,7 +288,25 @@ const WEAPONS: &[Weapon] = &[
         // about `rot` being special or about central bones generally; and failing that, keep
         // `have` at `haver` and nudge the position laterally with `ArticleModule::set_pos`, which
         // risks fighting the attachment and so is second.
-        article: "parachute", socket: "haver",
+        // SOCKET `have` -- PIKACHU'S HEAD POINT, NOT HIS HAND. MEASURED 2026-10-18, offline, by
+        // forward kinematics through his own skeleton (validated against the bind pose: hip y=3.607
+        // and haver 3.958 off the centreline, both matching numbers this file already recorded).
+        //
+        // The parachute's own skeleton is `Have -> Rot -> All -> canopy`, bind pose all at the
+        // origin, and its open-canopy motion puts `Rot` at y=2.58 above `Have`. So the canopy sits
+        // ~2.6 units above wherever the article's ROOT is held. That is why every socket so far
+        // produced "appears, but never in the right spot above pikachu":
+        //
+        //     bone     x      y      parent
+        //     Head     0.00   7.20   Neck
+        //     HaveR   -3.96   4.59   HandR    <- `haver`: canopy at y~7.2, off to one side
+        //     Have     0.00   7.25   HEAD     <- canopy at y~9.8, centred, above the head
+        //
+        // `Have` is a direct child of `Head` and G&W's up-B animation does not animate it (it drives
+        // HaveL/HaveR and the arm chain), so it rides with the head at a fixed point through the
+        // rise and the drift -- effectively a hat point. And it is the same NAME as the parachute's
+        // own root bone, which is the match G&W's rig was built around.
+        article: "parachute", socket: "have",
         probe_bone: "all",
         motions: &["special_hi", "special_air_hi", "special_hi_open", "special_hi_close"],
         // TURNED OFF AFTER IT CRASHED THE GAME ON UP-B. 2026-09-18.
@@ -304,7 +322,13 @@ const WEAPONS: &[Weapon] = &[
         // ("animated correctly but statically offset"). The offset is the known cost and it is
         // worth paying to get a bootable build, because the two `persist` rows in this same
         // build are the experiment actually worth a boot.
-        own_motion: true,
+        // `have`, not `own_motion`, AND THE PLAYTEST HISTORY IS WHY. The one configuration that ever
+        // "animated correctly" was `have` -- its only fault was the socket being the right hand.
+        // `own_motion` (change_motion, no attachment) left the article placed once and frozen where it
+        // spawned. Part 6 of docs/the-article-path.md is right that G&W plays the article's motion in
+        // step with the fighter's; what it got wrong is concluding nothing holds the root -- a canopy
+        // 2.6 units above its root has to be held somewhere, and the hand was the wrong somewhere.
+        own_motion: false,
         // RE-ENABLED 2026-10-17, and the blocker above is now answered.
         //
         // THE EVIDENCE THAT IT HAD TO CHANGE: with `own_motion: false` the probe caught the
@@ -789,6 +813,8 @@ unsafe fn probe(
     // correctly attached article's bind bone should sit at a fixed offset from it in BOTH facings.
     let mut hv = Vector3f { x: -9999.0, y: -9999.0, z: 0.0 };
     ModelModule::joint_global_position(boma, Hash40::new("haver"), &mut hv, true);
+    let mut hd = Vector3f { x: -9999.0, y: -9999.0, z: 0.0 };
+    ModelModule::joint_global_position(boma, Hash40::new("head"), &mut hd, true);
 
     let where_ = if !exist || w.probe_bone.is_empty() {
         "-".to_string()
@@ -843,11 +869,19 @@ unsafe fn probe(
         } else {
             // Lateral axis times `lr`: a bone that follows the fighter reads the same both ways.
             format!(
-                "{}=({:.3},{:.3},{:.3}) rel-haver",
+                "{}=({:.3},{:.3},{:.3}) rel-haver  ({:.3},{:.3},{:.3}) rel-HEAD",
                 w.probe_bone,
                 (p.x - hv.x) * lr,
                 p.y - hv.y,
-                p.z - hv.z
+                p.z - hv.z,
+                // RELATIVE TO THE HEAD as well, because "above Pikachu" is a statement about the head
+                // and the parachute was judged against the hand for months. A canopy correctly held
+                // at the `have` head point should read roughly (0, +2.6, +3.6) here on every frame of
+                // the up-B: centred, above, and moving WITH him. Constant world coordinates and a
+                // drifting head offset mean it is not attached at all.
+                (p.x - hd.x) * lr,
+                p.y - hd.y,
+                p.z - hd.z
             )
         }
     };
