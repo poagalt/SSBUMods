@@ -1,0 +1,117 @@
+# What every sound label in a PORTED move's script becomes on Rat of Doom.
+#
+#   donor label<TAB>label Rat of Doom plays     ("-" drops the call)
+#
+# Read by tools/extract-sounds.awk while tools/gen-moves.sh emits each ported move's `sound_`
+# script. Lower case, as the scripts spell them. A donor label with no row here is DROPPED and the
+# generator lists it, so a gap is visible rather than silent; `se_common_*`, `se_pikachu_*`,
+# `vc_pikachu_*` and `seq_pikachu_*` pass through untouched.
+#
+# Three kinds of row:
+#   * a donor sound whose audio now sits in one of Pikachu's entries (tools/sound-slots.tsv) --
+#     the label is rewritten to that entry's;
+#   * a donor MOVEMENT sound inside a borrowed move (a step, a landing, a dash start, a dodge) --
+#     rewritten to Pikachu's own equivalent, because those are his feet and his landings;
+#   * a donor VOICE line -- rewritten to Pikachu's own voice, so Rat of Doom keeps Pikachu's
+#     voice everywhere. Random voice sequences become his `seq_pikachu_rnd_attack`.
+
+# ---- jab, rapid jab (Little Mac) ----
+se_littlemac_swing_s	se_pikachu_swing_s
+se_littlemac_swing_m	se_pikachu_swing_s
+se_littlemac_swing_l	se_pikachu_swing_s
+se_littlemac_attack100	se_pikachu_tailswing
+# ---- f-smash, three angles (Little Mac) ----
+se_littlemac_smash_s02	se_pikachu_attackhard_l01
+se_littlemac_smash_s03	se_pikachu_attackhard_l01
+se_littlemac_smash_s04	se_pikachu_attackhard_l01
+vc_littlemac_attack05	vc_pikachu_attack06
+# ---- dash attack (Mythra) ----
+se_elight_attackdash01	se_pikachu_attackhard_s01
+# ---- tilts ----
+se_sheik_swing_m	se_pikachu_swing_s
+se_falco_attackhard_h01	se_pikachu_special_s02_s
+se_falco_attackhard_h02	se_pikachu_special_s02_s
+se_gaogaen_attackhard_l01	se_pikachu_swing_s
+# ---- u-smash (Fox) ----
+se_fox_smash_h01	se_pikachu_smash_l01
+vc_fox_attack06	vc_pikachu_attack06
+se_fox_landing01	se_pikachu_landing01
+# ---- d-smash (Game & Watch) ----
+se_gamewatch_smash_start	se_common_smash_start
+se_gamewatch_wave05_mi	se_pikachu_smash_s01
+se_gamewatch_wave06_mi	se_pikachu_smash_s01
+se_gamewatch_wave01_hi	se_pikachu_smash_s01
+# ---- aerials ----
+se_master_attackair_n01	se_pikachu_attackair_n01
+se_master_attackair_n02	se_pikachu_attackair_n01
+se_master_attackair_n03	se_pikachu_attackair_n01
+se_master_attackair_n04	se_pikachu_attackair_n01
+se_master_attackair_n05	se_pikachu_attackair_n01
+se_master_landing02	se_pikachu_landing02
+se_wolf_attackair_f01	se_pikachu_attackair_f01
+se_cloud_attackair_b01	se_pikachu_attackair_l01
+se_kamui_attackair_h01	se_pikachu_attackair_l02
+se_eflame_attackair_l01	se_pikachu_smash_h01
+# ---- grab, pummel, throws ----
+se_plizardon_tailswing	se_pikachu_swing_s
+se_plizardon_landing01	se_pikachu_landing01
+se_demon_throw_catch_swing	se_pikachu_swing_s
+se_ness_throw_pk01	se_pikachu_special_s02_m
+se_ness_throw_pk02	se_pikachu_special_s02_m
+se_ness_pk_s	se_pikachu_special_s02_m
+se_mewtwo_throw_h	se_pikachu_special_s02_l
+se_mewtwo_throw_h02	se_pikachu_special_s02_l
+# ---- get-up, trip, ledge attacks ----
+se_koopa_rise	se_pikachu_rise
+se_koopa_nailswing01	se_pikachu_swing_s
+se_koopa_nailswing02	se_pikachu_swing_s
+se_koopa_step_left_m	se_pikachu_step_left_m
+se_ganon_dash_start	se_pikachu_dash_start
+se_ganon_step_right_m	se_pikachu_step_right_m
+se_ganon_swing_l	se_pikachu_swing_s
+# ---- up-B (Game & Watch) ----
+se_gamewatch_wave10_mi	se_pikachu_special_h01
+se_gamewatch_wave10_hi	se_pikachu_special_h01
+# ---- down-B, Revenge (Incineroar) ----
+# special_l01 is the counter stance, started by HIS status code; the script only STOPs it, and
+# nothing on Rat of Doom starts it, so the stop is dropped.
+se_gaogaen_special_l01	-
+se_gaogaen_special_l02	se_pikachu_special_l01
+se_gaogaen_special_l03	se_pikachu_special_l03
+# ---- side-B, Alolan Whip (Incineroar) ----
+se_gaogaen_special_s01	se_pikachu_special_s01
+se_gaogaen_special_s02	se_pikachu_special_s01
+se_gaogaen_special_s03	se_pikachu_special_s01
+se_gaogaen_special_s04	se_pikachu_special_s01
+se_gaogaen_special_s05	se_pikachu_special_s01
+se_gaogaen_special_s06	se_pikachu_special_s01
+se_gaogaen_special_s07	se_pikachu_special_s01_charge
+se_gaogaen_special_s08	se_pikachu_special_s01_charge
+se_gaogaen_react_success	se_pikachu_special_s01_charge
+vc_gaogaen_special_s01	-
+vc_gaogaen_special_s02	vc_pikachu_attack07
+vc_gaogaen_special_s02_02	-
+vc_gaogaen_special_s03	-
+vc_gaogaen_special_s04	-
+# ---- dodges (Fox) ----
+se_fox_escape	se_pikachu_escape
+se_fox_step_right_m	se_pikachu_step_right_m
+se_fox_step_left_m	se_pikachu_step_left_m
+# ---- every donor's random attack voice becomes Pikachu's ----
+seq_littlemac_rnd_combo01	seq_pikachu_rnd_attack
+seq_littlemac_rnd_combo02	seq_pikachu_rnd_attack
+seq_littlemac_rnd_combo03	seq_pikachu_rnd_attack
+seq_elight_rnd_attack02	seq_pikachu_rnd_attack
+seq_sheik_rnd_attack	seq_pikachu_rnd_attack
+seq_falco_rnd_attack	seq_pikachu_rnd_attack
+seq_master_rnd_attack_air_n	seq_pikachu_rnd_attack
+seq_wolf_rnd_attack_s	seq_pikachu_rnd_attack
+seq_cloud_rnd_attack_air	seq_pikachu_rnd_attack
+seq_kamui_rnd_attack_air	seq_pikachu_rnd_attack
+seq_eflame_rnd_attack02	seq_pikachu_rnd_attack
+seq_demon_rnd_catchattack	seq_pikachu_rnd_attack
+seq_ness_rnd_attack	seq_pikachu_rnd_attack
+seq_mewtwo_rnd_attack	seq_pikachu_rnd_attack
+seq_mariod_rnd_attack	seq_pikachu_rnd_attack
+seq_donkey_rnd_attack	seq_pikachu_rnd_attack
+seq_gaogaen_rnd_attackappeal01	seq_pikachu_rnd_attack

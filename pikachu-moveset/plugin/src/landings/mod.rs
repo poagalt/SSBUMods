@@ -51,6 +51,14 @@ unsafe extern "C" fn pikachu_effect_landingairn(agent: &mut L2CAgentBase) {
     }
 }
 
+// ---- landing n (Byleth) : sound_landingairn, labels through tools/sound-map.tsv ----
+unsafe extern "C" fn pikachu_sound_landingairn(agent: &mut L2CAgentBase) {
+    frame(agent.lua_state_agent, 2.0);
+    if macros::is_excute(agent) {
+        macros::PLAY_LANDING_SE(agent, Hash40::new("se_pikachu_landing02"));
+    }
+}
+
 // ---- landing f (Wolf has none) : empty override of game_landingairf ----
 unsafe extern "C" fn pikachu_game_landingairf(_agent: &mut L2CAgentBase) {}
 
@@ -63,13 +71,22 @@ unsafe extern "C" fn pikachu_game_landingairhi(_agent: &mut L2CAgentBase) {}
 // ---- landing lw (Pyra has none) : empty override of game_landingairlw ----
 unsafe extern "C" fn pikachu_game_landingairlw(_agent: &mut L2CAgentBase) {}
 
+// ---- landing lw (Pyra has none) : sound_landingairlw -> Pikachu's own se_pikachu_landing02 ----
+unsafe extern "C" fn pikachu_sound_landingairlw(agent: &mut L2CAgentBase) {
+    if macros::is_excute(agent) {
+        macros::PLAY_LANDING_SE(agent, Hash40::new("se_pikachu_landing02"));
+    }
+}
+
 pub fn install() {
     crate::charaslot::agent("pikachu")
         .game_acmd("game_landingairn", pikachu_game_landingairn, Default)
         .effect_acmd("effect_landingairn", pikachu_effect_landingairn, Default)
+        .sound_acmd("sound_landingairn", pikachu_sound_landingairn, Default)
         .game_acmd("game_landingairf", pikachu_game_landingairf, Default)
         .game_acmd("game_landingairb", pikachu_game_landingairb, Default)
         .game_acmd("game_landingairhi", pikachu_game_landingairhi, Default)
         .game_acmd("game_landingairlw", pikachu_game_landingairlw, Default)
+        .sound_acmd("sound_landingairlw", pikachu_sound_landingairlw, Default)
         .install();
 }

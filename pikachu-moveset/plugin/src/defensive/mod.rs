@@ -50,6 +50,22 @@ unsafe extern "C" fn pikachu_effect_downattacku(agent: &mut L2CAgentBase) {
     }
 }
 
+// ---- get-up attack, face up (Bowser) : sound_downattacku, labels through tools/sound-map.tsv ----
+unsafe extern "C" fn pikachu_sound_downattacku(agent: &mut L2CAgentBase) {
+    frame(agent.lua_state_agent, 3.0);
+    if macros::is_excute(agent) {
+        macros::PLAY_SE(agent, Hash40::new("se_pikachu_rise"));
+    }
+    frame(agent.lua_state_agent, 19.0);
+    if macros::is_excute(agent) {
+        macros::PLAY_SE(agent, Hash40::new("se_pikachu_swing_s"));
+    }
+    frame(agent.lua_state_agent, 44.0);
+    if macros::is_excute(agent) {
+        macros::PLAY_SE(agent, Hash40::new("se_pikachu_step_left_m"));
+    }
+}
+
 // ---- get-up attack, face down (Bowser) : game_downattackd ----
 unsafe extern "C" fn pikachu_game_downattackd(agent: &mut L2CAgentBase) {
     frame(agent.lua_state_agent, 19.0);
@@ -76,6 +92,22 @@ unsafe extern "C" fn pikachu_effect_downattackd(agent: &mut L2CAgentBase) {
     frame(agent.lua_state_agent, 18.0);
     if macros::is_excute(agent) {
         macros::LANDING_EFFECT_FLIP(agent, Hash40::new("sys_whirlwind_r"), Hash40::new("sys_whirlwind_l"), Hash40::new("top"), 2, 0, 0, 0, 0, 0, 1.2, 0, 0, 0, 0, 0, 0, false, *EF_FLIP_NONE);
+    }
+}
+
+// ---- get-up attack, face down (Bowser) : sound_downattackd, labels through tools/sound-map.tsv ----
+unsafe extern "C" fn pikachu_sound_downattackd(agent: &mut L2CAgentBase) {
+    frame(agent.lua_state_agent, 3.0);
+    if macros::is_excute(agent) {
+        macros::PLAY_SE(agent, Hash40::new("se_pikachu_rise"));
+    }
+    frame(agent.lua_state_agent, 19.0);
+    if macros::is_excute(agent) {
+        macros::PLAY_SE(agent, Hash40::new("se_pikachu_swing_s"));
+    }
+    frame(agent.lua_state_agent, 44.0);
+    if macros::is_excute(agent) {
+        macros::PLAY_SE(agent, Hash40::new("se_pikachu_step_left_m"));
     }
 }
 
@@ -108,6 +140,18 @@ unsafe extern "C" fn pikachu_effect_slipattack(agent: &mut L2CAgentBase) {
     }
 }
 
+// ---- trip attack (Bowser) : sound_slipattack, labels through tools/sound-map.tsv ----
+unsafe extern "C" fn pikachu_sound_slipattack(agent: &mut L2CAgentBase) {
+    frame(agent.lua_state_agent, 18.0);
+    if macros::is_excute(agent) {
+        macros::PLAY_SE(agent, Hash40::new("se_pikachu_swing_s"));
+    }
+    frame(agent.lua_state_agent, 22.0);
+    if macros::is_excute(agent) {
+        macros::PLAY_SE(agent, Hash40::new("se_pikachu_swing_s"));
+    }
+}
+
 // ---- ledge attack (Ganondorf) : game_cliffattack ----
 unsafe extern "C" fn pikachu_game_cliffattack(agent: &mut L2CAgentBase) {
     frame(agent.lua_state_agent, 24.0);
@@ -137,15 +181,35 @@ unsafe extern "C" fn pikachu_effect_cliffattack(agent: &mut L2CAgentBase) {
     }
 }
 
+// ---- ledge attack (Ganondorf) : sound_cliffattack, labels through tools/sound-map.tsv ----
+unsafe extern "C" fn pikachu_sound_cliffattack(agent: &mut L2CAgentBase) {
+    frame(agent.lua_state_agent, 3.0);
+    if macros::is_excute(agent) {
+        macros::PLAY_SE(agent, Hash40::new("se_pikachu_dash_start"));
+    }
+    frame(agent.lua_state_agent, 15.0);
+    if macros::is_excute(agent) {
+        macros::PLAY_SE(agent, Hash40::new("se_pikachu_step_right_m"));
+    }
+    frame(agent.lua_state_agent, 24.0);
+    if macros::is_excute(agent) {
+        macros::PLAY_SE(agent, Hash40::new("se_pikachu_swing_s"));
+    }
+}
+
 pub fn install() {
     crate::charaslot::agent("pikachu")
         .game_acmd("game_downattacku", pikachu_game_downattacku, Default)
         .effect_acmd("effect_downattacku", pikachu_effect_downattacku, Default)
+        .sound_acmd("sound_downattacku", pikachu_sound_downattacku, Default)
         .game_acmd("game_downattackd", pikachu_game_downattackd, Default)
         .effect_acmd("effect_downattackd", pikachu_effect_downattackd, Default)
+        .sound_acmd("sound_downattackd", pikachu_sound_downattackd, Default)
         .game_acmd("game_slipattack", pikachu_game_slipattack, Default)
         .effect_acmd("effect_slipattack", pikachu_effect_slipattack, Default)
+        .sound_acmd("sound_slipattack", pikachu_sound_slipattack, Default)
         .game_acmd("game_cliffattack", pikachu_game_cliffattack, Default)
         .effect_acmd("effect_cliffattack", pikachu_effect_cliffattack, Default)
+        .sound_acmd("sound_cliffattack", pikachu_sound_cliffattack, Default)
         .install();
 }

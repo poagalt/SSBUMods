@@ -63,8 +63,22 @@ enum Attach {
     /// `ArticleModule::have` alone -- the engine's own mechanism, and what the game does.
     Have,
     /// PLACE the article at the owner's `socket` every frame -- position and facing, no `have`.
-    /// The parachute's, because its layout is relative to the owner's ORIGIN; see its row.
+    ///
+    /// TRIED ON THE PARACHUTE 2026-10-18 AND IT DOES NOT MOVE THE DRAWN MODEL. The probe read the
+    /// article's root exactly on his origin every frame -- its skeleton followed -- while the
+    /// playtest saw the canopy "stay in the same spot the whole time". `PostureModule::set_pos`
+    /// moves what `joint_global_position` computes from, not what is rendered; only a LINK moves
+    /// the render. Kept for the record, used by no row.
     Manual,
+    /// The engine's general model constraint: `LinkModule::set_model_constraint_pos_ort` on the
+    /// ARTICLE's own accessor, its `top` onto the owner's `socket`, position and orientation.
+    ///
+    /// Read off Piranha Plant's spikeball (`lua2cpp_packun/.../spikeball/status/Start/main.c`),
+    /// which pins itself to its owner with exactly `(LINK_NO_CONSTRAINT, top, top,
+    /// ORIENTATION | POSITION, true)` and no `link` call before it -- a generated article is
+    /// already linked to its owner. Unlike `have`, it is not limited to item-holding joints, and
+    /// `top` is every model's implicit root, so the article needs no bone of that name.
+    Constrain,
     /// `have` on spawn, then drive anyway. Only useful if `have` half-works.
     Both,
 }
@@ -300,11 +314,12 @@ const WEAPONS: &[Weapon] = &[
         // So the root sits at his ORIGIN, the canopy is authored above it, and the hands meet the
         // strings because the meshes were modelled that way.
         //
-        // Pikachu gets the same layout: the root at his `Trans` -- his origin, which moves with
-        // him and never swings -- placed every frame with his facing (`Attach::Manual`, `drive`).
-        // `have` cannot do it: it accepts the item-holding joints (`haver`, `have`) and refused
-        // both body joints tried (`rot` on 2026-09-18, `handr`).
-        article: "parachute", socket: "trans",
+        // Pikachu gets the same layout: the article's `top` constrained onto his `top` -- his
+        // origin, which moves and turns with him and never swings (`Attach::Constrain`). `have`
+        // cannot do it: it accepts the item-holding joints (`haver`, `have`) and refused both
+        // body joints tried (`rot` on 2026-09-18, `handr`). Placing it every frame with
+        // `PostureModule::set_pos` (`Attach::Manual`) moved its skeleton but not the drawn model.
+        article: "parachute", socket: "top",
         probe_bone: "all",
         motions: &["special_hi", "special_air_hi", "special_hi_open", "special_hi_close"],
         // NOT `own_motion`: the up-B's status code (`src/specials/specialhi`, `specialhifall`,
@@ -313,7 +328,7 @@ const WEAPONS: &[Weapon] = &[
         // `change_motion` would restart the canopy's animation.
         own_motion: false,
         persist: false, acmd_owned: false,
-        attach: Attach::Manual,
+        attach: Attach::Constrain,
     },
     // Palutena's staff -- her neutral-air and her grab. The grab motions are hers too: the three
     // catch boxes in `moves.tsv` are Palutena's, and a staff grab with no staff reads as a bug.
@@ -568,17 +583,18 @@ unsafe extern "C" fn pikachu_weapon_frame(fighter: &mut L2CFighterCommon) {
                     && !w.acmd_owned
                     && !w.own_motion
                 {
-                    // A placed article is only SHOWN here -- G&W's own status code generated it
-                    // hidden -- and `drive` below does the placing, every frame it is live.
-                    if matches!(w.attach, Attach::Manual) {
-                        ArticleModule::set_visibility_whole(
-                            boma,
-                            id,
-                            true,
-                            ArticleOperationTarget(*ARTICLE_OPE_TARGET_ALL),
-                        );
-                    } else {
-                        hold(boma, id, w);
+                    // G&W's own status code generated the parachute HIDDEN, so every path shows it.
+                    match w.attach {
+                        Attach::Constrain => constrain(boma, id, w),
+                        Attach::Manual => {
+                            ArticleModule::set_visibility_whole(
+                                boma,
+                                id,
+                                true,
+                                ArticleOperationTarget(*ARTICLE_OPE_TARGET_ALL),
+                            );
+                        }
+                        Attach::Have | Attach::Both => hold(boma, id, w),
                     }
                     HELD[entry][wi] = true;
                     if ARTICLE_PROBE && HOLD_LOGGED < 16 {
@@ -637,7 +653,7 @@ unsafe extern "C" fn pikachu_weapon_frame(fighter: &mut L2CFighterCommon) {
                 if live && exists && w.own_motion && ARTICLE_MOTION[wi] != motion {
                     ARTICLE_MOTION[wi] = motion;
                     ArticleModule::change_motion(boma, id, Hash40::new_raw(motion), false, -1.0);
-                } else if live && !w.own_motion && !matches!(w.attach, Attach::Have) {
+                } else if live && !w.own_motion && matches!(w.attach, Attach::Manual | Attach::Both) {
                     drive(boma, id, w);
                 }
                 if !live {
@@ -759,6 +775,28 @@ unsafe fn hold(boma: *mut BattleObjectModuleAccessor, id: i32, w: &Weapon) {
 /// which is offline data work and is the next step. It is left out rather than guessed because
 /// composing Euler angles by eye is how this project has lost rounds before -- and because a
 /// weapon that tracks the hand at the wrong angle is legible enough to measure the angle from.
+/// `Attach::Constrain`: the article's `top` onto the owner's `socket`, once per instance, then
+/// shown. The engine keeps it there from then on, the same way it keeps a `have`-d sword in hand.
+unsafe fn constrain(boma: *mut BattleObjectModuleAccessor, id: i32, w: &Weapon) {
+    let abm = article_boma(boma, id);
+    if !abm.is_null() {
+        LinkModule::set_model_constraint_pos_ort(
+            abm,
+            *WEAPON_LINK_NO_CONSTRAINT,
+            Hash40::new("top"),
+            Hash40::new(w.socket),
+            (*CONSTRAINT_FLAG_ORIENTATION | *CONSTRAINT_FLAG_POSITION) as u32,
+            true,
+        );
+    }
+    ArticleModule::set_visibility_whole(
+        boma,
+        id,
+        true,
+        ArticleOperationTarget(*ARTICLE_OPE_TARGET_ALL),
+    );
+}
+
 unsafe fn drive(boma: *mut BattleObjectModuleAccessor, id: i32, w: &Weapon) {
     let abm = article_boma(boma, id);
     if abm.is_null() {
@@ -860,7 +898,9 @@ unsafe fn probe(
     // THE OWNER'S SOCKET AND HEAD, in world space, through the same call every fighter-side
     // number in this project was measured with.
     let mut sock = Vector3f { x: 0.0, y: 0.0, z: 0.0 };
-    ModelModule::joint_global_position(boma, Hash40::new(w.socket), &mut sock, true);
+    // `top` is the model's implicit root, not a skeleton bone; `trans` sits at the same point.
+    let sock_bone = if w.socket == "top" { "trans" } else { w.socket };
+    ModelModule::joint_global_position(boma, Hash40::new(sock_bone), &mut sock, true);
     let mut hd = Vector3f { x: 0.0, y: 0.0, z: 0.0 };
     ModelModule::joint_global_position(boma, Hash40::new("head"), &mut hd, true);
 

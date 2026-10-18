@@ -190,6 +190,12 @@ for c in py python3 python; do command -v "$c" >/dev/null 2>&1 && { PY_BIN="$c";
 echo; echo "== 3c. relocate the built tree onto Rat of Doom's added slot =="
 bash "$ROOT/tools/relocate-slot.sh"
 
+# After the relocation (which rebuilds ship/ from scratch) and before 3d, so gen-config sees the
+# bank as SHIPPED and declares it instead of sharing c00's. See the header of the script for why
+# the bank must be shipped rather than shared.
+echo; echo "== 3c2. build Rat of Doom's own sound bank (donor audio, Pikachu's labels) =="
+"$PY_BIN" "$ROOT/tools/build-sound-bank.py" || exit 1
+
 echo; echo "== 3d. declare the added slot from what the shipped tree actually contains =="
 "$PY_BIN" "$ROOT/tools/gen-config.py"
 

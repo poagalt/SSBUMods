@@ -46,6 +46,18 @@ unsafe extern "C" fn pikachu_game_catch(agent: &mut L2CAgentBase) {
 unsafe extern "C" fn pikachu_effect_catch(agent: &mut L2CAgentBase) {
 }
 
+// ---- grab (Charizard) : sound_catch, labels through tools/sound-map.tsv ----
+unsafe extern "C" fn pikachu_sound_catch(agent: &mut L2CAgentBase) {
+    frame(agent.lua_state_agent, 6.0);
+    if macros::is_excute(agent) {
+        macros::PLAY_SE(agent, Hash40::new("se_pikachu_swing_s"));
+    }
+    frame(agent.lua_state_agent, 10.0);
+    if macros::is_excute(agent) {
+        macros::STOP_SE(agent, Hash40::new("se_pikachu_swing_s"));
+    }
+}
+
 // ---- dash grab (Charizard) : game_catchdash ----
 unsafe extern "C" fn pikachu_game_catchdash(agent: &mut L2CAgentBase) {
     frame(agent.lua_state_agent, 10.0);
@@ -69,6 +81,22 @@ unsafe extern "C" fn pikachu_game_catchdash(agent: &mut L2CAgentBase) {
 
 // ---- dash grab (Charizard) : effect_catchdash, sys_ effects only (ADR 0002) ----
 unsafe extern "C" fn pikachu_effect_catchdash(agent: &mut L2CAgentBase) {
+}
+
+// ---- dash grab (Charizard) : sound_catchdash, labels through tools/sound-map.tsv ----
+unsafe extern "C" fn pikachu_sound_catchdash(agent: &mut L2CAgentBase) {
+    frame(agent.lua_state_agent, 6.0);
+    if macros::is_excute(agent) {
+        macros::PLAY_SE(agent, Hash40::new("se_pikachu_swing_s"));
+    }
+    frame(agent.lua_state_agent, 10.0);
+    if macros::is_excute(agent) {
+        macros::STOP_SE(agent, Hash40::new("se_pikachu_swing_s"));
+    }
+    frame(agent.lua_state_agent, 24.0);
+    if macros::is_excute(agent) {
+        macros::PLAY_SE(agent, Hash40::new("se_pikachu_landing01"));
+    }
 }
 
 // ---- pivot grab (Charizard) : game_catchturn ----
@@ -96,6 +124,18 @@ unsafe extern "C" fn pikachu_game_catchturn(agent: &mut L2CAgentBase) {
 unsafe extern "C" fn pikachu_effect_catchturn(agent: &mut L2CAgentBase) {
 }
 
+// ---- pivot grab (Charizard) : sound_catchturn, labels through tools/sound-map.tsv ----
+unsafe extern "C" fn pikachu_sound_catchturn(agent: &mut L2CAgentBase) {
+    frame(agent.lua_state_agent, 6.0);
+    if macros::is_excute(agent) {
+        macros::PLAY_SE(agent, Hash40::new("se_pikachu_swing_s"));
+    }
+    frame(agent.lua_state_agent, 10.0);
+    if macros::is_excute(agent) {
+        macros::STOP_SE(agent, Hash40::new("se_pikachu_swing_s"));
+    }
+}
+
 // ---- pummel (Kazuya) : game_catchattack ----
 unsafe extern "C" fn pikachu_game_catchattack(agent: &mut L2CAgentBase) {
     frame(agent.lua_state_agent, 5.0);
@@ -118,6 +158,15 @@ unsafe extern "C" fn pikachu_effect_catchattack(agent: &mut L2CAgentBase) {
     }
 }
 
+// ---- pummel (Kazuya) : sound_catchattack, labels through tools/sound-map.tsv ----
+unsafe extern "C" fn pikachu_sound_catchattack(agent: &mut L2CAgentBase) {
+    frame(agent.lua_state_agent, 3.0);
+    if macros::is_excute(agent) {
+        macros::PLAY_SE(agent, Hash40::new("se_pikachu_swing_s"));
+        macros::PLAY_SEQUENCE(agent, Hash40::new("seq_pikachu_rnd_attack"));
+    }
+}
+
 // ---- f-throw cargo grab (Donkey Kong) : game_throwf ----
 unsafe extern "C" fn pikachu_game_throwf(agent: &mut L2CAgentBase) {
     if macros::is_excute(agent) {
@@ -137,6 +186,19 @@ unsafe extern "C" fn pikachu_effect_throwf(agent: &mut L2CAgentBase) {
     frame(agent.lua_state_agent, 17.0);
     if macros::is_excute(agent) {
         macros::LANDING_EFFECT(agent, Hash40::new("sys_down_smoke"), Hash40::new("top"), 0, 0, 0, 0, 0, 0, 1.2, 0, 0, 0, 0, 0, 0, false);
+    }
+}
+
+// ---- f-throw cargo grab (Donkey Kong) : sound_throwf, labels through tools/sound-map.tsv ----
+unsafe extern "C" fn pikachu_sound_throwf(agent: &mut L2CAgentBase) {
+    frame(agent.lua_state_agent, 5.0);
+    if macros::is_excute(agent) {
+        macros::PLAY_SE(agent, Hash40::new("se_common_throw_01"));
+        macros::PLAY_SEQUENCE(agent, Hash40::new("seq_pikachu_rnd_attack"));
+    }
+    frame(agent.lua_state_agent, 14.0);
+    if macros::is_excute(agent) {
+        macros::PLAY_SE(agent, Hash40::new("se_common_throw_01"));
     }
 }
 
@@ -178,6 +240,18 @@ unsafe extern "C" fn pikachu_effect_throwff(agent: &mut L2CAgentBase) {
     }
 }
 
+// ---- cargo throw forward (Donkey Kong) : sound_throwff, labels through tools/sound-map.tsv ----
+unsafe extern "C" fn pikachu_sound_throwff(agent: &mut L2CAgentBase) {
+    frame(agent.lua_state_agent, 6.0);
+    if macros::is_excute(agent) {
+        macros::PLAY_SE(agent, Hash40::new("se_common_throw_01"));
+    }
+    frame(agent.lua_state_agent, 15.0);
+    if macros::is_excute(agent) {
+        macros::PLAY_SE(agent, Hash40::new("se_common_throw_02"));
+    }
+}
+
 // ---- cargo throw back (Donkey Kong) : game_throwfb ----
 unsafe extern "C" fn pikachu_game_throwfb(agent: &mut L2CAgentBase) {
     if macros::is_excute(agent) {
@@ -214,6 +288,18 @@ unsafe extern "C" fn pikachu_effect_throwfb(agent: &mut L2CAgentBase) {
     }
 }
 
+// ---- cargo throw back (Donkey Kong) : sound_throwfb, labels through tools/sound-map.tsv ----
+unsafe extern "C" fn pikachu_sound_throwfb(agent: &mut L2CAgentBase) {
+    frame(agent.lua_state_agent, 8.0);
+    if macros::is_excute(agent) {
+        macros::PLAY_SE(agent, Hash40::new("se_common_throw_01"));
+    }
+    frame(agent.lua_state_agent, 16.0);
+    if macros::is_excute(agent) {
+        macros::PLAY_SE(agent, Hash40::new("se_common_throw_02"));
+    }
+}
+
 // ---- cargo throw up (Donkey Kong) : game_throwfhi ----
 unsafe extern "C" fn pikachu_game_throwfhi(agent: &mut L2CAgentBase) {
     if macros::is_excute(agent) {
@@ -244,6 +330,18 @@ unsafe extern "C" fn pikachu_effect_throwfhi(agent: &mut L2CAgentBase) {
     frame(agent.lua_state_agent, 15.0);
     if macros::is_excute(agent) {
         macros::EFFECT(agent, Hash40::new("sys_smash_flash_s"), Hash40::new("throw"), 0, 0, 10, 0, 0, 0, 1.5, 0, 0, 0, 0, 0, 0, true);
+    }
+}
+
+// ---- cargo throw up (Donkey Kong) : sound_throwfhi, labels through tools/sound-map.tsv ----
+unsafe extern "C" fn pikachu_sound_throwfhi(agent: &mut L2CAgentBase) {
+    frame(agent.lua_state_agent, 6.0);
+    if macros::is_excute(agent) {
+        macros::PLAY_SE(agent, Hash40::new("se_common_throw_01"));
+    }
+    frame(agent.lua_state_agent, 15.0);
+    if macros::is_excute(agent) {
+        macros::PLAY_SE(agent, Hash40::new("se_common_throw_02"));
     }
 }
 
@@ -282,6 +380,22 @@ unsafe extern "C" fn pikachu_effect_throwflw(agent: &mut L2CAgentBase) {
     }
 }
 
+// ---- cargo throw down (Donkey Kong) : sound_throwflw, labels through tools/sound-map.tsv ----
+unsafe extern "C" fn pikachu_sound_throwflw(agent: &mut L2CAgentBase) {
+    frame(agent.lua_state_agent, 6.0);
+    if macros::is_excute(agent) {
+        macros::PLAY_SE(agent, Hash40::new("se_common_throw_01"));
+    }
+    frame(agent.lua_state_agent, 16.0);
+    if macros::is_excute(agent) {
+        macros::PLAY_SE(agent, Hash40::new("se_common_kick_hit_m"));
+    }
+    frame(agent.lua_state_agent, 17.0);
+    if macros::is_excute(agent) {
+        macros::PLAY_SE(agent, Hash40::new("se_common_throw_03"));
+    }
+}
+
 // ---- b-throw (Ness) : game_throwb ----
 unsafe extern "C" fn pikachu_game_throwb(agent: &mut L2CAgentBase) {
     if macros::is_excute(agent) {
@@ -316,6 +430,25 @@ unsafe extern "C" fn pikachu_effect_throwb(agent: &mut L2CAgentBase) {
     }
 }
 
+// ---- b-throw (Ness) : sound_throwb, labels through tools/sound-map.tsv ----
+unsafe extern "C" fn pikachu_sound_throwb(agent: &mut L2CAgentBase) {
+    frame(agent.lua_state_agent, 2.0);
+    if macros::is_excute(agent) {
+        macros::PLAY_SE(agent, Hash40::new("se_common_throw_01"));
+        macros::PLAY_SE(agent, Hash40::new("se_pikachu_special_s02_m"));
+    }
+    frame(agent.lua_state_agent, 14.0);
+    if macros::is_excute(agent) {
+        macros::PLAY_SE(agent, Hash40::new("se_pikachu_special_s02_m"));
+    }
+    frame(agent.lua_state_agent, 27.0);
+    if macros::is_excute(agent) {
+        macros::PLAY_SE(agent, Hash40::new("se_pikachu_special_s02_m"));
+        macros::PLAY_SEQUENCE(agent, Hash40::new("seq_pikachu_rnd_attack"));
+        macros::PLAY_SE(agent, Hash40::new("se_common_throw_02"));
+    }
+}
+
 // ---- u-throw (Mewtwo) : game_throwhi ----
 unsafe extern "C" fn pikachu_game_throwhi(agent: &mut L2CAgentBase) {
     if macros::is_excute(agent) {
@@ -347,6 +480,26 @@ unsafe extern "C" fn pikachu_effect_throwhi(agent: &mut L2CAgentBase) {
     if macros::is_excute(agent) {
         macros::EFFECT_FLIP(agent, Hash40::new("sys_flash"), Hash40::new("sys_flash"), Hash40::new("throw"), 2, 0, 1, 0, 0, 0, 0.9, 0, 0, 0, 0, 0, 0, true, *EF_FLIP_YZ);
         macros::LANDING_EFFECT(agent, Hash40::new("sys_landing_smoke"), Hash40::new("top"), 0, 0, 0, 0, 0, 0, 1, 0, 0, 0, 0, 0, 0, false);
+    }
+}
+
+// ---- u-throw (Mewtwo) : sound_throwhi, labels through tools/sound-map.tsv ----
+unsafe extern "C" fn pikachu_sound_throwhi(agent: &mut L2CAgentBase) {
+    frame(agent.lua_state_agent, 1.0);
+    if macros::is_excute(agent) {
+        macros::PLAY_STATUS(agent, Hash40::new("se_pikachu_special_s02_l"));
+    }
+    frame(agent.lua_state_agent, 39.0);
+    if macros::is_excute(agent) {
+        macros::PLAY_SE(agent, Hash40::new("se_pikachu_special_s02_l"));
+    }
+    frame(agent.lua_state_agent, 40.0);
+    if macros::is_excute(agent) {
+        macros::PLAY_SE(agent, Hash40::new("se_common_throw_02"));
+    }
+    frame(agent.lua_state_agent, 42.0);
+    if macros::is_excute(agent) {
+        macros::PLAY_SEQUENCE(agent, Hash40::new("seq_pikachu_rnd_attack"));
     }
 }
 
@@ -386,31 +539,60 @@ unsafe extern "C" fn pikachu_effect_throwlw(agent: &mut L2CAgentBase) {
     }
 }
 
+// ---- d-throw (Dr. Mario) : sound_throwlw, labels through tools/sound-map.tsv ----
+unsafe extern "C" fn pikachu_sound_throwlw(agent: &mut L2CAgentBase) {
+    frame(agent.lua_state_agent, 2.0);
+    if macros::is_excute(agent) {
+        macros::PLAY_SE(agent, Hash40::new("se_common_throw_01"));
+    }
+    frame(agent.lua_state_agent, 12.0);
+    if macros::is_excute(agent) {
+        macros::PLAY_SE(agent, Hash40::new("se_common_throw_03"));
+        macros::PLAY_SEQUENCE(agent, Hash40::new("seq_pikachu_rnd_attack"));
+    }
+    frame(agent.lua_state_agent, 16.0);
+    if macros::is_excute(agent) {
+        macros::PLAY_SE(agent, Hash40::new("se_common_down_l_01"));
+    }
+}
+
 pub fn install() {
     crate::charaslot::agent("pikachu")
         .game_acmd("game_catch", pikachu_game_catch, Default)
         .effect_acmd("effect_catch", pikachu_effect_catch, Default)
+        .sound_acmd("sound_catch", pikachu_sound_catch, Default)
         .game_acmd("game_catchdash", pikachu_game_catchdash, Default)
         .effect_acmd("effect_catchdash", pikachu_effect_catchdash, Default)
+        .sound_acmd("sound_catchdash", pikachu_sound_catchdash, Default)
         .game_acmd("game_catchturn", pikachu_game_catchturn, Default)
         .effect_acmd("effect_catchturn", pikachu_effect_catchturn, Default)
+        .sound_acmd("sound_catchturn", pikachu_sound_catchturn, Default)
         .game_acmd("game_catchattack", pikachu_game_catchattack, Default)
         .effect_acmd("effect_catchattack", pikachu_effect_catchattack, Default)
+        .sound_acmd("sound_catchattack", pikachu_sound_catchattack, Default)
         .game_acmd("game_throwf", pikachu_game_throwf, Default)
         .effect_acmd("effect_throwf", pikachu_effect_throwf, Default)
+        .sound_acmd("sound_throwf", pikachu_sound_throwf, Default)
         .game_acmd("game_throwff", pikachu_game_throwff, Default)
         .effect_acmd("effect_throwff", pikachu_effect_throwff, Default)
+        .sound_acmd("sound_throwff", pikachu_sound_throwff, Default)
         .game_acmd("game_throwfb", pikachu_game_throwfb, Default)
         .effect_acmd("effect_throwfb", pikachu_effect_throwfb, Default)
+        .sound_acmd("sound_throwfb", pikachu_sound_throwfb, Default)
         .game_acmd("game_throwfhi", pikachu_game_throwfhi, Default)
         .effect_acmd("effect_throwfhi", pikachu_effect_throwfhi, Default)
+        .sound_acmd("sound_throwfhi", pikachu_sound_throwfhi, Default)
         .game_acmd("game_throwflw", pikachu_game_throwflw, Default)
         .effect_acmd("effect_throwflw", pikachu_effect_throwflw, Default)
+        .sound_acmd("sound_throwflw", pikachu_sound_throwflw, Default)
         .game_acmd("game_throwb", pikachu_game_throwb, Default)
         .effect_acmd("effect_throwb", pikachu_effect_throwb, Default)
+        .sound_acmd("sound_throwb", pikachu_sound_throwb, Default)
         .game_acmd("game_throwhi", pikachu_game_throwhi, Default)
         .effect_acmd("effect_throwhi", pikachu_effect_throwhi, Default)
+        .sound_acmd("sound_throwhi", pikachu_sound_throwhi, Default)
         .game_acmd("game_throwlw", pikachu_game_throwlw, Default)
         .effect_acmd("effect_throwlw", pikachu_effect_throwlw, Default)
+        .sound_acmd("sound_throwlw", pikachu_sound_throwlw, Default)
         .install();
 }

@@ -55,6 +55,15 @@ unsafe extern "C" fn pikachu_effect_attack11(agent: &mut L2CAgentBase) {
     }
 }
 
+// ---- jab (Little Mac) : sound_attack11, labels through tools/sound-map.tsv ----
+unsafe extern "C" fn pikachu_sound_attack11(agent: &mut L2CAgentBase) {
+    frame(agent.lua_state_agent, 1.0);
+    if macros::is_excute(agent) {
+        macros::PLAY_SEQUENCE(agent, Hash40::new("seq_pikachu_rnd_attack"));
+        macros::PLAY_SE(agent, Hash40::new("se_pikachu_swing_s"));
+    }
+}
+
 // ---- jab 2 (Little Mac) : game_attack12 ----
 unsafe extern "C" fn pikachu_game_attack12(agent: &mut L2CAgentBase) {
     frame(agent.lua_state_agent, 1.0);
@@ -100,6 +109,15 @@ unsafe extern "C" fn pikachu_effect_attack12(agent: &mut L2CAgentBase) {
     }
 }
 
+// ---- jab 2 (Little Mac) : sound_attack12, labels through tools/sound-map.tsv ----
+unsafe extern "C" fn pikachu_sound_attack12(agent: &mut L2CAgentBase) {
+    frame(agent.lua_state_agent, 1.0);
+    if macros::is_excute(agent) {
+        macros::PLAY_SEQUENCE(agent, Hash40::new("seq_pikachu_rnd_attack"));
+        macros::PLAY_SE(agent, Hash40::new("se_pikachu_swing_s"));
+    }
+}
+
 // ---- jab 3 (Little Mac) : game_attack13 ----
 unsafe extern "C" fn pikachu_game_attack13(agent: &mut L2CAgentBase) {
     frame(agent.lua_state_agent, 1.0);
@@ -125,6 +143,15 @@ unsafe extern "C" fn pikachu_effect_attack13(agent: &mut L2CAgentBase) {
     frame(agent.lua_state_agent, 6.0);
     if macros::is_excute(agent) {
         macros::FOOT_EFFECT(agent, Hash40::new("sys_turn_smoke"), Hash40::new("top"), 0.5, 0, 0, 0, 0, 0, 1, 0, 0, 0, 0, 0, 0, false);
+    }
+}
+
+// ---- jab 3 (Little Mac) : sound_attack13, labels through tools/sound-map.tsv ----
+unsafe extern "C" fn pikachu_sound_attack13(agent: &mut L2CAgentBase) {
+    frame(agent.lua_state_agent, 4.0);
+    if macros::is_excute(agent) {
+        macros::PLAY_SEQUENCE(agent, Hash40::new("seq_pikachu_rnd_attack"));
+        macros::PLAY_SE(agent, Hash40::new("se_pikachu_swing_s"));
     }
 }
 
@@ -242,6 +269,34 @@ unsafe extern "C" fn pikachu_effect_attack100(agent: &mut L2CAgentBase) {
     }
 }
 
+// ---- rapid jab (Little Mac) : sound_attack100, labels through tools/sound-map.tsv ----
+unsafe extern "C" fn pikachu_sound_attack100(agent: &mut L2CAgentBase) {
+    loop {
+    frame(agent.lua_state_agent, 1.0);
+    if macros::is_excute(agent) {
+        macros::PLAY_SE(agent, Hash40::new("se_pikachu_tailswing"));
+    }
+    frame(agent.lua_state_agent, 4.0);
+    if macros::is_excute(agent) {
+        macros::PLAY_SE(agent, Hash40::new("se_pikachu_tailswing"));
+    }
+    frame(agent.lua_state_agent, 8.0);
+    if macros::is_excute(agent) {
+        macros::PLAY_SE(agent, Hash40::new("se_pikachu_tailswing"));
+    }
+    frame(agent.lua_state_agent, 12.0);
+    if macros::is_excute(agent) {
+        macros::PLAY_SE(agent, Hash40::new("se_pikachu_tailswing"));
+    }
+    frame(agent.lua_state_agent, 16.0);
+    if macros::is_excute(agent) {
+        macros::PLAY_SE(agent, Hash40::new("se_pikachu_tailswing"));
+    }
+    agent.clear_lua_stack();
+    smash::app::sv_animcmd::wait_loop_sync_mot(agent.lua_state_agent);
+    }
+}
+
 // ---- rapid jab end (Little Mac) : game_attack100end ----
 unsafe extern "C" fn pikachu_game_attack100end(agent: &mut L2CAgentBase) {
     frame(agent.lua_state_agent, 5.0);
@@ -265,6 +320,14 @@ unsafe extern "C" fn pikachu_effect_attack100end(agent: &mut L2CAgentBase) {
     frame(agent.lua_state_agent, 4.0);
     if macros::is_excute(agent) {
         macros::LANDING_EFFECT(agent, Hash40::new("sys_atk_smoke"), Hash40::new("top"), 0, 0, 6, 0, 0, 0, 0.9, 0, 0, 0, 0, 0, 0, true);
+    }
+}
+
+// ---- rapid jab end (Little Mac) : sound_attack100end, labels through tools/sound-map.tsv ----
+unsafe extern "C" fn pikachu_sound_attack100end(agent: &mut L2CAgentBase) {
+    frame(agent.lua_state_agent, 3.0);
+    if macros::is_excute(agent) {
+        macros::PLAY_SE(agent, Hash40::new("se_pikachu_swing_s"));
     }
 }
 
@@ -308,6 +371,18 @@ unsafe extern "C" fn pikachu_effect_attackdash(agent: &mut L2CAgentBase) {
     }
 }
 
+// ---- dash attack (Mythra) : sound_attackdash, labels through tools/sound-map.tsv ----
+unsafe extern "C" fn pikachu_sound_attackdash(agent: &mut L2CAgentBase) {
+    frame(agent.lua_state_agent, 10.0);
+    if macros::is_excute(agent) {
+        macros::PLAY_SE(agent, Hash40::new("se_pikachu_attackhard_s01"));
+    }
+    frame(agent.lua_state_agent, 11.0);
+    if macros::is_excute(agent) {
+        macros::PLAY_SEQUENCE(agent, Hash40::new("seq_pikachu_rnd_attack"));
+    }
+}
+
 // ---- f-tilt (Sheik) : game_attacks3 ----
 unsafe extern "C" fn pikachu_game_attacks3(agent: &mut L2CAgentBase) {
     frame(agent.lua_state_agent, 4.0);
@@ -337,6 +412,15 @@ unsafe extern "C" fn pikachu_effect_attacks3(agent: &mut L2CAgentBase) {
     frame(agent.lua_state_agent, 7.0);
     if macros::is_excute(agent) {
         macros::FOOT_EFFECT(agent, Hash40::new("sys_run_smoke"), Hash40::new("top"), 0, 0, 1, 0, 0, 0, 1, 0, 0, 0, 0, 0, 0, false);
+    }
+}
+
+// ---- f-tilt (Sheik) : sound_attacks3, labels through tools/sound-map.tsv ----
+unsafe extern "C" fn pikachu_sound_attacks3(agent: &mut L2CAgentBase) {
+    frame(agent.lua_state_agent, 5.0);
+    if macros::is_excute(agent) {
+        macros::PLAY_SEQUENCE(agent, Hash40::new("seq_pikachu_rnd_attack"));
+        macros::PLAY_SE(agent, Hash40::new("se_pikachu_swing_s"));
     }
 }
 
@@ -374,6 +458,19 @@ unsafe extern "C" fn pikachu_game_attackhi3(agent: &mut L2CAgentBase) {
 
 // ---- u-tilt (Falco) : effect_attackhi3, sys_ effects only (ADR 0002) ----
 unsafe extern "C" fn pikachu_effect_attackhi3(agent: &mut L2CAgentBase) {
+}
+
+// ---- u-tilt (Falco) : sound_attackhi3, labels through tools/sound-map.tsv ----
+unsafe extern "C" fn pikachu_sound_attackhi3(agent: &mut L2CAgentBase) {
+    frame(agent.lua_state_agent, 5.0);
+    if macros::is_excute(agent) {
+        macros::PLAY_SEQUENCE(agent, Hash40::new("seq_pikachu_rnd_attack"));
+        macros::PLAY_SE(agent, Hash40::new("se_pikachu_special_s02_s"));
+    }
+    frame(agent.lua_state_agent, 12.0);
+    if macros::is_excute(agent) {
+        macros::PLAY_SE(agent, Hash40::new("se_pikachu_special_s02_s"));
+    }
 }
 
 // ---- d-tilt (Incineroar) : game_attacklw3 ----
@@ -428,29 +525,48 @@ unsafe extern "C" fn pikachu_effect_attacklw3(agent: &mut L2CAgentBase) {
     }
 }
 
+// ---- d-tilt (Incineroar) : sound_attacklw3, labels through tools/sound-map.tsv ----
+unsafe extern "C" fn pikachu_sound_attacklw3(agent: &mut L2CAgentBase) {
+    frame(agent.lua_state_agent, 8.0);
+    if macros::is_excute(agent) {
+        macros::PLAY_SE(agent, Hash40::new("se_pikachu_swing_s"));
+    }
+}
+
 pub fn install() {
     crate::charaslot::agent("pikachu")
         .game_acmd("game_attack11", pikachu_game_attack11, Default)
         .effect_acmd("effect_attack11", pikachu_effect_attack11, Default)
+        .sound_acmd("sound_attack11", pikachu_sound_attack11, Default)
         .game_acmd("game_attack12", pikachu_game_attack12, Default)
         .effect_acmd("effect_attack12", pikachu_effect_attack12, Default)
+        .sound_acmd("sound_attack12", pikachu_sound_attack12, Default)
         .game_acmd("game_attack13", pikachu_game_attack13, Default)
         .effect_acmd("effect_attack13", pikachu_effect_attack13, Default)
+        .sound_acmd("sound_attack13", pikachu_sound_attack13, Default)
         .game_acmd("game_attack100", pikachu_game_attack100, Default)
         .effect_acmd("effect_attack100", pikachu_effect_attack100, Default)
+        .sound_acmd("sound_attack100", pikachu_sound_attack100, Default)
         .game_acmd("game_attack100end", pikachu_game_attack100end, Default)
         .effect_acmd("effect_attack100end", pikachu_effect_attack100end, Default)
+        .sound_acmd("sound_attack100end", pikachu_sound_attack100end, Default)
         .game_acmd("game_attackdash", pikachu_game_attackdash, Default)
         .effect_acmd("effect_attackdash", pikachu_effect_attackdash, Default)
+        .sound_acmd("sound_attackdash", pikachu_sound_attackdash, Default)
         .game_acmd("game_attacks3", pikachu_game_attacks3, Default)
         .effect_acmd("effect_attacks3", pikachu_effect_attacks3, Default)
+        .sound_acmd("sound_attacks3", pikachu_sound_attacks3, Default)
         .game_acmd("game_attacks3hi", pikachu_game_attacks3, Default)
         .effect_acmd("effect_attacks3hi", pikachu_effect_attacks3, Default)
+        .sound_acmd("sound_attacks3hi", pikachu_sound_attacks3, Default)
         .game_acmd("game_attacks3lw", pikachu_game_attacks3, Default)
         .effect_acmd("effect_attacks3lw", pikachu_effect_attacks3, Default)
+        .sound_acmd("sound_attacks3lw", pikachu_sound_attacks3, Default)
         .game_acmd("game_attackhi3", pikachu_game_attackhi3, Default)
         .effect_acmd("effect_attackhi3", pikachu_effect_attackhi3, Default)
+        .sound_acmd("sound_attackhi3", pikachu_sound_attackhi3, Default)
         .game_acmd("game_attacklw3", pikachu_game_attacklw3, Default)
         .effect_acmd("effect_attacklw3", pikachu_effect_attacklw3, Default)
+        .sound_acmd("sound_attacklw3", pikachu_sound_attacklw3, Default)
         .install();
 }

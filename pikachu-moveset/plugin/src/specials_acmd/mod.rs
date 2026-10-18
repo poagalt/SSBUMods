@@ -51,6 +51,22 @@ unsafe extern "C" fn pikachu_effect_speciallw(agent: &mut L2CAgentBase) {
     }
 }
 
+// ---- Revenge counter (Incineroar) : sound_speciallw, labels through tools/sound-map.tsv ----
+unsafe extern "C" fn pikachu_sound_speciallw(agent: &mut L2CAgentBase) {
+    frame(agent.lua_state_agent, 1.0);
+    if macros::is_excute(agent) {
+        macros::PLAY_SE(agent, Hash40::new("se_pikachu_special_l01"));
+    }
+    frame(agent.lua_state_agent, 2.0);
+    if macros::is_excute(agent) {
+        macros::PLAY_SE(agent, Hash40::new("se_pikachu_special_l03"));
+    }
+    frame(agent.lua_state_agent, 6.0);
+    if macros::is_excute(agent) {
+        macros::PLAY_SEQUENCE(agent, Hash40::new("seq_pikachu_rnd_attack"));
+    }
+}
+
 // ---- Revenge counter AIR (Incineroar) : game_specialairlw ----
 unsafe extern "C" fn pikachu_game_specialairlw(agent: &mut L2CAgentBase) {
     frame(agent.lua_state_agent, 1.0);
@@ -78,6 +94,22 @@ unsafe extern "C" fn pikachu_effect_specialairlw(agent: &mut L2CAgentBase) {
     frame(agent.lua_state_agent, 3.0);
     if macros::is_excute(agent) {
         macros::LANDING_EFFECT(agent, Hash40::new("sys_landing_smoke"), Hash40::new("top"), 0, 0, 0, 0, 0, 0, 1, 0, 0, 0, 0, 0, 0, false);
+    }
+}
+
+// ---- Revenge counter AIR (Incineroar) : sound_specialairlw, labels through tools/sound-map.tsv ----
+unsafe extern "C" fn pikachu_sound_specialairlw(agent: &mut L2CAgentBase) {
+    frame(agent.lua_state_agent, 1.0);
+    if macros::is_excute(agent) {
+        macros::PLAY_SE(agent, Hash40::new("se_pikachu_special_l01"));
+    }
+    frame(agent.lua_state_agent, 2.0);
+    if macros::is_excute(agent) {
+        macros::PLAY_SE(agent, Hash40::new("se_pikachu_special_l03"));
+    }
+    frame(agent.lua_state_agent, 6.0);
+    if macros::is_excute(agent) {
+        macros::PLAY_SEQUENCE(agent, Hash40::new("seq_pikachu_rnd_attack"));
     }
 }
 
@@ -115,6 +147,22 @@ unsafe extern "C" fn pikachu_effect_speciallwturn(agent: &mut L2CAgentBase) {
     }
 }
 
+// ---- Revenge turn (Incineroar) : sound_speciallwturn, labels through tools/sound-map.tsv ----
+unsafe extern "C" fn pikachu_sound_speciallwturn(agent: &mut L2CAgentBase) {
+    frame(agent.lua_state_agent, 1.0);
+    if macros::is_excute(agent) {
+        macros::PLAY_SE(agent, Hash40::new("se_pikachu_special_l01"));
+    }
+    frame(agent.lua_state_agent, 2.0);
+    if macros::is_excute(agent) {
+        macros::PLAY_SE(agent, Hash40::new("se_pikachu_special_l03"));
+    }
+    frame(agent.lua_state_agent, 6.0);
+    if macros::is_excute(agent) {
+        macros::PLAY_SEQUENCE(agent, Hash40::new("seq_pikachu_rnd_attack"));
+    }
+}
+
 // ---- Revenge turn AIR (Incineroar) : game_specialairlwturn ----
 unsafe extern "C" fn pikachu_game_specialairlwturn(agent: &mut L2CAgentBase) {
     frame(agent.lua_state_agent, 1.0);
@@ -146,6 +194,22 @@ unsafe extern "C" fn pikachu_effect_specialairlwturn(agent: &mut L2CAgentBase) {
     frame(agent.lua_state_agent, 3.0);
     if macros::is_excute(agent) {
         macros::LANDING_EFFECT(agent, Hash40::new("sys_landing_smoke"), Hash40::new("top"), 0, 0, 0, 0, 0, 0, 1, 0, 0, 0, 0, 0, 0, false);
+    }
+}
+
+// ---- Revenge turn AIR (Incineroar) : sound_specialairlwturn, labels through tools/sound-map.tsv ----
+unsafe extern "C" fn pikachu_sound_specialairlwturn(agent: &mut L2CAgentBase) {
+    frame(agent.lua_state_agent, 1.0);
+    if macros::is_excute(agent) {
+        macros::PLAY_SE(agent, Hash40::new("se_pikachu_special_l01"));
+    }
+    frame(agent.lua_state_agent, 2.0);
+    if macros::is_excute(agent) {
+        macros::PLAY_SE(agent, Hash40::new("se_pikachu_special_l03"));
+    }
+    frame(agent.lua_state_agent, 6.0);
+    if macros::is_excute(agent) {
+        macros::PLAY_SEQUENCE(agent, Hash40::new("seq_pikachu_rnd_attack"));
     }
 }
 
@@ -194,6 +258,26 @@ unsafe extern "C" fn pikachu_game_specialhi(agent: &mut L2CAgentBase) {
 unsafe extern "C" fn pikachu_effect_specialhi(agent: &mut L2CAgentBase) {
 }
 
+// ---- up-B ground (Game & Watch) : sound_specialhi, labels through tools/sound-map.tsv ----
+unsafe extern "C" fn pikachu_sound_specialhi(agent: &mut L2CAgentBase) {
+    frame(agent.lua_state_agent, 2.0);
+    if macros::is_excute(agent) {
+        macros::PLAY_SE(agent, Hash40::new("se_pikachu_special_h01"));
+    }
+    frame(agent.lua_state_agent, 4.0);
+    if macros::is_excute(agent) {
+        macros::STOP_SE(agent, Hash40::new("se_pikachu_special_h01"));
+    }
+    frame(agent.lua_state_agent, 6.0);
+    if macros::is_excute(agent) {
+        macros::PLAY_SE(agent, Hash40::new("se_pikachu_special_h01"));
+    }
+    frame(agent.lua_state_agent, 8.0);
+    if macros::is_excute(agent) {
+        macros::STOP_SE(agent, Hash40::new("se_pikachu_special_h01"));
+    }
+}
+
 // ---- up-B air (Game & Watch) : game_specialairhi ----
 unsafe extern "C" fn pikachu_game_specialairhi(agent: &mut L2CAgentBase) {
     frame(agent.lua_state_agent, 3.0);
@@ -235,6 +319,26 @@ unsafe extern "C" fn pikachu_game_specialairhi(agent: &mut L2CAgentBase) {
 
 // ---- up-B air (Game & Watch) : effect_specialairhi, sys_ effects only (ADR 0002) ----
 unsafe extern "C" fn pikachu_effect_specialairhi(agent: &mut L2CAgentBase) {
+}
+
+// ---- up-B air (Game & Watch) : sound_specialairhi, labels through tools/sound-map.tsv ----
+unsafe extern "C" fn pikachu_sound_specialairhi(agent: &mut L2CAgentBase) {
+    frame(agent.lua_state_agent, 2.0);
+    if macros::is_excute(agent) {
+        macros::PLAY_SE(agent, Hash40::new("se_pikachu_special_h01"));
+    }
+    frame(agent.lua_state_agent, 4.0);
+    if macros::is_excute(agent) {
+        macros::STOP_SE(agent, Hash40::new("se_pikachu_special_h01"));
+    }
+    frame(agent.lua_state_agent, 6.0);
+    if macros::is_excute(agent) {
+        macros::PLAY_SE(agent, Hash40::new("se_pikachu_special_h01"));
+    }
+    frame(agent.lua_state_agent, 8.0);
+    if macros::is_excute(agent) {
+        macros::STOP_SE(agent, Hash40::new("se_pikachu_special_h01"));
+    }
 }
 
 // ---- Alolan Whip lunge (Incineroar) : game_specialsstart ----
@@ -300,6 +404,14 @@ unsafe extern "C" fn pikachu_effect_specialsstart(agent: &mut L2CAgentBase) {
     }
 }
 
+// ---- Alolan Whip lunge (Incineroar) : sound_specialsstart, labels through tools/sound-map.tsv ----
+unsafe extern "C" fn pikachu_sound_specialsstart(agent: &mut L2CAgentBase) {
+    frame(agent.lua_state_agent, 1.0);
+    if macros::is_excute(agent) {
+        macros::PLAY_SE(agent, Hash40::new("se_pikachu_special_s01"));
+    }
+}
+
 // ---- Alolan Whip shoulder (Incineroar) : game_specialsshoulder ----
 unsafe extern "C" fn pikachu_game_specialsshoulder(agent: &mut L2CAgentBase) {
     if macros::is_excute(agent) {
@@ -356,6 +468,14 @@ unsafe extern "C" fn pikachu_effect_specialsshoulder(agent: &mut L2CAgentBase) {
     }
 }
 
+// ---- Alolan Whip shoulder (Incineroar) : sound_specialsshoulder, labels through tools/sound-map.tsv ----
+unsafe extern "C" fn pikachu_sound_specialsshoulder(agent: &mut L2CAgentBase) {
+    frame(agent.lua_state_agent, 1.0);
+    if macros::is_excute(agent) {
+        macros::PLAY_SE(agent, Hash40::new("se_pikachu_special_s01"));
+    }
+}
+
 // ---- Alolan Whip lariat (Incineroar) : game_specialslariat ----
 unsafe extern "C" fn pikachu_game_specialslariat(agent: &mut L2CAgentBase) {
     if macros::is_excute(agent) {
@@ -400,6 +520,23 @@ unsafe extern "C" fn pikachu_effect_specialslariat(agent: &mut L2CAgentBase) {
     }
 }
 
+// ---- Alolan Whip lariat (Incineroar) : sound_specialslariat, labels through tools/sound-map.tsv ----
+unsafe extern "C" fn pikachu_sound_specialslariat(agent: &mut L2CAgentBase) {
+    frame(agent.lua_state_agent, 2.0);
+    if macros::is_excute(agent) {
+        macros::PLAY_SE(agent, Hash40::new("vc_pikachu_attack07"));
+        macros::PLAY_SE(agent, Hash40::new("se_pikachu_special_s01_charge"));
+    }
+    frame(agent.lua_state_agent, 35.0);
+    if macros::is_excute(agent) {
+        macros::PLAY_SE(agent, Hash40::new("se_pikachu_special_s01_charge"));
+    }
+    frame(agent.lua_state_agent, 37.0);
+    if macros::is_excute(agent) {
+        macros::PLAY_SE_NO_3D(agent, Hash40::new("se_pikachu_special_s01_charge"));
+    }
+}
+
 // ---- Alolan Whip throw (Incineroar) : game_specialsthrow ----
 unsafe extern "C" fn pikachu_game_specialsthrow(agent: &mut L2CAgentBase) {
     if macros::is_excute(agent) {
@@ -428,6 +565,27 @@ unsafe extern "C" fn pikachu_effect_specialsthrow(agent: &mut L2CAgentBase) {
     frame(agent.lua_state_agent, 31.0);
     if macros::is_excute(agent) {
         macros::LANDING_EFFECT(agent, Hash40::new("sys_atk_smoke"), Hash40::new("top"), -2, 0, 0, 0, 180, 0, 0.8, 0, 0, 0, 0, 0, 0, false);
+    }
+}
+
+// ---- Alolan Whip throw (Incineroar) : sound_specialsthrow, labels through tools/sound-map.tsv ----
+unsafe extern "C" fn pikachu_sound_specialsthrow(agent: &mut L2CAgentBase) {
+    frame(agent.lua_state_agent, 1.0);
+    if macros::is_excute(agent) {
+        macros::STOP_SE(agent, Hash40::new("se_pikachu_special_s01"));
+        macros::PLAY_SE(agent, Hash40::new("se_pikachu_special_s01"));
+    }
+    frame(agent.lua_state_agent, 29.0);
+    if macros::is_excute(agent) {
+        macros::PLAY_SE(agent, Hash40::new("se_pikachu_special_s01"));
+    }
+    frame(agent.lua_state_agent, 40.0);
+    if macros::is_excute(agent) {
+        macros::PLAY_SE(agent, Hash40::new("se_pikachu_special_s01"));
+    }
+    frame(agent.lua_state_agent, 59.0);
+    if macros::is_excute(agent) {
+        macros::PLAY_SE(agent, Hash40::new("se_pikachu_special_s01"));
     }
 }
 
@@ -481,6 +639,10 @@ unsafe extern "C" fn pikachu_effect_specialsfailure(agent: &mut L2CAgentBase) {
     }
 }
 
+// ---- Alolan Whip whiff (Incineroar) : sound_specialsfailure, labels through tools/sound-map.tsv ----
+unsafe extern "C" fn pikachu_sound_specialsfailure(agent: &mut L2CAgentBase) {
+}
+
 // ---- Alolan Whip end (Incineroar) : game_specialsend ----
 unsafe extern "C" fn pikachu_game_specialsend(agent: &mut L2CAgentBase) {
     if macros::is_excute(agent) {
@@ -499,6 +661,10 @@ unsafe extern "C" fn pikachu_game_specialsend(agent: &mut L2CAgentBase) {
 
 // ---- Alolan Whip end (Incineroar) : effect_specialsend, sys_ effects only (ADR 0002) ----
 unsafe extern "C" fn pikachu_effect_specialsend(agent: &mut L2CAgentBase) {
+}
+
+// ---- Alolan Whip end (Incineroar) : sound_specialsend, labels through tools/sound-map.tsv ----
+unsafe extern "C" fn pikachu_sound_specialsend(agent: &mut L2CAgentBase) {
 }
 
 // ---- Alolan Whip AIR lunge (Incineroar) : game_specialairsstart ----
@@ -561,6 +727,14 @@ unsafe extern "C" fn pikachu_effect_specialairsstart(agent: &mut L2CAgentBase) {
     }
 }
 
+// ---- Alolan Whip AIR lunge (Incineroar) : sound_specialairsstart, labels through tools/sound-map.tsv ----
+unsafe extern "C" fn pikachu_sound_specialairsstart(agent: &mut L2CAgentBase) {
+    frame(agent.lua_state_agent, 1.0);
+    if macros::is_excute(agent) {
+        macros::PLAY_SE(agent, Hash40::new("se_pikachu_special_s01"));
+    }
+}
+
 // ---- Alolan Whip AIR shoulder (Incineroar) : game_specialairsshoulder ----
 unsafe extern "C" fn pikachu_game_specialairsshoulder(agent: &mut L2CAgentBase) {
     if macros::is_excute(agent) {
@@ -613,6 +787,14 @@ unsafe extern "C" fn pikachu_effect_specialairsshoulder(agent: &mut L2CAgentBase
     }
 }
 
+// ---- Alolan Whip AIR shoulder (Incineroar) : sound_specialairsshoulder, labels through tools/sound-map.tsv ----
+unsafe extern "C" fn pikachu_sound_specialairsshoulder(agent: &mut L2CAgentBase) {
+    frame(agent.lua_state_agent, 1.0);
+    if macros::is_excute(agent) {
+        macros::PLAY_SE(agent, Hash40::new("se_pikachu_special_s01"));
+    }
+}
+
 // ---- Alolan Whip AIR lariat (Incineroar) : game_specialairslariat ----
 unsafe extern "C" fn pikachu_game_specialairslariat(agent: &mut L2CAgentBase) {
     if macros::is_excute(agent) {
@@ -653,6 +835,23 @@ unsafe extern "C" fn pikachu_game_specialairslariat(agent: &mut L2CAgentBase) {
 unsafe extern "C" fn pikachu_effect_specialairslariat(agent: &mut L2CAgentBase) {
 }
 
+// ---- Alolan Whip AIR lariat (Incineroar) : sound_specialairslariat, labels through tools/sound-map.tsv ----
+unsafe extern "C" fn pikachu_sound_specialairslariat(agent: &mut L2CAgentBase) {
+    frame(agent.lua_state_agent, 2.0);
+    if macros::is_excute(agent) {
+        macros::PLAY_SE(agent, Hash40::new("vc_pikachu_attack07"));
+        macros::PLAY_SE(agent, Hash40::new("se_pikachu_special_s01_charge"));
+    }
+    frame(agent.lua_state_agent, 35.0);
+    if macros::is_excute(agent) {
+        macros::PLAY_SE(agent, Hash40::new("se_pikachu_special_s01_charge"));
+    }
+    frame(agent.lua_state_agent, 37.0);
+    if macros::is_excute(agent) {
+        macros::PLAY_SE_NO_3D(agent, Hash40::new("se_pikachu_special_s01_charge"));
+    }
+}
+
 // ---- Alolan Whip AIR throw (Incineroar) : game_specialairsthrow ----
 unsafe extern "C" fn pikachu_game_specialairsthrow(agent: &mut L2CAgentBase) {
     if macros::is_excute(agent) {
@@ -681,6 +880,27 @@ unsafe extern "C" fn pikachu_effect_specialairsthrow(agent: &mut L2CAgentBase) {
     frame(agent.lua_state_agent, 31.0);
     if macros::is_excute(agent) {
         macros::LANDING_EFFECT(agent, Hash40::new("sys_atk_smoke"), Hash40::new("top"), -2, 0, 0, 0, 180, 0, 0.8, 0, 0, 0, 0, 0, 0, false);
+    }
+}
+
+// ---- Alolan Whip AIR throw (Incineroar) : sound_specialairsthrow, labels through tools/sound-map.tsv ----
+unsafe extern "C" fn pikachu_sound_specialairsthrow(agent: &mut L2CAgentBase) {
+    frame(agent.lua_state_agent, 1.0);
+    if macros::is_excute(agent) {
+        macros::STOP_SE(agent, Hash40::new("se_pikachu_special_s01"));
+        macros::PLAY_SE(agent, Hash40::new("se_pikachu_special_s01"));
+    }
+    frame(agent.lua_state_agent, 29.0);
+    if macros::is_excute(agent) {
+        macros::PLAY_SE(agent, Hash40::new("se_pikachu_special_s01"));
+    }
+    frame(agent.lua_state_agent, 40.0);
+    if macros::is_excute(agent) {
+        macros::PLAY_SE(agent, Hash40::new("se_pikachu_special_s01"));
+    }
+    frame(agent.lua_state_agent, 59.0);
+    if macros::is_excute(agent) {
+        macros::PLAY_SE(agent, Hash40::new("se_pikachu_special_s01"));
     }
 }
 
@@ -730,6 +950,10 @@ unsafe extern "C" fn pikachu_effect_specialairsfailure(agent: &mut L2CAgentBase)
     }
 }
 
+// ---- Alolan Whip AIR whiff (Incineroar) : sound_specialairsfailure, labels through tools/sound-map.tsv ----
+unsafe extern "C" fn pikachu_sound_specialairsfailure(agent: &mut L2CAgentBase) {
+}
+
 // ---- Alolan Whip AIR end (Incineroar) : game_specialairsend ----
 unsafe extern "C" fn pikachu_game_specialairsend(agent: &mut L2CAgentBase) {
     if macros::is_excute(agent) {
@@ -748,6 +972,10 @@ unsafe extern "C" fn pikachu_game_specialairsend(agent: &mut L2CAgentBase) {
 
 // ---- Alolan Whip AIR end (Incineroar) : effect_specialairsend, sys_ effects only (ADR 0002) ----
 unsafe extern "C" fn pikachu_effect_specialairsend(agent: &mut L2CAgentBase) {
+}
+
+// ---- Alolan Whip AIR end (Incineroar) : sound_specialairsend, labels through tools/sound-map.tsv ----
+unsafe extern "C" fn pikachu_sound_specialairsend(agent: &mut L2CAgentBase) {
 }
 
 // ---- Skull Bash release, nulled : empty override of game_specials AND effect_specials ----
@@ -806,40 +1034,58 @@ pub fn install() {
     crate::charaslot::agent("pikachu")
         .game_acmd("game_speciallw", pikachu_game_speciallw, Default)
         .effect_acmd("effect_speciallw", pikachu_effect_speciallw, Default)
+        .sound_acmd("sound_speciallw", pikachu_sound_speciallw, Default)
         .game_acmd("game_specialairlw", pikachu_game_specialairlw, Default)
         .effect_acmd("effect_specialairlw", pikachu_effect_specialairlw, Default)
+        .sound_acmd("sound_specialairlw", pikachu_sound_specialairlw, Default)
         .game_acmd("game_speciallwturn", pikachu_game_speciallwturn, Default)
         .effect_acmd("effect_speciallwturn", pikachu_effect_speciallwturn, Default)
+        .sound_acmd("sound_speciallwturn", pikachu_sound_speciallwturn, Default)
         .game_acmd("game_specialairlwturn", pikachu_game_specialairlwturn, Default)
         .effect_acmd("effect_specialairlwturn", pikachu_effect_specialairlwturn, Default)
+        .sound_acmd("sound_specialairlwturn", pikachu_sound_specialairlwturn, Default)
         .game_acmd("game_specialhi", pikachu_game_specialhi, Default)
         .effect_acmd("effect_specialhi", pikachu_effect_specialhi, Default)
+        .sound_acmd("sound_specialhi", pikachu_sound_specialhi, Default)
         .game_acmd("game_specialairhi", pikachu_game_specialairhi, Default)
         .effect_acmd("effect_specialairhi", pikachu_effect_specialairhi, Default)
+        .sound_acmd("sound_specialairhi", pikachu_sound_specialairhi, Default)
         .game_acmd("game_specialsstart", pikachu_game_specialsstart, Default)
         .effect_acmd("effect_specialsstart", pikachu_effect_specialsstart, Default)
+        .sound_acmd("sound_specialsstart", pikachu_sound_specialsstart, Default)
         .game_acmd("game_specialsshoulder", pikachu_game_specialsshoulder, Default)
         .effect_acmd("effect_specialsshoulder", pikachu_effect_specialsshoulder, Default)
+        .sound_acmd("sound_specialsshoulder", pikachu_sound_specialsshoulder, Default)
         .game_acmd("game_specialslariat", pikachu_game_specialslariat, Default)
         .effect_acmd("effect_specialslariat", pikachu_effect_specialslariat, Default)
+        .sound_acmd("sound_specialslariat", pikachu_sound_specialslariat, Default)
         .game_acmd("game_specialsthrow", pikachu_game_specialsthrow, Default)
         .effect_acmd("effect_specialsthrow", pikachu_effect_specialsthrow, Default)
+        .sound_acmd("sound_specialsthrow", pikachu_sound_specialsthrow, Default)
         .game_acmd("game_specialsfailure", pikachu_game_specialsfailure, Default)
         .effect_acmd("effect_specialsfailure", pikachu_effect_specialsfailure, Default)
+        .sound_acmd("sound_specialsfailure", pikachu_sound_specialsfailure, Default)
         .game_acmd("game_specialsend", pikachu_game_specialsend, Default)
         .effect_acmd("effect_specialsend", pikachu_effect_specialsend, Default)
+        .sound_acmd("sound_specialsend", pikachu_sound_specialsend, Default)
         .game_acmd("game_specialairsstart", pikachu_game_specialairsstart, Default)
         .effect_acmd("effect_specialairsstart", pikachu_effect_specialairsstart, Default)
+        .sound_acmd("sound_specialairsstart", pikachu_sound_specialairsstart, Default)
         .game_acmd("game_specialairsshoulder", pikachu_game_specialairsshoulder, Default)
         .effect_acmd("effect_specialairsshoulder", pikachu_effect_specialairsshoulder, Default)
+        .sound_acmd("sound_specialairsshoulder", pikachu_sound_specialairsshoulder, Default)
         .game_acmd("game_specialairslariat", pikachu_game_specialairslariat, Default)
         .effect_acmd("effect_specialairslariat", pikachu_effect_specialairslariat, Default)
+        .sound_acmd("sound_specialairslariat", pikachu_sound_specialairslariat, Default)
         .game_acmd("game_specialairsthrow", pikachu_game_specialairsthrow, Default)
         .effect_acmd("effect_specialairsthrow", pikachu_effect_specialairsthrow, Default)
+        .sound_acmd("sound_specialairsthrow", pikachu_sound_specialairsthrow, Default)
         .game_acmd("game_specialairsfailure", pikachu_game_specialairsfailure, Default)
         .effect_acmd("effect_specialairsfailure", pikachu_effect_specialairsfailure, Default)
+        .sound_acmd("sound_specialairsfailure", pikachu_sound_specialairsfailure, Default)
         .game_acmd("game_specialairsend", pikachu_game_specialairsend, Default)
         .effect_acmd("effect_specialairsend", pikachu_effect_specialairsend, Default)
+        .sound_acmd("sound_specialairsend", pikachu_sound_specialairsend, Default)
         .game_acmd("game_specials", pikachu_game_specials, Default)
         .effect_acmd("effect_specials", pikachu_effect_specials, Default)
         .game_acmd("game_specialshold", pikachu_game_specialshold, Default)

@@ -1,0 +1,38 @@
+# Which DONOR sound goes into which of Pikachu's bank entries, for Rat of Doom's slot.
+#
+#   pikachu entry<TAB>donor bank<TAB>donor entry
+#
+# Read by tools/build-sound-bank.py. Entry names are matched case-insensitively (the banks store
+# `se_littlemac_smash_S03`; scripts and hash40 use lower case).
+#
+# OPTION A, CHOSEN 2026-10-18: swap audio inside Pikachu's own 61-entry bank, keep every label.
+# Nineteen of the 61 are played ONLY by scripts Rat of Doom replaces -- his tilts, smashes and
+# aerials, the old Quick Attack / Skull Bash / Thunder, the d-air landing -- so those nineteen take
+# donor audio. Everything he still does as Pikachu (walk, run, jump, land, shield, rolls he kept,
+# neutral-B, taunts, Final Smash, victory) keeps Pikachu's own sound. The 59 donor sounds do not
+# fit in 19, so tools/sound-map.tsv points near-duplicates at one entry (Little Mac's three jab
+# swings share one, Byleth's five n-air hits share one, Incineroar's eight side-B sounds share
+# two). Option B -- growing the bank so all 59 fit -- is the backup if the sharing bothers him.
+#
+# The list of what is free came from mapping every entry to the Pikachu scripts that play it
+# (vendor/SSBU-Dumped-Scripts/smashline/lua2cpp_pikachu). Entries NO script plays (jump03,
+# special_L02, final04..final04_09) are played by native status code and are never touched here.
+se_pikachu_swing_s	littlemac	se_littlemac_swing_m
+se_pikachu_tailswing	littlemac	se_littlemac_attack100
+se_pikachu_attackhard_L01	littlemac	se_littlemac_smash_S03
+se_pikachu_attackhard_S01	elight	se_elight_attackdash01
+se_pikachu_attackair_N01	master	se_master_attackair_N01
+se_pikachu_attackair_F01	wolf	se_wolf_attackair_F01
+se_pikachu_attackair_L01	cloud	se_cloud_attackair_B01
+se_pikachu_attackair_L02	kamui	se_kamui_attackair_H01
+se_pikachu_smash_H01	eflame	se_eflame_attackair_L01
+se_pikachu_smash_L01	fox	se_fox_smash_H01
+se_pikachu_smash_S01	gamewatch	se_gamewatch_wave05_mi
+se_pikachu_special_H01	gamewatch	se_gamewatch_wave10_mi
+se_pikachu_special_L01	gaogaen	se_gaogaen_special_L02
+se_pikachu_special_L03	gaogaen	se_gaogaen_special_L03
+se_pikachu_special_S01	gaogaen	se_gaogaen_special_S01
+se_pikachu_special_S01_charge	gaogaen	se_gaogaen_special_S07
+se_pikachu_special_S02_s	falco	se_falco_attackhard_H01
+se_pikachu_special_S02_m	ness	se_ness_throw_pk01
+se_pikachu_special_S02_l	mewtwo	se_mewtwo_throw_H

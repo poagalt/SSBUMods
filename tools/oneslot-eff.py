@@ -44,7 +44,17 @@ import urllib.parse
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 ARCMAP = os.path.join(ROOT, "work", "acquire", "arc-paths.txt")
 BACKUP = os.path.join(ROOT, "work", "oneslot")
-HOST = os.environ.get("FTP_HOST", "<console-ip>")
+def console_host():
+    """Same rule as tools/console.sh: FTP_HOST, then .console-host.local, else stop."""
+    h = os.environ.get("FTP_HOST", "").strip()
+    if not h and os.path.isfile(os.path.join(ROOT, ".console-host.local")):
+        h = open(os.path.join(ROOT, ".console-host.local"), encoding="utf-8").read().strip()
+    if not h:
+        sys.exit("  no console set: write its address to .console-host.local, or pass FTP_HOST=...")
+    return h
+
+
+HOST = console_host()
 PORT = os.environ.get("FTP_PORT", "5000")
 USER = os.environ.get("FTP_USER", "poaga")
 BASE = "/ultimate/mods"

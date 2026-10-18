@@ -34,6 +34,14 @@ unsafe extern "C" fn pikachu_game_escapeair(agent: &mut L2CAgentBase) {
 unsafe extern "C" fn pikachu_effect_escapeair(agent: &mut L2CAgentBase) {
 }
 
+// ---- air dodge (Fox) : sound_escapeair, labels through tools/sound-map.tsv ----
+unsafe extern "C" fn pikachu_sound_escapeair(agent: &mut L2CAgentBase) {
+    frame(agent.lua_state_agent, 2.0);
+    if macros::is_excute(agent) {
+        macros::PLAY_SE(agent, Hash40::new("se_pikachu_escape"));
+    }
+}
+
 // ---- air dodge directional (Fox) : game_escapeairslide ----
 unsafe extern "C" fn pikachu_game_escapeairslide(agent: &mut L2CAgentBase) {
     frame(agent.lua_state_agent, 14.0);
@@ -50,6 +58,14 @@ unsafe extern "C" fn pikachu_game_escapeairslide(agent: &mut L2CAgentBase) {
 
 // ---- air dodge directional (Fox) : effect_escapeairslide, sys_ effects only (ADR 0002) ----
 unsafe extern "C" fn pikachu_effect_escapeairslide(agent: &mut L2CAgentBase) {
+}
+
+// ---- air dodge directional (Fox) : sound_escapeairslide, labels through tools/sound-map.tsv ----
+unsafe extern "C" fn pikachu_sound_escapeairslide(agent: &mut L2CAgentBase) {
+    frame(agent.lua_state_agent, 5.0);
+    if macros::is_excute(agent) {
+        macros::PLAY_SE(agent, Hash40::new("se_pikachu_escape"));
+    }
 }
 
 // ---- forward roll (Fox) : game_escapef ----
@@ -73,13 +89,36 @@ unsafe extern "C" fn pikachu_effect_escapef(agent: &mut L2CAgentBase) {
     }
 }
 
+// ---- forward roll (Fox) : sound_escapef, labels through tools/sound-map.tsv ----
+unsafe extern "C" fn pikachu_sound_escapef(agent: &mut L2CAgentBase) {
+    frame(agent.lua_state_agent, 5.0);
+    if macros::is_excute(agent) {
+        macros::PLAY_SE(agent, Hash40::new("se_pikachu_escape"));
+    }
+    frame(agent.lua_state_agent, 20.0);
+    if macros::is_excute(agent) {
+        macros::PLAY_SE(agent, Hash40::new("se_pikachu_step_right_m"));
+    }
+    frame(agent.lua_state_agent, 26.0);
+    if macros::is_excute(agent) {
+        macros::PLAY_SE(agent, Hash40::new("se_pikachu_step_left_m"));
+    }
+    frame(agent.lua_state_agent, 29.0);
+    if macros::is_excute(agent) {
+        macros::PLAY_SE(agent, Hash40::new("se_pikachu_landing01"));
+    }
+}
+
 pub fn install() {
     crate::charaslot::agent("pikachu")
         .game_acmd("game_escapeair", pikachu_game_escapeair, Default)
         .effect_acmd("effect_escapeair", pikachu_effect_escapeair, Default)
+        .sound_acmd("sound_escapeair", pikachu_sound_escapeair, Default)
         .game_acmd("game_escapeairslide", pikachu_game_escapeairslide, Default)
         .effect_acmd("effect_escapeairslide", pikachu_effect_escapeairslide, Default)
+        .sound_acmd("sound_escapeairslide", pikachu_sound_escapeairslide, Default)
         .game_acmd("game_escapef", pikachu_game_escapef, Default)
         .effect_acmd("effect_escapef", pikachu_effect_escapef, Default)
+        .sound_acmd("sound_escapef", pikachu_sound_escapef, Default)
         .install();
 }

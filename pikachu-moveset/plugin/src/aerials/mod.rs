@@ -68,6 +68,34 @@ unsafe extern "C" fn pikachu_effect_attackairn(agent: &mut L2CAgentBase) {
     }
 }
 
+// ---- n-air (Byleth) : sound_attackairn, labels through tools/sound-map.tsv ----
+unsafe extern "C" fn pikachu_sound_attackairn(agent: &mut L2CAgentBase) {
+    frame(agent.lua_state_agent, 5.0);
+    if macros::is_excute(agent) {
+        macros::PLAY_SEQUENCE(agent, Hash40::new("seq_pikachu_rnd_attack"));
+    }
+    frame(agent.lua_state_agent, 7.0);
+    if macros::is_excute(agent) {
+        macros::PLAY_SE(agent, Hash40::new("se_pikachu_attackair_n01"));
+    }
+    frame(agent.lua_state_agent, 13.0);
+    if macros::is_excute(agent) {
+        macros::PLAY_SE(agent, Hash40::new("se_pikachu_attackair_n01"));
+    }
+    frame(agent.lua_state_agent, 18.0);
+    if macros::is_excute(agent) {
+        macros::PLAY_SE(agent, Hash40::new("se_pikachu_attackair_n01"));
+    }
+    frame(agent.lua_state_agent, 23.0);
+    if macros::is_excute(agent) {
+        macros::PLAY_SE(agent, Hash40::new("se_pikachu_attackair_n01"));
+    }
+    frame(agent.lua_state_agent, 29.0);
+    if macros::is_excute(agent) {
+        macros::PLAY_SE(agent, Hash40::new("se_pikachu_attackair_n01"));
+    }
+}
+
 // ---- f-air (Wolf) : game_attackairf ----
 unsafe extern "C" fn pikachu_game_attackairf(agent: &mut L2CAgentBase) {
     if macros::is_excute(agent) {
@@ -95,6 +123,15 @@ unsafe extern "C" fn pikachu_effect_attackairf(agent: &mut L2CAgentBase) {
     frame(agent.lua_state_agent, 7.0);
     if macros::is_excute(agent) {
         macros::EFFECT_FOLLOW(agent, Hash40::new("sys_attack_arc"), Hash40::new("top"), 0, 10, 2, 0, 0, 250, 0.9, true);
+    }
+}
+
+// ---- f-air (Wolf) : sound_attackairf, labels through tools/sound-map.tsv ----
+unsafe extern "C" fn pikachu_sound_attackairf(agent: &mut L2CAgentBase) {
+    frame(agent.lua_state_agent, 6.0);
+    if macros::is_excute(agent) {
+        macros::PLAY_SEQUENCE(agent, Hash40::new("seq_pikachu_rnd_attack"));
+        macros::PLAY_SE(agent, Hash40::new("se_pikachu_attackair_f01"));
     }
 }
 
@@ -127,6 +164,15 @@ unsafe extern "C" fn pikachu_game_attackairb(agent: &mut L2CAgentBase) {
 unsafe extern "C" fn pikachu_effect_attackairb(agent: &mut L2CAgentBase) {
 }
 
+// ---- b-air (Cloud) : sound_attackairb, labels through tools/sound-map.tsv ----
+unsafe extern "C" fn pikachu_sound_attackairb(agent: &mut L2CAgentBase) {
+    frame(agent.lua_state_agent, 6.0);
+    if macros::is_excute(agent) {
+        macros::PLAY_SEQUENCE(agent, Hash40::new("seq_pikachu_rnd_attack"));
+        macros::PLAY_SE(agent, Hash40::new("se_pikachu_attackair_l01"));
+    }
+}
+
 // ---- u-air (Corrin) : game_attackairhi ----
 unsafe extern "C" fn pikachu_game_attackairhi(agent: &mut L2CAgentBase) {
     frame(agent.lua_state_agent, 4.0);
@@ -152,6 +198,15 @@ unsafe extern "C" fn pikachu_game_attackairhi(agent: &mut L2CAgentBase) {
 
 // ---- u-air (Corrin) : effect_attackairhi, sys_ effects only (ADR 0002) ----
 unsafe extern "C" fn pikachu_effect_attackairhi(agent: &mut L2CAgentBase) {
+}
+
+// ---- u-air (Corrin) : sound_attackairhi, labels through tools/sound-map.tsv ----
+unsafe extern "C" fn pikachu_sound_attackairhi(agent: &mut L2CAgentBase) {
+    frame(agent.lua_state_agent, 4.0);
+    if macros::is_excute(agent) {
+        macros::PLAY_SE(agent, Hash40::new("se_pikachu_attackair_l02"));
+        macros::PLAY_SEQUENCE(agent, Hash40::new("seq_pikachu_rnd_attack"));
+    }
 }
 
 // ---- d-air (Pyra) : game_attackairlw ----
@@ -217,17 +272,34 @@ unsafe extern "C" fn pikachu_effect_attackairlw(agent: &mut L2CAgentBase) {
     }
 }
 
+// ---- d-air (Pyra) : sound_attackairlw, labels through tools/sound-map.tsv ----
+unsafe extern "C" fn pikachu_sound_attackairlw(agent: &mut L2CAgentBase) {
+    frame(agent.lua_state_agent, 8.0);
+    if macros::is_excute(agent) {
+        macros::PLAY_SE(agent, Hash40::new("se_pikachu_smash_h01"));
+    }
+    frame(agent.lua_state_agent, 13.0);
+    if macros::is_excute(agent) {
+        macros::PLAY_SEQUENCE(agent, Hash40::new("seq_pikachu_rnd_attack"));
+    }
+}
+
 pub fn install() {
     crate::charaslot::agent("pikachu")
         .game_acmd("game_attackairn", pikachu_game_attackairn, Default)
         .effect_acmd("effect_attackairn", pikachu_effect_attackairn, Default)
+        .sound_acmd("sound_attackairn", pikachu_sound_attackairn, Default)
         .game_acmd("game_attackairf", pikachu_game_attackairf, Default)
         .effect_acmd("effect_attackairf", pikachu_effect_attackairf, Default)
+        .sound_acmd("sound_attackairf", pikachu_sound_attackairf, Default)
         .game_acmd("game_attackairb", pikachu_game_attackairb, Default)
         .effect_acmd("effect_attackairb", pikachu_effect_attackairb, Default)
+        .sound_acmd("sound_attackairb", pikachu_sound_attackairb, Default)
         .game_acmd("game_attackairhi", pikachu_game_attackairhi, Default)
         .effect_acmd("effect_attackairhi", pikachu_effect_attackairhi, Default)
+        .sound_acmd("sound_attackairhi", pikachu_sound_attackairhi, Default)
         .game_acmd("game_attackairlw", pikachu_game_attackairlw, Default)
         .effect_acmd("effect_attackairlw", pikachu_effect_attackairlw, Default)
+        .sound_acmd("sound_attackairlw", pikachu_sound_attackairlw, Default)
         .install();
 }
