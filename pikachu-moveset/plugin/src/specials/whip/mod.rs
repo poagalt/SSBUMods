@@ -1128,6 +1128,7 @@ unsafe fn rope_hold(boma: *mut BattleObjectModuleAccessor) {
     if ROPE_AGE[e] >= 0 {
         ROPE_AGE[e] += 1;
     }
+    rope_unbend(boma, id, abm, e);
     if (px - x).abs() > 0.1 || (py - y).abs() > 0.1 || GroundModule::get_correct(abm) != *GROUND_CORRECT_KIND_NONE {
         place_rope(abm, x, y);
         if logging {
@@ -1137,6 +1138,43 @@ unsafe fn rope_hold(boma: *mut BattleObjectModuleAccessor) {
                 GroundModule::get_correct(abm)
             ));
         }
+    }
+}
+
+/// Frames since the rope's `bend` began, per entry, for its log; -1 when it is not bending.
+static mut BEND_AGE: [i32; 8] = [-1; 8];
+
+/// THE BEND GOES BACK TO FLAT. Playtest 2026-10-18: the ropes "don't snap back to a normal flat
+/// position after the enemy hits it". `rope_bend` plays `bend` inside the rope's own Wait status
+/// (ADR 0004 keeps it out of the native Bend status, which would unlink the victim), and nothing
+/// in Wait ever replaces a motion that has run out -- so the last frame of `bend`, the ropes
+/// stretched, is held for the rest of the throw. The native Bend status hands the rope back to
+/// Wait, whose motion is `wait`; this does that when `bend` reaches its end. Frame-based as well as
+/// `is_end`, so it holds whether or not `bend` is flagged as a loop.
+unsafe fn rope_unbend(
+    boma: *mut BattleObjectModuleAccessor,
+    id: i32,
+    abm: *mut BattleObjectModuleAccessor,
+    e: usize,
+) {
+    if MotionModule::motion_kind(abm) != hash40("bend") {
+        BEND_AGE[e] = -1;
+        return;
+    }
+    BEND_AGE[e] += 1;
+    let (frame, end) = (MotionModule::frame(abm), MotionModule::end_frame(abm));
+    if BEND_AGE[e] < 40 && BEND_AGE[e] % 4 == 0 {
+        crate::telemetry::sink::diag(format!(
+            "[rat] WHIP p{e} rope bend f{} motion frame {frame:.1}/{end:.1} rate {:.2}",
+            BEND_AGE[e], MotionModule::rate(abm)
+        ));
+    }
+    if MotionModule::is_end(abm) || frame + 1.0 >= end {
+        ArticleModule::change_motion(boma, id, Hash40::new("wait"), false, -1.0);
+        crate::telemetry::sink::diag(format!(
+            "[rat] WHIP p{e} rope bend ran out after {} frame(s) -> wait", BEND_AGE[e]
+        ));
+        BEND_AGE[e] = -1;
     }
 }
 

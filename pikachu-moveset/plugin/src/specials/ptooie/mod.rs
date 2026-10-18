@@ -100,6 +100,24 @@ unsafe fn ball_boma(boma: *mut BattleObjectModuleAccessor) -> Option<*mut Battle
     crate::articles::accessor(boma, id)
 }
 
+/// EVERY WAY INTO HIT_END GOES THROUGH HERE, and says why. Playtest 2026-10-18: every Ptooie went
+/// SPECIAL_N -> LOOP -> HIT_END on the blow's first frame, the ball gone in a puff, and the log had
+/// only "HIT_END" -- not which test failed, nor what the ball was doing.
+unsafe fn to_hit_end(fighter: &mut L2CFighterCommon, from: &str) {
+    let boma = fighter.module_accessor;
+    let ball_st = match ball_boma(boma) {
+        Some(b) => format!("{:#x} motion {:#x}", StatusModule::status_kind(b), MotionModule::motion_kind(b)),
+        None => "gone".to_string(),
+    };
+    crate::telemetry::sink::diag(format!(
+        "[rat] PTOOIE p{} -> HIT_END from {from}: linked={} ball={ball_st} stop={}",
+        entry_of(boma),
+        LinkModule::is_linked(boma, *WEAPON_LINK_NO_CONSTRAINT),
+        StopModule::is_stop(boma)
+    ));
+    fighter.change_status(RAT_STATUS_KIND_SPECIAL_N_HIT_END.into(), false.into());
+}
+
 // ---- the reproduced native helpers ------------------------------------------------------------
 
 /// `FighterSpecializer_Packun::is_special_n_spikeball_changed_status`, with OUR status numbers.
@@ -472,7 +490,7 @@ unsafe extern "C" fn special_n_main_loop(fighter: &mut L2CFighterCommon) -> L2CV
         WorkModule::off_flag(boma, *FIGHTER_PACKUN_STATUS_SPECIAL_N_FLAG_GENERATE_ARTICLE_SPIKEBALL);
     }
     if ball_boma(boma).is_some() && !ball_in_step(fighter) {
-        fighter.change_status(RAT_STATUS_KIND_SPECIAL_N_HIT_END.into(), false.into());
+        to_hit_end(fighter, "special_n_main_loop");
         return 0.into();
     }
     if MotionModule::is_end(boma) {
@@ -494,7 +512,18 @@ unsafe extern "C" fn special_n_main_loop(fighter: &mut L2CFighterCommon) -> L2CV
 /// `SpecialN_end`: unless the next status is LOOP, tell the ball (event 0x1d705643d2, which the
 /// ball's own class handles).
 unsafe extern "C" fn special_n_end(fighter: &mut L2CFighterCommon) -> L2CValue {
-    if StatusModule::status_kind_next(fighter.module_accessor) != RAT_STATUS_KIND_SPECIAL_N_LOOP {
+    // `global_table[0xb]`, the INCOMING status -- what the source compares (its `this[...]` read),
+    // and the read src/specials/specialhi and ../shoulder already make in their End lines. This
+    // used `StatusModule::status_kind_next`; both are logged until a playtest shows they agree.
+    let next = fighter.global_table[0xb].get_i32();
+    let send = next != RAT_STATUS_KIND_SPECIAL_N_LOOP;
+    crate::telemetry::sink::diag(format!(
+        "[rat] PTOOIE p{} SPECIAL_N end: incoming {next:#x}, status_kind_next {:#x} -> {}",
+        entry_of(fighter.module_accessor),
+        StatusModule::status_kind_next(fighter.module_accessor),
+        if send { "ball told to end (0x1d705643d2)" } else { "ball kept for the blow" }
+    ));
+    if send {
         LinkModule::send_event_nodes(fighter.module_accessor, *LINK_NO_ARTICLE, Hash40::new_raw(0x1d705643d2), 0);
     }
     0.into()
@@ -518,6 +547,12 @@ unsafe extern "C" fn loop_main(fighter: &mut L2CFighterCommon) -> L2CValue {
     let boma = fighter.module_accessor;
     change_motion(fighter, "special_n_blow", "special_air_n_blow", 0.0);
     MotionModule::set_rate(boma, param_f(boma, "loop_motion_rate"));
+    crate::telemetry::sink::diag(format!(
+        "[rat] PTOOIE p{} LOOP main: linked={} ball={}",
+        entry_of(boma),
+        LinkModule::is_linked(boma, *WEAPON_LINK_NO_CONSTRAINT),
+        match ball_boma(boma) { Some(b) => format!("{:#x}", StatusModule::status_kind(b)), None => "gone".into() }
+    ));
     if LinkModule::is_linked(boma, *WEAPON_LINK_NO_CONSTRAINT) {
         if let Some(id) = ball() {
             ArticleModule::change_status_exist(boma, id, *WEAPON_PACKUN_SPIKEBALL_STATUS_KIND_LOOP);
@@ -529,7 +564,7 @@ unsafe extern "C" fn loop_main(fighter: &mut L2CFighterCommon) -> L2CValue {
 unsafe extern "C" fn loop_main_loop(fighter: &mut L2CFighterCommon) -> L2CValue {
     let boma = fighter.module_accessor;
     if StopModule::is_stop(boma) || !ball_in_step(fighter) {
-        fighter.change_status(RAT_STATUS_KIND_SPECIAL_N_HIT_END.into(), false.into());
+        to_hit_end(fighter, "loop_main_loop");
         return 0.into();
     }
     if shoot_on_tilt(fighter) {
@@ -545,7 +580,8 @@ unsafe extern "C" fn loop_main_loop(fighter: &mut L2CFighterCommon) -> L2CValue 
 
 /// `SpecialNLoop_end`, on EXIT: unless going to WAIT or SHOOT, the same event to the ball.
 unsafe extern "C" fn loop_exit(fighter: &mut L2CFighterCommon) -> L2CValue {
-    let next = StatusModule::status_kind_next(fighter.module_accessor);
+    // The incoming status, read the way SPECIAL_N's End reads it (see `special_n_end`).
+    let next = fighter.global_table[0xb].get_i32();
     if next != RAT_STATUS_KIND_SPECIAL_N_WAIT && next != RAT_STATUS_KIND_SPECIAL_N_SHOOT {
         LinkModule::send_event_nodes(fighter.module_accessor, *LINK_NO_ARTICLE, Hash40::new_raw(0x1d705643d2), 0);
     }
@@ -575,7 +611,7 @@ unsafe extern "C" fn wait_main_loop(fighter: &mut L2CFighterCommon) -> L2CValue 
         return 0.into();
     }
     if !ball_in_step(fighter) {
-        fighter.change_status(RAT_STATUS_KIND_SPECIAL_N_HIT_END.into(), false.into());
+        to_hit_end(fighter, "wait_main_loop");
         return 0.into();
     }
     if shoot_on_tilt(fighter) {

@@ -80,13 +80,26 @@ unsafe extern "C" fn pikachu_specialhi_main(fighter: &mut L2CFighterCommon) -> L
     // `FIGHTER_INSTANCE_WORK_ID_FLAG_DISABLE_SPECIAL_HI_CONTINUOUS` is 0x200000CD -- in the COMMON
     // instance block, below the 0x200000E0 where per-fighter numbering starts, so it cannot
     // collide with anything of Pikachu's. Steve sets it in `SpecialHiFall_main` and Banjo in
-    // `SpecialHi_end`, and no lua2cpp anywhere reads it: the engine does, and the engine also
-    // clears it on landing. So this is one line, the game's own mechanism, and nothing has to
-    // remember to undo it.
+    // `SpecialHi_end`, and no lua2cpp anywhere reads it.
+    //
+    // AND IT DID NOT LIMIT ANYTHING (playtest 2026-10-18: "rat of doom can up b infinite times").
+    // The engine's only READ of 0x200000CD is one fighter-kind case of a per-kind native switch
+    // (13.0.5 main sub_351630) -- Steve's, not Pikachu's. What IS generic is the CLEAR: two base
+    // Fighter-class virtuals (sub_612a10 and sub_627e40, in the base vtable at 0x4f803d8 and
+    // 0x4f80790) turn it off for every fighter. So the flag is kept as the game's own record of
+    // "an up-B has been used this airtime", and the lock is the engine's kind-independent one: the
+    // CONT_SPECIAL_HI transition term goes into the forbid set, which status changes do not reset
+    // (common lua forbids its dash terms the same way), and `pikachu_specialhi_refresh` lifts it.
     WorkModule::on_flag(
         fighter.module_accessor,
         *FIGHTER_INSTANCE_WORK_ID_FLAG_DISABLE_SPECIAL_HI_CONTINUOUS,
     );
+    WorkModule::enable_transition_term_forbid(
+        fighter.module_accessor,
+        *FIGHTER_STATUS_TRANSITION_TERM_ID_CONT_SPECIAL_HI,
+    );
+    let e = upb_entry(fighter.module_accessor);
+    UPB_FORBIDDEN[e] = true;
 
     // INSURANCE AGAINST A PERMANENTLY INVISIBLE PIKACHU.
     //
@@ -312,9 +325,48 @@ unsafe extern "C" fn pikachu_specialhi_visible(fighter: &mut L2CFighterCommon) {
     }
 }
 
+fn upb_entry(boma: *mut BattleObjectModuleAccessor) -> usize {
+    let e = unsafe { WorkModule::get_int(boma, *FIGHTER_INSTANCE_WORK_ID_INT_ENTRY_ID) } as usize;
+    if e >= 8 { 0 } else { e }
+}
+
+/// Which entries' CONT_SPECIAL_HI forbid THIS module set, so the refresh lifts only its own and
+/// never one the engine or common code placed for a reason of theirs.
+static mut UPB_FORBIDDEN: [bool; 8] = [false; 8];
+
+/// LIFTS THE ONE-UP-B LOCK WHEN THE GAME SAYS THE AIRTIME IS OVER.
+///
+/// The game's say is its own clear of DISABLE_SPECIAL_HI_CONTINUOUS (see the main). Standing on
+/// the ground and catching a ledge lift it too, as a floor under that: if the engine's clear ever
+/// failed to reach a Pikachu, a lock with no other way out would cost him his up-B for the stock.
+unsafe extern "C" fn pikachu_specialhi_refresh(fighter: &mut L2CFighterCommon) {
+    let boma = fighter.module_accessor;
+    let e = upb_entry(boma);
+    if !UPB_FORBIDDEN[e] {
+        return;
+    }
+    let st = StatusModule::status_kind(boma);
+    let why = if !WorkModule::is_flag(boma, *FIGHTER_INSTANCE_WORK_ID_FLAG_DISABLE_SPECIAL_HI_CONTINUOUS) {
+        "the engine cleared DISABLE_SPECIAL_HI_CONTINUOUS"
+    } else if st == *FIGHTER_STATUS_KIND_CLIFF_CATCH || st == *FIGHTER_STATUS_KIND_CLIFF_WAIT {
+        "ledge catch"
+    } else if StatusModule::situation_kind(boma) == *SITUATION_KIND_GROUND
+        && st != *FIGHTER_STATUS_KIND_SPECIAL_HI
+    {
+        "grounded"
+    } else {
+        return;
+    };
+    WorkModule::unable_transition_term_forbid(boma, *FIGHTER_STATUS_TRANSITION_TERM_ID_CONT_SPECIAL_HI);
+    WorkModule::off_flag(boma, *FIGHTER_INSTANCE_WORK_ID_FLAG_DISABLE_SPECIAL_HI_CONTINUOUS);
+    UPB_FORBIDDEN[e] = false;
+    crate::telemetry::sink::diag(format!("[rat] UPB p{e} usable again: {why} (status {st:#x})"));
+}
+
 pub fn install() {
     crate::charaslot::agent("pikachu")
         .on_line(Main, pikachu_specialhi_visible)
+        .on_line(Main, pikachu_specialhi_refresh)
         .status(Pre, *FIGHTER_STATUS_KIND_SPECIAL_HI, pikachu_specialhi_pre)
         .status(Init, *FIGHTER_STATUS_KIND_SPECIAL_HI, pikachu_specialhi_init)
         .status(Main, *FIGHTER_STATUS_KIND_SPECIAL_HI, pikachu_specialhi_main)
