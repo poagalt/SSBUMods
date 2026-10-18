@@ -244,13 +244,22 @@ pub const CANDIDATES: &[Candidate] = &[
     // the copy against the source it was copied from, so a partial source is invisible to it.
     Candidate { host_name: "bow",         donor: "master",    donor_article: "bow",         weapon_kind: "WEAPON_KIND_MASTER_BOW",          clean: true,  enabled: true,  authored: false, model_from: "" },
     Candidate { host_name: "spikeball",   donor: "packun",    donor_article: "spikeball",   weapon_kind: "WEAPON_KIND_PACKUN_SPIKEBALL",    clean: false, enabled: false, authored: false, model_from: "" },
-    Candidate { host_name: "rope",        donor: "gaogaen",   donor_article: "rope",        weapon_kind: "WEAPON_KIND_GAOGAEN_ROPE",        clean: false, enabled: true,  authored: false, model_from: "" },
+    // OFF AGAIN 2026-10-18: IT CRASHED THE FIRST MATCH LOAD ON HARDWARE (13.0.4). Crash report
+    // 01792305616: Data Abort reading [0 + 0x108] on TaskWorker2, LR main+0x3403a30 -- 0x20 into
+    // the rope's own vtable SLOT 3 (0x3403fc0 in the 13.0.5 dump), reached from StartModules
+    // through the slot-3 call at main+0x33a020c, under smashline's fighter_initialize_object_data.
+    // Slot 3's first act is `ldr x0,[x19,#0x60]` (the rope's CameraModule) and a virtual call that
+    // lands in the camera-range setter, which dereferences a null -- NOT a FighterParamAccessor2
+    // read, so tools/check-article-donor-params.sh rightly calls slot 3 clean and neutralize.rs
+    // never covered it. The rope's class overrides 13 of 114 slots (0 2 3 6 7 8 9 13 17 35 36 40
+    // 55), against 2-3 for every article that loads, so repointing slot 3 alone would only find
+    // the next one. Its neutralize.rs hook is inert while this row is off.
+    Candidate { host_name: "rope",        donor: "gaogaen",   donor_article: "rope",        weapon_kind: "WEAPON_KIND_GAOGAEN_ROPE",        clean: false, enabled: false, authored: false, model_from: "" },
     // G&W's FIREMEN AND TRAMPOLINE, which his special_hi main generates beside the parachute
     // (FIGHTER_GAMEWATCH_GENERATE_ARTICLE_RESCUE). Audits clean. LAST so no existing article id
     // moves. Its own agent scripts (`gamewatch_rescue`: the `up`/`down` visibility swap at frames
-    // 1 and 8) run from lua2cpp_gamewatch, which smashline loads for the weapon's kind. Off until
-    // its model is pulled into work/arc-vis/fighter/gamewatch/model/rescue.
-    Candidate { host_name: "rescue",      donor: "gamewatch", donor_article: "rescue",      weapon_kind: "WEAPON_KIND_GAMEWATCH_RESCUE",    clean: true,  enabled: false, authored: false, model_from: "" },
+    // 1 and 8) run from lua2cpp_gamewatch, which smashline loads for the weapon's kind.
+    Candidate { host_name: "rescue",      donor: "gamewatch", donor_article: "rescue",      weapon_kind: "WEAPON_KIND_GAMEWATCH_RESCUE",    clean: true,  enabled: true,  authored: false, model_from: "" },
 ];
 
 /// Whether the clones are actually installed. A declared constant rather than commented-out calls,
