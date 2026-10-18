@@ -30,8 +30,9 @@ unsafe extern "C" fn pikachu_game_escapeair(agent: &mut L2CAgentBase) {
 }
 
 
-// ---- air dodge (Fox) : effect_escapeair, sys_ effects only (ADR 0002) ----
+// ---- air dodge (Fox) : effect_escapeair, ported by tools/port-effects.py (ADR 0007) ----
 unsafe extern "C" fn pikachu_effect_escapeair(agent: &mut L2CAgentBase) {
+
 }
 
 // ---- air dodge (Fox) : sound_escapeair, labels through tools/sound-map.tsv ----
@@ -56,8 +57,9 @@ unsafe extern "C" fn pikachu_game_escapeairslide(agent: &mut L2CAgentBase) {
 }
 
 
-// ---- air dodge directional (Fox) : effect_escapeairslide, sys_ effects only (ADR 0002) ----
+// ---- air dodge directional (Fox) : effect_escapeairslide, ported by tools/port-effects.py (ADR 0007) ----
 unsafe extern "C" fn pikachu_effect_escapeairslide(agent: &mut L2CAgentBase) {
+
 }
 
 // ---- air dodge directional (Fox) : sound_escapeairslide, labels through tools/sound-map.tsv ----
@@ -77,9 +79,8 @@ unsafe extern "C" fn pikachu_game_escapef(agent: &mut L2CAgentBase) {
 }
 
 
-// ---- forward roll (Fox) : effect_escapef, sys_ effects only (ADR 0002) ----
+// ---- forward roll (Fox) : effect_escapef, ported by tools/port-effects.py (ADR 0007) ----
 unsafe extern "C" fn pikachu_effect_escapef(agent: &mut L2CAgentBase) {
-    frame(agent.lua_state_agent, 1.0);
     if macros::is_excute(agent) {
         macros::EFFECT(agent, Hash40::new("sys_smash_flash"), Hash40::new("top"), 0, 3, 0, 0, 0, 0, 1, 0, 0, 0, 0, 0, 0, true);
     }

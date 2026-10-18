@@ -1,5 +1,9 @@
 # Only `sys_*` visual effects may be used
 
+**SUPERSEDED 2026-10-18 by [ADR 0007](0007-transplanted-donor-effects.md).** Rat of Doom became a
+CSK slot, and smashline's effect transplant loads the donors' effects for it; the rule below is
+kept as the record of why it held until then.
+
 The "must not require the CSK Collection" constraint is enforced by two mechanisms, and this is
 one of them. Fighter-prefixed effect archives are not resident unless that fighter is loaded, so
 referencing one from Pikachu's scripts is precisely what creates a CSK dependency. The reference

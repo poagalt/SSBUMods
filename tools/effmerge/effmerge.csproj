@@ -1,0 +1,24 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <!-- Builds an EFFN effect archive from an EffectConverter dump folder, the way EffectConverter
+       v1.9 does, PLUS the texture-bank re-serialisation v1.9 leaves commented out
+       (EffectLibrary/FileData/EFT2/Textures.cs, TextureInfo.Write). See Program.cs. -->
+  <PropertyGroup>
+    <OutputType>Exe</OutputType>
+    <TargetFramework>net8.0</TargetFramework>
+    <Nullable>disable</Nullable>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <RollForward>Major</RollForward>
+  </PropertyGroup>
+  <PropertyGroup>
+    <EC>..\..\vendor\tools\EffectConverter\v1.9</EC>
+  </PropertyGroup>
+  <ItemGroup>
+    <Reference Include="EffectLibrary"><HintPath>$(EC)\EffectLibrary.dll</HintPath></Reference>
+    <Reference Include="BfresLibrary"><HintPath>$(EC)\BfresLibrary.dll</HintPath></Reference>
+    <Reference Include="ShaderLibrary"><HintPath>$(EC)\ShaderLibrary.dll</HintPath></Reference>
+    <Reference Include="Newtonsoft.Json"><HintPath>$(EC)\Newtonsoft.Json.dll</HintPath></Reference>
+    <Reference Include="Syroot.BinaryData"><HintPath>$(EC)\Syroot.BinaryData.dll</HintPath></Reference>
+    <Reference Include="Syroot.Maths"><HintPath>$(EC)\Syroot.Maths.dll</HintPath></Reference>
+    <Reference Include="Syroot.NintenTools.NSW.Bntx"><HintPath>$(EC)\Syroot.NintenTools.NSW.Bntx.dll</HintPath></Reference>
+  </ItemGroup>
+</Project>

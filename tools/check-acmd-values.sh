@@ -86,7 +86,12 @@ while read -r f acmd fn stem mod label; do
                 [ -n "${t_eff:-}" ] && sub_args="$sub_args --effect-sub $s_eff=$t_eff"
             done < "$ROOT/tools/effect-subs.tsv"
         fi
-        out=$("$P" "$src" "${kind}_$fn" "$S/$mod/mod.rs" "pikachu_${kind}_$fn" $subset $reb $alias_args $sub_args 2>&1)
+        # The joint translations tools/port-effects.py applies (ADR 0007), declared here in the
+        # same form so the checker applies the SAME rule to the source and still compares every
+        # argument. Keep in step with JOINT_MAP / SWORD1 in tools/port-effects.py.
+        jm_args=""
+        [ "$kind" = "effect" ] && jm_args="--effect-joint-map sword1=haver:rotz90 --effect-joint-map feeler=head --effect-joint-map feelerca=head --effect-work-map FIGHTER_CLOUD_INSTANCE_WORK_ID_INT_EFFECT_KIND_SWORD_FLARE=cloud_sword_flare"
+        out=$("$P" "$src" "${kind}_$fn" "$S/$mod/mod.rs" "pikachu_${kind}_$fn" $subset $reb $alias_args $sub_args $jm_args 2>&1)
         rc=$?
         [ "$kind" = "game" ] && moves=$((moves+1))
         if [ "$kind" = "game" ]; then

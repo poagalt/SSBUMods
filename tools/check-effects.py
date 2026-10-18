@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Enforce ADR 0002: the plugin may not request a non-resident effect archive.
+"""Enforce that the plugin never requests an effect nothing loads (ADR 0002, as amended by ADR 0007).
 
 WHY THIS IS A GATE AND NOT A NOTE. `docs/adr/0002-sys-effects-only.md` decided that ported moves
 may only use `sys_*` effects, because a fighter-prefixed archive is not resident unless that fighter
@@ -85,6 +85,12 @@ def main() -> int:
               file=sys.stderr)
         return 1
 
+    # ADR 0007: Rat of Doom ships the donor effects it names in a transplanted archive, built by
+    # tools/build-effects.py, which writes the names it carries here. A fighter-prefixed request
+    # is allowed exactly when that archive provides it -- so the gate still fails the silent case
+    # it was written for (a name nothing loads), now measured against what actually ships.
+    manifest = os.path.join(ROOT, "work", "effects", "ratofdoom-manifest.txt")
+    transplanted = set(open(manifest, encoding="utf-8").read().split()) if os.path.exists(manifest) else set()
     requested, spellings, all_sys, bad = {}, set(), set(), []
     for dirpath, _dirs, files in os.walk(SRC):
         for fn in sorted(files):
@@ -105,7 +111,7 @@ def main() -> int:
                     continue
                 n = name.group(1)
                 requested[n] = requested.get(n, 0) + 1
-                if n.split("_", 1)[0] in banned:
+                if n.split("_", 1)[0] in banned and n not in transplanted:
                     bad.append((n, "%s:%d" % (rel, text.count("\n", 0, m.start()) + 1),
                                 m.group(1)))
 
@@ -115,13 +121,12 @@ def main() -> int:
 
     for n, where, call in bad:
         print("  FAIL %s requests '%s' at %s" % (call, n, where), file=sys.stderr)
-        print("       '%s' is a fighter effect archive and is NOT resident unless that fighter is"
+        print("       '%s' is a fighter effect archive, resident only when that fighter is in the"
               % n.split("_", 1)[0], file=sys.stderr)
-        print("       in the match, so this request silently does nothing. See", file=sys.stderr)
-        print("       docs/adr/0002-sys-effects-only.md -- a CSK-requiring variant with full",
+        print("       match, and Rat of Doom's transplanted archive does not carry this name", file=sys.stderr)
+        print("       (work/effects/ratofdoom-manifest.txt), so the request silently does nothing.",
               file=sys.stderr)
-        print("       source effects is a separate BACKLOG deliverable, not a fix to this one.",
-              file=sys.stderr)
+        print("       Rebuild with tools/build-effects.py; see docs/adr/0007.", file=sys.stderr)
     for n in blind:
         print("  FAIL '%s' is never reached through an effect call window" % n, file=sys.stderr)
         print("       A new effect macro spelling is not matched by this gate's shape pattern, so",
@@ -132,8 +137,10 @@ def main() -> int:
 
     if bad or blind:
         return 1
-    print("  ok  %d effect request(s), %d distinct name(s), all from the resident sys_ archive"
-          % (sum(requested.values()), len(requested)))
+    via_transplant = sorted(n for n in requested if n in transplanted)
+    print("  ok  %d effect request(s), %d distinct name(s), every one resident: %d from Rat of "
+          "Doom's transplanted archive, the rest sys_ or Pikachu's own"
+          % (sum(requested.values()), len(requested), len(via_transplant)))
     print("      %d macro spelling(s) matched; all %d sys_ literals reached, so the gate is not blind"
           % (len(spellings), len(all_sys)))
     return 0

@@ -46,3 +46,7 @@ __pycache__/
 
 # The shipped tree is generated from pikachu-moveset/mod by tools/relocate-slot.sh on every build.
 pikachu-moveset/ship/
+
+# tools/effmerge build output (the build goes to vendor/tools/effmerge)
+tools/effmerge/bin/
+tools/effmerge/obj/

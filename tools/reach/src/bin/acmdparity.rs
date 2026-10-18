@@ -127,7 +127,23 @@ fn main() {
         eprintln!("usage: acmdparity <source.txt> <source_fn> <ours.rs> <our_fn>");
         std::process::exit(2);
     }
-    let src = std::fs::read_to_string(&a[0]).unwrap_or_default();
+    let mut src = std::fs::read_to_string(&a[0]).unwrap_or_default();
+    // `--effect-work-map CONST=name`, repeatable: an EFFECT_*_WORK call reads its effect from a
+    // work slot only the DONOR's code fills, so tools/port-effects.py writes the named effect that
+    // slot holds instead (ADR 0007). The source is rewritten the same way before comparing, and
+    // only for the constants listed.
+    for (i, x) in a.iter().enumerate() {
+        if x != "--effect-work-map" {
+            continue;
+        }
+        let Some((c, n)) = a.get(i + 1).and_then(|p| p.split_once('=')) else { continue };
+        for m in ["EFFECT_FOLLOW", "EFFECT_OFF_KIND"] {
+            src = src.replace(
+                &format!("macros::{m}_WORK(agent, *{c},"),
+                &format!("macros::{m}(agent, Hash40::new(\"{n}\"),"),
+            );
+        }
+    }
     let ours = std::fs::read_to_string(&a[2]).unwrap_or_default();
     let (sfn, ofn) = (&a[1], &a[3]);
 
@@ -178,6 +194,67 @@ fn main() {
         .filter_map(|(i, _)| a.get(i + 1))
         .filter_map(|p| p.split_once('=').map(|(f, t)| (f.to_string(), t.to_string())))
         .collect();
+    // `--effect-joint-map from=to[:rotz90]`, repeatable: the joint translations tools/port-effects.py
+    // applies (ADR 0007). `feeler=head` is a rename; `sword1=haver:rotz90` also moves the offset
+    // from Sword1's frame into HaveR's -- Pyra's and Mythra's Sword1 sits on HaveR with no
+    // translation and a 90-degree turn about Z, so (x,y,z) -> (-y,x,z) and rz -> rz+90. The
+    // comparison applies the SAME rule to the source call and then still checks every argument,
+    // so a port that translated wrongly, or anything else it changed, still fails.
+    let joint_maps: Vec<(String, String, bool)> = a
+        .iter()
+        .enumerate()
+        .filter(|(_, x)| *x == "--effect-joint-map")
+        .filter_map(|(i, _)| a.get(i + 1))
+        .filter_map(|p| {
+            let (f, rest) = p.split_once('=')?;
+            let (t, rot) = match rest.split_once(':') {
+                Some((t, r)) => (t, r == "rotz90"),
+                None => (rest, false),
+            };
+            Some((f.to_string(), t.to_string(), rot))
+        })
+        .collect();
+    let num = |s: &String| s.trim().parse::<f32>().ok();
+    let joint = |s: &String| {
+        s.trim()
+            .trim_start_matches("Hash40::new(\"")
+            .trim_end_matches("\")")
+            .to_string()
+    };
+    // The source call rewritten by the joint maps, or None if no map applies.
+    let translate = |sc: &str, sa: &Vec<String>| -> Option<Vec<String>> {
+        let mut out = sa.clone();
+        let mut hit = false;
+        // (joint index, first position index, rotation-z index) for each pose the call carries.
+        let poses: Vec<(usize, usize, Option<usize>)> = if sc.contains("AFTER_IMAGE4_ON") && sa.len() >= 22 {
+            vec![(4, 5, None), (8, 9, None), (14, 15, Some(20))]
+        } else if sc.contains("EFFECT") && !sc.contains("LAST_EFFECT_SET") && sa.len() >= 9 {
+            vec![(2, 3, Some(8))]
+        } else {
+            vec![]
+        };
+        for (j, p, rz) in poses {
+            let Some((_, to, rot)) = joint_maps.iter().find(|(f, _, _)| joint(&sa[j]) == *f) else { continue };
+            out[j] = format!("Hash40::new(\"{to}\")");
+            hit = true;
+            if *rot {
+                let (x, y) = (num(&sa[p])?, num(&sa[p + 1])?);
+                out[p] = format!("{}", -y);
+                out[p + 1] = format!("{}", x);
+                if let Some(r) = rz {
+                    out[r] = format!("{}", num(&sa[r])? + 90.0);
+                }
+            }
+        }
+        if hit { Some(out) } else { None }
+    };
+    // Arguments equal as text, or as numbers to 1e-4 -- the port prints its translated numbers
+    // with Python's formatting, the dump with the decompiler's.
+    let same_arg = |x: &String, y: &String| -> bool {
+        x.trim() == y.trim()
+            || matches!((num(x), num(y)), (Some(p), Some(q)) if (p - q).abs() < 1e-4)
+            || joint(x) == joint(y) && x.contains("Hash40") && y.contains("Hash40")
+    };
     if a.iter().any(|x| x == "--subset") {
         // THE SUBSET PATH HONOURS `--rebased` TOO, and it did not until 2026-09-19.
         //
@@ -202,6 +279,11 @@ fn main() {
         let arg_eq = |sc: &str, sa: &Vec<String>, oa: &Vec<String>| -> bool {
             if sa == oa {
                 return true;
+            }
+            if let Some(t) = translate(sc, sa) {
+                if t.len() == oa.len() && t.iter().zip(oa.iter()).all(|(x, y)| same_arg(x, y)) {
+                    return true;
+                }
             }
             if sa.len() != oa.len() {
                 return false;

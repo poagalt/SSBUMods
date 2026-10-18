@@ -214,6 +214,17 @@ for p in sorted(arc):
         share_to_added.setdefault(p, []).append("%s%s_00%s" % (m.group(1), NAME_ID, m.group(2)))
         ui_shared += 1
 
+# ---- the transplanted effect archive (tools/build-effects.py) ------------------------------------
+#
+# DECLARED UNDER `fighter/<fighter>/cmn`, not under the slot: smashline's transplant hook loads
+# `effect/fighter/<fighter>/transplant/*` for the FIGHTER, whichever costume is loading, and the
+# Smash Ultimate Modding Workshop's episode 46 declares its transplant exactly this way
+# (`"fighter/chrom/cmn": ["effect/fighter/chrom/transplant/elight/ef_elight.eff"]`).
+TRANSPLANT = "effect/fighter/%s/transplant/" % FIGHTER
+transplant = sorted(p for p in shipped if p.startswith(TRANSPLANT))
+if transplant:
+    new_dir_files["fighter/%s/cmn" % FIGHTER] = transplant
+
 for v in share_to_added.values():
     v.sort()
 
@@ -234,6 +245,7 @@ print("  wrote ship/config.json for slot %s: %d declared path(s) across %d direc
       % (rat, n_decl, len(new_dir_files), n_ship, len(share_to_added)))
 print("    CSS art: %d portrait(s) shared from Pikachu's own as chara_*_%s_00.bntx"
       % (ui_shared, NAME_ID))
+print("    effect transplant: %d file(s) declared under fighter/%s/cmn" % (len(transplant), FIGHTER))
 if unbucketed:
     print("  NOTE %d pikachu c00 path(s) matched no bucket and were left out:" % len(unbucketed))
     for p in sorted(unbucketed)[:6]:

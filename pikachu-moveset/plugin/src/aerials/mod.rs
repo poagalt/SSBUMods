@@ -60,11 +60,25 @@ unsafe extern "C" fn pikachu_game_attackairn(agent: &mut L2CAgentBase) {
 }
 
 
-// ---- n-air (Byleth) : effect_attackairn, sys_ effects only (ADR 0002) ----
+// ---- n-air (Byleth) : effect_attackairn, ported by tools/port-effects.py (ADR 0007) ----
 unsafe extern "C" fn pikachu_effect_attackairn(agent: &mut L2CAgentBase) {
+    frame(agent.lua_state_agent, 6.0);
+    if macros::is_excute(agent) {
+        macros::EFFECT_FOLLOW(agent, Hash40::new("master_atk_air_n"), Hash40::new("haver"), 0, 4, -1, -90, 90, 0, 1, true);
+        macros::EFFECT_FOLLOW_ALPHA(agent, Hash40::new("master_bowflare"), Hash40::new("haver"), 0, 0, 0, 0, 0, 0, 1, true, 0.6);
+    }
+    frame(agent.lua_state_agent, 26.0);
+    if macros::is_excute(agent) {
+        macros::EFFECT_OFF_KIND(agent, Hash40::new("master_atk_air_n"), false, true);
+    }
     frame(agent.lua_state_agent, 28.0);
     if macros::is_excute(agent) {
         macros::EFFECT(agent, Hash40::new("sys_smash_flash_s"), Hash40::new("top"), -5, 5, -5, 0, 0, 0, 1, 0, 0, 0, 0, 0, 0, true);
+        macros::LAST_EFFECT_SET_RATE(agent, 1.5);
+    }
+    frame(agent.lua_state_agent, 30.0);
+    if macros::is_excute(agent) {
+        macros::EFFECT_OFF_KIND(agent, Hash40::new("master_bowflare"), false, true);
     }
 }
 
@@ -102,11 +116,12 @@ unsafe extern "C" fn pikachu_game_attackairf(agent: &mut L2CAgentBase) {
 }
 
 
-// ---- f-air (Wolf) : effect_attackairf, sys_ effects only (ADR 0002) ----
+// ---- f-air (Wolf) : effect_attackairf, ported by tools/port-effects.py (ADR 0007) ----
 unsafe extern "C" fn pikachu_effect_attackairf(agent: &mut L2CAgentBase) {
     frame(agent.lua_state_agent, 7.0);
     if macros::is_excute(agent) {
-        macros::EFFECT_FOLLOW(agent, Hash40::new("sys_attack_arc"), Hash40::new("top"), 0, 10, 2, 0, 0, 250, 0.9, true);
+        macros::EFFECT_FOLLOW(agent, Hash40::new("wolf_scratch_arc"), Hash40::new("top"), 0, 10, 2, 0, 0, 250, 0.9, true);
+        macros::LAST_EFFECT_SET_RATE(agent, 1.2);
     }
 }
 
@@ -144,8 +159,19 @@ unsafe extern "C" fn pikachu_game_attackairb(agent: &mut L2CAgentBase) {
 }
 
 
-// ---- b-air (Cloud) : effect_attackairb, sys_ effects only (ADR 0002) ----
+// ---- b-air (Cloud) : effect_attackairb, ported by tools/port-effects.py (ADR 0007) ----
 unsafe extern "C" fn pikachu_effect_attackairb(agent: &mut L2CAgentBase) {
+    frame(agent.lua_state_agent, 10.0);
+    if macros::is_excute(agent) {
+        macros::EFFECT_FOLLOW(agent, Hash40::new("cloud_sword_flare"), Hash40::new("haver"), 0, 0, 0, 0, 0, 0, 1, true);
+        macros::LAST_EFFECT_SET_OFFSET_TO_CAMERA_FLAT(agent, 0.48);
+        macros::AFTER_IMAGE4_ON_arg29(agent, Hash40::new("tex_cloud_sword1"), Hash40::new("tex_cloud_sword2"), 4, Hash40::new("haver"), 0, 1.5, -1.2, Hash40::new("haver"), 0, 20.5, -1.2, true, Hash40::new("null"), Hash40::new("haver"), 0, 0, 0, 0, 0, 0, 1, 0, *EFFECT_AXIS_X, 0, *TRAIL_BLEND_ALPHA, 101, *TRAIL_CULL_NONE, 1.4, 0.1);
+    }
+    frame(agent.lua_state_agent, 14.0);
+    if macros::is_excute(agent) {
+        macros::AFTER_IMAGE_OFF(agent, 3);
+        macros::EFFECT_OFF_KIND(agent, Hash40::new("cloud_sword_flare"), false, true);
+    }
 }
 
 // ---- b-air (Cloud) : sound_attackairb, labels through tools/sound-map.tsv ----
@@ -180,8 +206,16 @@ unsafe extern "C" fn pikachu_game_attackairhi(agent: &mut L2CAgentBase) {
 }
 
 
-// ---- u-air (Corrin) : effect_attackairhi, sys_ effects only (ADR 0002) ----
+// ---- u-air (Corrin) : effect_attackairhi, ported by tools/port-effects.py (ADR 0007) ----
 unsafe extern "C" fn pikachu_effect_attackairhi(agent: &mut L2CAgentBase) {
+    frame(agent.lua_state_agent, 6.0);
+    if macros::is_excute(agent) {
+        macros::AFTER_IMAGE4_ON_arg29(agent, Hash40::new("tex_kamui_sword1"), Hash40::new("tex_kamui_sword2"), 7, Hash40::new("haver"), 0, 0.1, 0, Hash40::new("haver"), -0.0, 15, 0, true, Hash40::new("kamui_sword_flare"), Hash40::new("haver"), 0, 0, 0, 0, 0, 0, 1, 0, *EFFECT_AXIS_X, 0, *TRAIL_BLEND_ALPHA, 101, *TRAIL_CULL_NONE, 1.4, 0.2);
+    }
+    frame(agent.lua_state_agent, 12.0);
+    if macros::is_excute(agent) {
+        macros::AFTER_IMAGE_OFF(agent, 3);
+    }
 }
 
 // ---- u-air (Corrin) : sound_attackairhi, labels through tools/sound-map.tsv ----
@@ -248,11 +282,56 @@ unsafe extern "C" fn pikachu_game_attackairlw(agent: &mut L2CAgentBase) {
 }
 
 
-// ---- d-air (Pyra) : effect_attackairlw, sys_ effects only (ADR 0002) ----
+// ---- d-air (Pyra) : effect_attackairlw, ported by tools/port-effects.py (ADR 0007) ----
 unsafe extern "C" fn pikachu_effect_attackairlw(agent: &mut L2CAgentBase) {
     frame(agent.lua_state_agent, 5.0);
     if macros::is_excute(agent) {
-        macros::EFFECT(agent, Hash40::new("sys_smash_flash"), Hash40::new("haver"), 7, 0, 0, 0, 0, 0, 0.9, 0, 0, 0, 0, 0, 0, true);
+        macros::EFFECT_FOLLOW(agent, Hash40::new("eflame_sword_core_start"), Hash40::new("haver"), 0, 0, 0, 0, 90, 90, 1, true);
+        macros::EFFECT(agent, Hash40::new("sys_smash_flash"), Hash40::new("haver"), 0, 7, 0, 0, 0, 90, 0.9, 0, 0, 0, 0, 0, 0, true);
+    }
+    frame(agent.lua_state_agent, 9.0);
+    if macros::is_excute(agent) {
+        macros::EFFECT_FOLLOW(agent, Hash40::new("eflame_sword_open"), Hash40::new("haver"), 0, 0, 0, 0, 90, 90, 1, true);
+    }
+    frame(agent.lua_state_agent, 14.0);
+    if macros::is_excute(agent) {
+        macros::AFTER_IMAGE4_ON_arg29(agent, Hash40::new("tex_eflame_sword1"), Hash40::new("tex_eflame_sword2"), 5, Hash40::new("haver"), 0, 0.3, 0, Hash40::new("haver"), 0, 18.5, -0.25, true, Hash40::new("null"), Hash40::new("haver"), 0, 0, 0, 0, 0, 90, 1, 0, *EFFECT_AXIS_X, 0, *TRAIL_BLEND_ALPHA, 101, *TRAIL_CULL_NONE, 1.4, 0.1);
+        macros::EFFECT_FOLLOW(agent, Hash40::new("eflame_sword_fire"), Hash40::new("haver"), 0, -0.5, 0, 0, 0, 90, 0.9, true);
+        macros::LAST_EFFECT_SET_RATE(agent, 1.5);
+        EffectModule::enable_sync_init_pos_last(agent.module_accessor);
+    }
+    frame(agent.lua_state_agent, 15.0);
+    if macros::is_excute(agent) {
+        macros::EFFECT_OFF_KIND(agent, Hash40::new("eflame_sword_open"), true, true);
+        macros::EFFECT_FOLLOW(agent, Hash40::new("eflame_sword_beam_m"), Hash40::new("haver"), 0, 0, 0, 0, 90, 90, 1, true);
+        macros::LAST_EFFECT_SET_OFFSET_TO_CAMERA_FLAT(agent, -3);
+        macros::EFFECT_FOLLOW_NO_STOP(agent, Hash40::new("eflame_sword_fire2"), Hash40::new("haver"), 0, 0, 0, 0, 0, 90, 1, true);
+        EffectModule::enable_sync_init_pos_last(agent.module_accessor);
+        macros::EFFECT_FOLLOW_NO_STOP(agent, Hash40::new("eflame_sword_firetrail"), Hash40::new("haver"), 0, 1.5, 0, -5, 0, 90, 0.5, true);
+    }
+    frame(agent.lua_state_agent, 16.0);
+    if macros::is_excute(agent) {
+        macros::EFFECT_OFF_KIND(agent, Hash40::new("eflame_sword_firetrail"), true, true);
+        macros::EFFECT_FOLLOW_NO_STOP(agent, Hash40::new("eflame_sword_firetrail"), Hash40::new("haver"), 0, 1, 0, -10, 0, 90, 0.85, true);
+    }
+    frame(agent.lua_state_agent, 19.0);
+    if macros::is_excute(agent) {
+        macros::AFTER_IMAGE_OFF(agent, 2);
+        macros::EFFECT_OFF_KIND(agent, Hash40::new("eflame_sword_fire2"), false, true);
+        macros::EFFECT_OFF_KIND(agent, Hash40::new("eflame_sword_firetrail"), true, true);
+        macros::EFFECT_FOLLOW_NO_STOP(agent, Hash40::new("eflame_sword_firetrail_end"), Hash40::new("haver"), 0, 2, 0, 0, 0, 90, 0.4, true);
+        macros::LAST_EFFECT_SET_RATE(agent, 4);
+    }
+    frame(agent.lua_state_agent, 20.0);
+    if macros::is_excute(agent) {
+        macros::EFFECT_OFF_KIND(agent, Hash40::new("eflame_sword_fire"), false, true);
+        macros::EFFECT_OFF_KIND(agent, Hash40::new("eflame_sword_beam_m"), true, true);
+        macros::EFFECT_FOLLOW(agent, Hash40::new("eflame_sword_close_s"), Hash40::new("haver"), 0, 0, 0, 0, 90, 90, 1, true);
+        macros::LAST_EFFECT_SET_RATE(agent, 1.5);
+    }
+    frame(agent.lua_state_agent, 27.0);
+    if macros::is_excute(agent) {
+        macros::EFFECT_OFF_KIND(agent, Hash40::new("eflame_sword_core_start"), false, true);
     }
 }
 

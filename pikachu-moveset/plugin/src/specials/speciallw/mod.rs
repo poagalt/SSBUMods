@@ -473,32 +473,40 @@ pub unsafe fn absorb_armed(entry: usize) -> bool {
 /// the counter's own fire -- see the consumption test.
 static mut ATTACK_SEEN: [bool; 8] = [false; 8];
 static mut AURA_ON: [bool; 8] = [false; 8];
-/// Frames since the visual went up, driving the colour pulse.
-static mut AURA_CLOCK: [i32; 8] = [0; 8];
 
 unsafe fn entry_of(boma: *mut BattleObjectModuleAccessor) -> usize {
     let e = WorkModule::get_int(boma, *FIGHTER_INSTANCE_WORK_ID_INT_ENTRY_ID) as usize;
     if e >= 8 { 0 } else { e }
 }
 
-// THE ACTIVE-REVENGE VISUAL.
+// THE ACTIVE-REVENGE VISUAL, AS INCINEROAR'S OWN, VERBATIM (ADR 0007).
 //
-// Incineroar's is `gaogaen_revenge_aura`, followed on shoulderr, shoulderl, kneer, kneel and
-// feelerca -- read straight off his effect_speciallwrevenge script, which his C++ fires when a
-// counter banks and cancels from effect_speciallwrevengeend. That effect lives in his own effect
-// archive, so ADR 0002 rules it out. The bone list, though, transfers exactly: Pikachu has
-// ShoulderL/R and KneeL/R (feelerca is Incineroar's flame whiskers and has no counterpart).
+// His C++ fires `effect_speciallwrevenge` when a counter banks and `effect_speciallwrevengeend`
+// when it is spent (`FighterSpecializer_Gaogaen::revenge_off`, main 0xab86f0, calls the latter by
+// hash 0x1a264dbb63). The whole of `lua2cpp_gaogaen/gaogaen/SpecialLwRevenge.txt` is:
 //
-// So the aura keeps his structure with a `sys_` effect substituted, and the colour cue is carried
-// by FLASH -- which is what Incineroar himself uses on this very move: effect_speciallwstart
-// pulses FLASH(0.67, 0, 0.78) purple against grey while he takes the stance. FLASH tints the model
-// through ColorBlendModule and needs no archive at all, so it is guaranteed to show even if the
-// substituted aura does not. SmashWiki describes the active state as "its fur radiating an orange
-// glow", so the pulse here is orange.
-const AURA: &str = "sys_final_aura";
-const AURA_BONES: [&str; 4] = ["shoulderr", "shoulderl", "kneer", "kneel"];
-/// Length of one orange/normal pulse, in frames.
-const PULSE: i32 = 24;
+//     EFFECT_OFF_KIND(gaogaen_revenge_aura, false, false)
+//     EFFECT_FOLLOW(gaogaen_revenge_aura, shoulderr, 0, 0, 0, 0, 0, 0, 1, false)
+//     EFFECT_FOLLOW(gaogaen_revenge_aura, shoulderl, ...)   kneer, kneel: the same
+//     EFFECT_FOLLOW(gaogaen_revenge_aura, feelerca,  0, 0, 3, 0, 0, 0, 1, false)
+//
+// and the end script is that one EFFECT_OFF_KIND. Until 2026-10-18 this ran a `sys_final_aura`
+// stand-in with an orange FLASH pulse, because ADR 0002 kept his archive out; Rat of Doom now ships
+// `gaogaen_revenge_aura` in its transplanted archive (tools/build-effects.py finds it here), so the
+// stand-in and the pulse -- which the native move does not have -- are gone.
+//
+// `feelerca` is Incineroar's flame whiskers, and Pikachu's nearest point is his `head`. That one
+// joint is the only substitution; the other four are the same bones by name on both rigs.
+// THE NAME IS WRITTEN IN EACH CALL, not held in a constant: tools/build-effects.py and gate 4o
+// read effect names out of the call's own arguments, so a name behind a constant is invisible to
+// both -- the first build of the transplant shipped without this effect for exactly that reason.
+const AURA_BONES: [(&str, f32); 5] = [
+    ("shoulderr", 0.0),
+    ("shoulderl", 0.0),
+    ("kneer", 0.0),
+    ("kneel", 0.0),
+    ("head", 3.0),
+];
 
 unsafe fn aura_on(fighter: &mut L2CFighterCommon) {
     let e = entry_of(fighter.module_accessor);
@@ -506,11 +514,11 @@ unsafe fn aura_on(fighter: &mut L2CFighterCommon) {
         return;
     }
     AURA_ON[e] = true;
-    AURA_CLOCK[e] = 0;
-    for bone in AURA_BONES {
+    macros::EFFECT_OFF_KIND(&mut **fighter, Hash40::new("gaogaen_revenge_aura"), false, false);
+    for (bone, z) in AURA_BONES {
         macros::EFFECT_FOLLOW(
-            &mut **fighter, Hash40::new(AURA), Hash40::new(bone),
-            0, 0, 0, 0, 0, 0, 1, false
+            &mut **fighter, Hash40::new("gaogaen_revenge_aura"), Hash40::new(bone),
+            0, 0, z, 0, 0, 0, 1, false
         );
     }
 }
@@ -522,8 +530,8 @@ unsafe fn aura_off(fighter: &mut L2CFighterCommon) {
         return;
     }
     AURA_ON[e] = false;
-    EffectModule::kill_kind(boma, Hash40::new(AURA), false, false);
-    macros::COL_NORMAL(&mut **fighter);
+    // `effect_speciallwrevengeend`, the whole of it.
+    macros::EFFECT_OFF_KIND(&mut **fighter, Hash40::new("gaogaen_revenge_aura"), false, false);
     // `FighterSpecializer_Gaogaen::revenge_off` (`main 0xab86f0`) ends its visual teardown with
     // `ModelModule::set_emmisive_scale(1.0)` alongside resetting `set_power_mul_5th` and
     // `set_reaction_mul_3rd` -- both of which this function already mirrors in `clear_boost`. 1.0
@@ -565,30 +573,12 @@ unsafe fn aura_tick(fighter: &mut L2CFighterCommon) {
     let boma = fighter.module_accessor;
     let e = entry_of(boma);
 
-    // THE NATIVE CALL, WITH THE NATIVE VALUE. Pikachu's body cannot show it -- `skin_pikachu_001`
-    // carries Texture0/4/6/7 and no emissive slot at all, so there is nothing for the scale to
-    // attenuate, which is why a tint remains the visible stand-in. It is called anyway because it
-    // is what the game does and because it is not inert on every material in this model: the
-    // merged Mythra blade ships `def_light_004_emi` and `def_light_005_emi`, so her sword really
-    // does glow with the banked rate while it is out.
+    // THE NATIVE CALL, WITH THE NATIVE VALUE. Pikachu's body has no emissive slot
+    // (`skin_pikachu_001` carries Texture0/4/6/7), so on him the visible cue is the aura above; it
+    // is called anyway because it is what the game does, and the merged Mythra blade's
+    // `def_light_004_emi`/`_005_emi` really do glow with the banked rate while it is out.
     let emissive = revenge_emissive(boma, RATE[e]);
     ModelModule::set_emmisive_scale(boma, emissive);
-
-    let t = AURA_CLOCK[e] % PULSE;
-    AURA_CLOCK[e] += 1;
-    // Only touch the tint on the two boundary frames, so the ordinary damage flash is not being
-    // fought every single frame for the rest of the pulse.
-    //
-    // THE AMPLITUDE IS THE NATIVE ONE NOW, not the 0.35 constant that used to sit here. `emissive`
-    // spans the params' own `min`..`max`, so the orange deepens as the stored multiplier climbs
-    // and a maxed Revenge reads differently from a freshly banked one -- which is exactly what
-    // Incineroar's own glow does. Substituting the tint's alpha for the emissive scale is the
-    // ADR 0002 move: his structure, a channel this model can actually render.
-    if t == 0 {
-        macros::FLASH(&mut **fighter, 1.0, 0.45, 0.0, emissive);
-    } else if t == PULSE / 2 {
-        macros::COL_NORMAL(&mut **fighter);
-    }
 }
 
 /// Drop a stored boost and everything that goes with it.

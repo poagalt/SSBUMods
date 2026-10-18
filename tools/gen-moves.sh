@@ -143,6 +143,11 @@ SPECIALS="
 # GAOGAEN status flags, correctly, and their frame numbers are the only record of the timing).
 Revenge counter (Incineroar)|gaogaen|SpecialLw|speciallw
 Revenge counter AIR (Incineroar)|gaogaen|SpecialAirLw|specialairlw
+# The stance's EFFECTS, though, are his, verbatim: gaogaen_revenge_pose on frame 7 and the purple
+# FLASH pulse against COL_NORMAL while he holds it. Effects only, so the hand-written game script
+# and its counter window are untouched.
+Revenge stance effects (Incineroar)|fx:gaogaen|SpecialLwStart|speciallwstart
+Revenge stance effects AIR (Incineroar)|fx:gaogaen|SpecialAirLwStart|specialairlwstart
 # THE TURN-AROUND HALF OF REVENGE, found by tools/check-scripts.sh and missing since the counter
 # was ported. special_lw_turn and special_air_lw_turn are in tools/ported-motions.txt -- the
 # animations have been shipping all along -- and their motion entries name game_speciallwturn and
@@ -274,6 +279,27 @@ emit_module() {
             fi
             continue
         fi
+        case "$fighter" in
+            fx:*)
+                # EFFECTS ONLY: the source's effect script, and NOT its game script. For a motion
+                # whose game script is hand-written for a reason -- Revenge's stance carries the
+                # counter window on its frames (src/specials/acmd_speciallw) -- the visuals still
+                # come from the source, unaltered.
+                local fxsrc="$DUMP/lua2cpp_${fighter#fx:}/${fighter#fx:}/$acmd.txt"
+                if [ ! -f "$fxsrc" ]; then
+                    echo "MISSING: $slot -> $fxsrc" >&2
+                    continue
+                fi
+                echo "// ---- $slot : effect_$fname only, ported by tools/port-effects.py (ADR 0007) ----" >> "$file"
+                echo "unsafe extern \"C\" fn pikachu_effect_$fname(agent: &mut L2CAgentBase) {" >> "$file"
+                "$PY_BIN" "$ROOT/tools/port-effects.py" "$fxsrc" "effect_$fname" --report "$EFFECT_REPORT" >> "$file" 2>/dev/null
+                echo "}" >> "$file"
+                echo "" >> "$file"
+                installs="$installs        .effect_acmd(\"effect_$fname\", pikachu_effect_$fname, Default)
+"
+                continue
+                ;;
+        esac
         if [ "$fighter" = "N" ]; then
             # Null BOTH scripts. Used for a Pikachu script that must never run and has no ported
             # replacement, so an empty override is the whole point rather than a side effect.
@@ -347,13 +373,14 @@ emit_module() {
         # Corrin's u-air, and pikachu_elec on Kazuya's f-air: electric sparks on a punch and on a
         # sword. An empty override is strictly better than the wrong effects.
         #
-        # The body is GENERATED from the source's `sys_*` spawns rather than copied. See the
-        # header of tools/extract-effects.awk: the dumps are not reliably compilable, and
-        # salvaging decompiler output does not generalise.
-        echo "// ---- $slot : effect_$fname, sys_ effects only (ADR 0002) ----" >> "$file"
+        # THE DONOR'S OWN EFFECTS NOW, through tools/port-effects.py: its names verbatim (Rat of
+        # Doom ships them in a transplanted archive -- tools/build-effects.py), its modifiers,
+        # trails and kills, with costume branches resolved to c00 and the joints Pikachu lacks
+        # translated. ADR 0002's sys-only rule is superseded by ADR 0007. Anything the port does
+        # not recognise lands in EFFECT_REPORT and stops the generator below.
+        echo "// ---- $slot : effect_$fname, ported by tools/port-effects.py (ADR 0007) ----" >> "$file"
         echo "unsafe extern \"C\" fn pikachu_effect_$fname(agent: &mut L2CAgentBase) {" >> "$file"
-        awk -v want="effect_$fname" -v subs="$ROOT/tools/effect-subs.tsv" -f "$ROOT/tools/extract-effects.awk" "$src" \
-            | sed -f "$ROOT/tools/bone-remap.sed" >> "$file"
+        "$PY_BIN" "$ROOT/tools/port-effects.py" "$src" "effect_$fname" --report "$EFFECT_REPORT" >> "$file" 2>/dev/null
         echo "}" >> "$file"
         echo "" >> "$file"
         installs="$installs        .effect_acmd(\"effect_$fname\", pikachu_effect_$fname, Default)\n"
@@ -385,6 +412,11 @@ emit_module() {
 # Labels a ported sound script used that tools/sound-map.tsv has no row for. Filled by
 # tools/extract-sounds.awk on stderr; an unmapped label would be a silent call, so it fails here.
 SOUND_REPORT=$(mktemp)
+# Statements tools/port-effects.py could not port. Anything here fails the generator.
+EFFECT_REPORT=$(mktemp)
+PY_BIN=""
+for c in py python3 python; do command -v "$c" >/dev/null 2>&1 && { PY_BIN="$c"; break; }; done
+[ -n "$PY_BIN" ] || { echo "FAILED: no python on PATH for tools/port-effects.py" >&2; exit 1; }
 # Empty-override rows whose Pikachu sound script must still be replaced: motion|label.
 SOUND_OVERRIDES="landingairlw|se_pikachu_landing02"
 
@@ -396,6 +428,15 @@ emit_module defensive "$DEFENSIVE"
 emit_module landings  "$LANDINGS"
 emit_module dodges    "$DODGES"
 emit_module specials_acmd "$SPECIALS"
+
+if [ -s "$EFFECT_REPORT" ]; then
+    echo "FAILED: ported effect scripts hit statements tools/port-effects.py does not handle:" >&2
+    sed 's/^/    /' "$EFFECT_REPORT" >&2
+    rm -f "$EFFECT_REPORT" "$SOUND_REPORT"
+    exit 1
+fi
+rm -f "$EFFECT_REPORT"
+echo "  effect scripts: every statement ported by tools/port-effects.py"
 
 if [ -s "$SOUND_REPORT" ]; then
     echo "FAILED: ported sound scripts use labels tools/sound-map.tsv does not map:" >&2

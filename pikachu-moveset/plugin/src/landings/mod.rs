@@ -43,9 +43,8 @@ unsafe extern "C" fn pikachu_game_landingairn(agent: &mut L2CAgentBase) {
 }
 
 
-// ---- landing n (Byleth) : effect_landingairn, sys_ effects only (ADR 0002) ----
+// ---- landing n (Byleth) : effect_landingairn, ported by tools/port-effects.py (ADR 0007) ----
 unsafe extern "C" fn pikachu_effect_landingairn(agent: &mut L2CAgentBase) {
-    frame(agent.lua_state_agent, 1.0);
     if macros::is_excute(agent) {
         macros::LANDING_EFFECT(agent, Hash40::new("sys_down_smoke"), Hash40::new("top"), 0, 0, 0, 0, 0, 0, 1, 0, 0, 0, 0, 0, 0, false);
     }

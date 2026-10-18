@@ -135,8 +135,12 @@ fi
   "$ROOT/pikachu-moveset/plugin/src" \
   "$ROOT/work/smash-script-macros.txt" | tail -1
 
-echo; echo "== 1c. verify no effect Pikachu cannot load survived (ADR 0002) =="
-"$ROOT/tools/reach/target/release/sysfx.exe" "$ROOT/pikachu-moveset/plugin/src" | tail -2
+# 1c (sysfx) IS RETIRED, 2026-10-18. It enforced ADR 0002 by DELETING every fighter-owned effect
+# and every AFTER_IMAGE trail from the ported scripts. ADR 0007 ships those effects in a
+# transplanted archive (step 3c3), so running it would strip exactly what that step packs -- the
+# first build after the switch packed one effect instead of 37 for this reason. The guarantee it
+# gave, "no effect request that nothing loads", is kept by gate 4o, which now checks every request
+# against the archive's manifest.
 
 echo; echo "== 2. graft on weapon bones the ported hitboxes need =="
 bash "$ROOT/tools/add-bones.sh" | tail -1
@@ -195,6 +199,11 @@ bash "$ROOT/tools/relocate-slot.sh"
 # the bank must be shipped rather than shared.
 echo; echo "== 3c2. build Rat of Doom's own sound bank (donor audio, Pikachu's labels) =="
 "$PY_BIN" "$ROOT/tools/build-sound-bank.py" || exit 1
+
+# Same position and reason: the transplanted effect archive goes into ship/ before gen-config
+# declares what ship/ holds. Reads the effect names straight out of the plugin source.
+echo; echo "== 3c3. build Rat of Doom's transplanted effect archive (donor effects his scripts name) =="
+"$PY_BIN" "$ROOT/tools/build-effects.py" || exit 1
 
 echo; echo "== 3d. declare the added slot from what the shipped tree actually contains =="
 "$PY_BIN" "$ROOT/tools/gen-config.py"

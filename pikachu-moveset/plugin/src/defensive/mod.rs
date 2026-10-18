@@ -42,11 +42,21 @@ unsafe extern "C" fn pikachu_game_downattacku(agent: &mut L2CAgentBase) {
 }
 
 
-// ---- get-up attack, face up (Bowser) : effect_downattacku, sys_ effects only (ADR 0002) ----
+// ---- get-up attack, face up (Bowser) : effect_downattacku, ported by tools/port-effects.py (ADR 0007) ----
 unsafe extern "C" fn pikachu_effect_downattacku(agent: &mut L2CAgentBase) {
     frame(agent.lua_state_agent, 18.0);
     if macros::is_excute(agent) {
         macros::LANDING_EFFECT_FLIP(agent, Hash40::new("sys_whirlwind_l"), Hash40::new("sys_whirlwind_r"), Hash40::new("top"), 2, 0, 0, 0, 0, 0, 1.2, 0, 0, 0, 0, 0, 0, false, *EF_FLIP_NONE);
+    }
+    frame(agent.lua_state_agent, 18.0);
+    if macros::is_excute(agent) {
+        macros::EFFECT_FOLLOW_FLIP(agent, Hash40::new("koopa_scratch"), Hash40::new("koopa_scratch"), Hash40::new("top"), -3, 7, -11, 2, 179, -8, 1.9, true, *EF_FLIP_YZ);
+        macros::LAST_EFFECT_SET_RATE(agent, 1.5);
+    }
+    frame(agent.lua_state_agent, 22.0);
+    if macros::is_excute(agent) {
+        macros::EFFECT_FOLLOW_FLIP(agent, Hash40::new("koopa_scratch"), Hash40::new("koopa_scratch"), Hash40::new("top"), 0, 8, 10, 0, -17, -10, 1.8, true, *EF_FLIP_YZ);
+        macros::LAST_EFFECT_SET_RATE(agent, 1.25);
     }
 }
 
@@ -87,11 +97,21 @@ unsafe extern "C" fn pikachu_game_downattackd(agent: &mut L2CAgentBase) {
 }
 
 
-// ---- get-up attack, face down (Bowser) : effect_downattackd, sys_ effects only (ADR 0002) ----
+// ---- get-up attack, face down (Bowser) : effect_downattackd, ported by tools/port-effects.py (ADR 0007) ----
 unsafe extern "C" fn pikachu_effect_downattackd(agent: &mut L2CAgentBase) {
     frame(agent.lua_state_agent, 18.0);
     if macros::is_excute(agent) {
         macros::LANDING_EFFECT_FLIP(agent, Hash40::new("sys_whirlwind_r"), Hash40::new("sys_whirlwind_l"), Hash40::new("top"), 2, 0, 0, 0, 0, 0, 1.2, 0, 0, 0, 0, 0, 0, false, *EF_FLIP_NONE);
+    }
+    frame(agent.lua_state_agent, 19.0);
+    if macros::is_excute(agent) {
+        macros::EFFECT_FOLLOW_FLIP(agent, Hash40::new("koopa_scratch"), Hash40::new("koopa_scratch"), Hash40::new("top"), 3, 7, 11, 189, 138, 11, 1.8, true, *EF_FLIP_YZ);
+        macros::LAST_EFFECT_SET_RATE(agent, 1.6);
+    }
+    frame(agent.lua_state_agent, 22.0);
+    if macros::is_excute(agent) {
+        macros::EFFECT_FOLLOW_FLIP(agent, Hash40::new("koopa_scratch"), Hash40::new("koopa_scratch"), Hash40::new("top"), 3, 9, -10, 174, 0, 2.6, 1.7, true, *EF_FLIP_YZ);
+        macros::LAST_EFFECT_SET_RATE(agent, 1.25);
     }
 }
 
@@ -132,11 +152,18 @@ unsafe extern "C" fn pikachu_game_slipattack(agent: &mut L2CAgentBase) {
 }
 
 
-// ---- trip attack (Bowser) : effect_slipattack, sys_ effects only (ADR 0002) ----
+// ---- trip attack (Bowser) : effect_slipattack, ported by tools/port-effects.py (ADR 0007) ----
 unsafe extern "C" fn pikachu_effect_slipattack(agent: &mut L2CAgentBase) {
     frame(agent.lua_state_agent, 18.0);
     if macros::is_excute(agent) {
         macros::LANDING_EFFECT_FLIP(agent, Hash40::new("sys_whirlwind_l"), Hash40::new("sys_whirlwind_r"), Hash40::new("top"), 2, 0, 0, 0, 0, 0, 1.2, 0, 0, 0, 0, 0, 0, false, *EF_FLIP_NONE);
+        macros::EFFECT_FOLLOW_FLIP(agent, Hash40::new("koopa_scratch"), Hash40::new("koopa_scratch"), Hash40::new("top"), 0, 9, -4, 0, 180, 13, 1.8, true, *EF_FLIP_YZ);
+        macros::LAST_EFFECT_SET_RATE(agent, 1.3);
+    }
+    frame(agent.lua_state_agent, 21.0);
+    if macros::is_excute(agent) {
+        macros::EFFECT_FOLLOW_FLIP(agent, Hash40::new("koopa_scratch"), Hash40::new("koopa_scratch"), Hash40::new("top"), 3, 5, 10, 0.3, -32, -4, 1.85, true, *EF_FLIP_YZ);
+        macros::LAST_EFFECT_SET_RATE(agent, 1.3);
     }
 }
 
@@ -165,7 +192,7 @@ unsafe extern "C" fn pikachu_game_cliffattack(agent: &mut L2CAgentBase) {
 }
 
 
-// ---- ledge attack (Ganondorf) : effect_cliffattack, sys_ effects only (ADR 0002) ----
+// ---- ledge attack (Ganondorf) : effect_cliffattack, ported by tools/port-effects.py (ADR 0007) ----
 unsafe extern "C" fn pikachu_effect_cliffattack(agent: &mut L2CAgentBase) {
     frame(agent.lua_state_agent, 17.0);
     if macros::is_excute(agent) {
@@ -178,6 +205,7 @@ unsafe extern "C" fn pikachu_effect_cliffattack(agent: &mut L2CAgentBase) {
     frame(agent.lua_state_agent, 24.0);
     if macros::is_excute(agent) {
         macros::EFFECT_FOLLOW(agent, Hash40::new("sys_attack_arc_d"), Hash40::new("top"), 1, 10, 4, 0, 25, 25, 1.25, true);
+        macros::LAST_EFFECT_SET_RATE(agent, 2);
     }
 }
 

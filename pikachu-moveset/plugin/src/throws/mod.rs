@@ -42,8 +42,9 @@ unsafe extern "C" fn pikachu_game_catch(agent: &mut L2CAgentBase) {
 }
 
 
-// ---- grab (Charizard) : effect_catch, sys_ effects only (ADR 0002) ----
+// ---- grab (Charizard) : effect_catch, ported by tools/port-effects.py (ADR 0007) ----
 unsafe extern "C" fn pikachu_effect_catch(agent: &mut L2CAgentBase) {
+
 }
 
 // ---- grab (Charizard) : sound_catch, labels through tools/sound-map.tsv ----
@@ -79,8 +80,9 @@ unsafe extern "C" fn pikachu_game_catchdash(agent: &mut L2CAgentBase) {
 }
 
 
-// ---- dash grab (Charizard) : effect_catchdash, sys_ effects only (ADR 0002) ----
+// ---- dash grab (Charizard) : effect_catchdash, ported by tools/port-effects.py (ADR 0007) ----
 unsafe extern "C" fn pikachu_effect_catchdash(agent: &mut L2CAgentBase) {
+
 }
 
 // ---- dash grab (Charizard) : sound_catchdash, labels through tools/sound-map.tsv ----
@@ -120,8 +122,9 @@ unsafe extern "C" fn pikachu_game_catchturn(agent: &mut L2CAgentBase) {
 }
 
 
-// ---- pivot grab (Charizard) : effect_catchturn, sys_ effects only (ADR 0002) ----
+// ---- pivot grab (Charizard) : effect_catchturn, ported by tools/port-effects.py (ADR 0007) ----
 unsafe extern "C" fn pikachu_effect_catchturn(agent: &mut L2CAgentBase) {
+
 }
 
 // ---- pivot grab (Charizard) : sound_catchturn, labels through tools/sound-map.tsv ----
@@ -150,11 +153,21 @@ unsafe extern "C" fn pikachu_game_catchattack(agent: &mut L2CAgentBase) {
 }
 
 
-// ---- pummel (Kazuya) : effect_catchattack, sys_ effects only (ADR 0002) ----
+// ---- pummel (Kazuya) : effect_catchattack, ported by tools/port-effects.py (ADR 0007) ----
 unsafe extern "C" fn pikachu_effect_catchattack(agent: &mut L2CAgentBase) {
+    frame(agent.lua_state_agent, 1.0);
+    if macros::is_excute(agent) {
+        macros::EFFECT_FOLLOW_ALPHA(agent, Hash40::new("demon_attack_arc"), Hash40::new("top"), 2.5, 10.7, 4.2, 16, -24, -70, 0.45, true, 1);
+        macros::LAST_EFFECT_SET_RATE(agent, 0.95);
+    }
+    frame(agent.lua_state_agent, 3.0);
+    if macros::is_excute(agent) {
+        macros::FOOT_EFFECT(agent, Hash40::new("null"), Hash40::new("top"), -2, 0, 0, 0, 0, 0, 1, 0, 0, 0, 0, 0, 0, false);
+    }
     frame(agent.lua_state_agent, 5.0);
     if macros::is_excute(agent) {
         macros::EFFECT_ALPHA(agent, Hash40::new("sys_attack_impact"), Hash40::new("handl"), 1.3, 0, 0, 0, 0, 0, 0.6, 0, 0, 0, 0, 0, 360, true, 0.3);
+        macros::LAST_EFFECT_SET_RATE(agent, 1.2);
     }
 }
 
@@ -177,7 +190,7 @@ unsafe extern "C" fn pikachu_game_throwf(agent: &mut L2CAgentBase) {
 }
 
 
-// ---- f-throw cargo grab (Donkey Kong) : effect_throwf, sys_ effects only (ADR 0002) ----
+// ---- f-throw cargo grab (Donkey Kong) : effect_throwf, ported by tools/port-effects.py (ADR 0007) ----
 unsafe extern "C" fn pikachu_effect_throwf(agent: &mut L2CAgentBase) {
     frame(agent.lua_state_agent, 15.0);
     if macros::is_excute(agent) {
@@ -224,15 +237,15 @@ unsafe extern "C" fn pikachu_game_throwff(agent: &mut L2CAgentBase) {
 }
 
 
-// ---- cargo throw forward (Donkey Kong) : effect_throwff, sys_ effects only (ADR 0002) ----
+// ---- cargo throw forward (Donkey Kong) : effect_throwff, ported by tools/port-effects.py (ADR 0007) ----
 unsafe extern "C" fn pikachu_effect_throwff(agent: &mut L2CAgentBase) {
-    frame(agent.lua_state_agent, 1.0);
     if macros::is_excute(agent) {
         macros::LANDING_EFFECT(agent, Hash40::new("sys_down_smoke"), Hash40::new("top"), 0, 0, 0, 0, 0, 0, 1.2, 0, 0, 0, 0, 0, 0, false);
     }
     frame(agent.lua_state_agent, 14.0);
     if macros::is_excute(agent) {
         macros::EFFECT(agent, Hash40::new("sys_atk_smoke"), Hash40::new("top"), 0, 0, 0, 0, 0, 0, 1.2, 0, 0, 0, 0, 0, 0, false);
+        macros::EFFECT_FOLLOW_FLIP(agent, Hash40::new("donkey_attack_arc_d"), Hash40::new("donkey_attack_arc_d"), Hash40::new("top"), 1, 10, 3, 195, -79.5, 110, 1.6, true, *EF_FLIP_YZ);
     }
     frame(agent.lua_state_agent, 15.0);
     if macros::is_excute(agent) {
@@ -276,8 +289,12 @@ unsafe extern "C" fn pikachu_game_throwfb(agent: &mut L2CAgentBase) {
 }
 
 
-// ---- cargo throw back (Donkey Kong) : effect_throwfb, sys_ effects only (ADR 0002) ----
+// ---- cargo throw back (Donkey Kong) : effect_throwfb, ported by tools/port-effects.py (ADR 0007) ----
 unsafe extern "C" fn pikachu_effect_throwfb(agent: &mut L2CAgentBase) {
+    frame(agent.lua_state_agent, 13.0);
+    if macros::is_excute(agent) {
+        macros::EFFECT_FOLLOW_FLIP(agent, Hash40::new("donkey_attack_arc_d"), Hash40::new("donkey_attack_arc_d"), Hash40::new("top"), 0, 14, -1.5, 249, 74, 93, 1.8, true, *EF_FLIP_YZ);
+    }
     frame(agent.lua_state_agent, 14.0);
     if macros::is_excute(agent) {
         macros::EFFECT(agent, Hash40::new("sys_smash_flash_s"), Hash40::new("throw"), 0, 0, 0, 0, 0, 0, 1.5, 0, 0, 0, 0, 0, 0, true);
@@ -321,15 +338,24 @@ unsafe extern "C" fn pikachu_game_throwfhi(agent: &mut L2CAgentBase) {
 }
 
 
-// ---- cargo throw up (Donkey Kong) : effect_throwfhi, sys_ effects only (ADR 0002) ----
+// ---- cargo throw up (Donkey Kong) : effect_throwfhi, ported by tools/port-effects.py (ADR 0007) ----
 unsafe extern "C" fn pikachu_effect_throwfhi(agent: &mut L2CAgentBase) {
     frame(agent.lua_state_agent, 10.0);
     if macros::is_excute(agent) {
         macros::LANDING_EFFECT(agent, Hash40::new("sys_down_smoke"), Hash40::new("top"), 0, 0, 0, 0, 0, 0, 1, 0, 0, 0, 0, 0, 0, false);
     }
+    frame(agent.lua_state_agent, 13.0);
+    if macros::is_excute(agent) {
+        macros::EFFECT_FOLLOW_FLIP(agent, Hash40::new("donkey_attack_arc_d"), Hash40::new("donkey_attack_arc_d"), Hash40::new("top"), 0, 19, -1.5, -65, -35, 120, 1.6, true, *EF_FLIP_YZ);
+        macros::LAST_EFFECT_SET_RATE(agent, 1.5);
+    }
     frame(agent.lua_state_agent, 15.0);
     if macros::is_excute(agent) {
         macros::EFFECT(agent, Hash40::new("sys_smash_flash_s"), Hash40::new("throw"), 0, 0, 10, 0, 0, 0, 1.5, 0, 0, 0, 0, 0, 0, true);
+    }
+    frame(agent.lua_state_agent, 19.0);
+    if macros::is_excute(agent) {
+        macros::EFFECT_OFF_KIND(agent, Hash40::new("donkey_attack_arc_d"), false, true);
     }
 }
 
@@ -368,7 +394,7 @@ unsafe extern "C" fn pikachu_game_throwflw(agent: &mut L2CAgentBase) {
 }
 
 
-// ---- cargo throw down (Donkey Kong) : effect_throwflw, sys_ effects only (ADR 0002) ----
+// ---- cargo throw down (Donkey Kong) : effect_throwflw, ported by tools/port-effects.py (ADR 0007) ----
 unsafe extern "C" fn pikachu_effect_throwflw(agent: &mut L2CAgentBase) {
     frame(agent.lua_state_agent, 16.0);
     if macros::is_excute(agent) {
@@ -418,10 +444,26 @@ unsafe extern "C" fn pikachu_game_throwb(agent: &mut L2CAgentBase) {
 }
 
 
-// ---- b-throw (Ness) : effect_throwb, sys_ effects only (ADR 0002) ----
+// ---- b-throw (Ness) : effect_throwb, ported by tools/port-effects.py (ADR 0007) ----
 unsafe extern "C" fn pikachu_effect_throwb(agent: &mut L2CAgentBase) {
+    frame(agent.lua_state_agent, 1.0);
+    if macros::is_excute(agent) {
+        macros::EFFECT(agent, Hash40::new("ness_psi_rush"), Hash40::new("top"), 0, 9, 15, 0, 0, 0, 1.3, 0, 0, 0, 0, 0, 0, true);
+    }
+    frame(agent.lua_state_agent, 4.0);
+    if macros::is_excute(agent) {
+        macros::EFFECT(agent, Hash40::new("ness_psi_rush"), Hash40::new("top"), 0, 17, 14, 0, 0, 0, 1.3, 0, 0, 0, 0, 0, 0, true);
+    }
+    frame(agent.lua_state_agent, 7.0);
+    for _ in 0..7 {
+        if macros::is_excute(agent) {
+            macros::EFFECT(agent, Hash40::new("ness_psi_rush"), Hash40::new("throw"), 0, 0, 0, 0, 0, 0, 1.3, 5, 5, 5, 0, 0, 0, true);
+        }
+        wait(agent.lua_state_agent, 3.0);
+    }
     frame(agent.lua_state_agent, 27.0);
     if macros::is_excute(agent) {
+        macros::EFFECT(agent, Hash40::new("ness_psi_rush"), Hash40::new("top"), 0, 15, -7, 0, 0, 0, 2, 0, 0, 0, 0, 0, 0, true);
         macros::FOOT_EFFECT(agent, Hash40::new("sys_run_smoke"), Hash40::new("top"), 0, 0, 0, 0, 180, 0, 1.2, 0, 0, 0, 0, 0, 0, false);
     }
     frame(agent.lua_state_agent, 29.0);
@@ -470,15 +512,22 @@ unsafe extern "C" fn pikachu_game_throwhi(agent: &mut L2CAgentBase) {
 }
 
 
-// ---- u-throw (Mewtwo) : effect_throwhi, sys_ effects only (ADR 0002) ----
+// ---- u-throw (Mewtwo) : effect_throwhi, ported by tools/port-effects.py (ADR 0007) ----
 unsafe extern "C" fn pikachu_effect_throwhi(agent: &mut L2CAgentBase) {
     frame(agent.lua_state_agent, 5.0);
-    if macros::is_excute(agent) {
-        macros::EFFECT_FLIP(agent, Hash40::new("sys_flash"), Hash40::new("sys_flash"), Hash40::new("throw"), 2, 0, 1, 0, 0, 0, 0.5, 0, 0, 0, 0, 0, 0, true, *EF_FLIP_YZ);
+    for _ in 0..10 {
+        if macros::is_excute(agent) {
+            macros::EFFECT_FLIP(agent, Hash40::new("sys_flash"), Hash40::new("sys_flash"), Hash40::new("throw"), 2, 0, 1, 0, 0, 0, 0.5, 0, 0, 0, 0, 0, 0, true, *EF_FLIP_YZ);
+            macros::LAST_EFFECT_SET_COLOR(agent, 1.5, 0.5, 1.5);
+            macros::LAST_EFFECT_SET_RATE(agent, 1.3);
+        }
+        wait(agent.lua_state_agent, 3.0);
     }
     frame(agent.lua_state_agent, 42.0);
     if macros::is_excute(agent) {
         macros::EFFECT_FLIP(agent, Hash40::new("sys_flash"), Hash40::new("sys_flash"), Hash40::new("throw"), 2, 0, 1, 0, 0, 0, 0.9, 0, 0, 0, 0, 0, 0, true, *EF_FLIP_YZ);
+        macros::LAST_EFFECT_SET_COLOR(agent, 1.5, 0.5, 1.5);
+        macros::LAST_EFFECT_SET_RATE(agent, 1.3);
         macros::LANDING_EFFECT(agent, Hash40::new("sys_landing_smoke"), Hash40::new("top"), 0, 0, 0, 0, 0, 0, 1, 0, 0, 0, 0, 0, 0, false);
     }
 }
@@ -526,11 +575,12 @@ unsafe extern "C" fn pikachu_game_throwlw(agent: &mut L2CAgentBase) {
 }
 
 
-// ---- d-throw (Dr. Mario) : effect_throwlw, sys_ effects only (ADR 0002) ----
+// ---- d-throw (Dr. Mario) : effect_throwlw, ported by tools/port-effects.py (ADR 0007) ----
 unsafe extern "C" fn pikachu_effect_throwlw(agent: &mut L2CAgentBase) {
     frame(agent.lua_state_agent, 3.0);
     if macros::is_excute(agent) {
         macros::LANDING_EFFECT(agent, Hash40::new("sys_down_smoke"), Hash40::new("top"), 0, 0, 0, 0, 0, 0, 0.7, 0, 0, 0, 0, 0, 0, false);
+        macros::LAST_EFFECT_SET_RATE(agent, 1);
     }
     frame(agent.lua_state_agent, 16.0);
     if macros::is_excute(agent) {

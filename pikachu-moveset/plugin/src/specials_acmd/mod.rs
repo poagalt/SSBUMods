@@ -43,11 +43,17 @@ unsafe extern "C" fn pikachu_game_speciallw(agent: &mut L2CAgentBase) {
 }
 
 
-// ---- Revenge counter (Incineroar) : effect_speciallw, sys_ effects only (ADR 0002) ----
+// ---- Revenge counter (Incineroar) : effect_speciallw, ported by tools/port-effects.py (ADR 0007) ----
 unsafe extern "C" fn pikachu_effect_speciallw(agent: &mut L2CAgentBase) {
     frame(agent.lua_state_agent, 3.0);
     if macros::is_excute(agent) {
         macros::LANDING_EFFECT(agent, Hash40::new("sys_landing_smoke"), Hash40::new("top"), 0, 0, 0, 0, 0, 0, 1, 0, 0, 0, 0, 0, 0, false);
+        macros::LAST_EFFECT_SET_RATE(agent, 0.85);
+    }
+    frame(agent.lua_state_agent, 6.0);
+    if macros::is_excute(agent) {
+        macros::EFFECT(agent, Hash40::new("gaogaen_revenge_start"), Hash40::new("top"), -2, 10, 0, 0, 0, 0, 1, 0, 0, 0, 0, 0, 0, false);
+        macros::EFFECT_FOLLOW(agent, Hash40::new("gaogaen_belt_fire_appeal"), Hash40::new("head"), 0, 3, 0, 0, 0, 0, 1, true);
     }
 }
 
@@ -89,11 +95,17 @@ unsafe extern "C" fn pikachu_game_specialairlw(agent: &mut L2CAgentBase) {
 }
 
 
-// ---- Revenge counter AIR (Incineroar) : effect_specialairlw, sys_ effects only (ADR 0002) ----
+// ---- Revenge counter AIR (Incineroar) : effect_specialairlw, ported by tools/port-effects.py (ADR 0007) ----
 unsafe extern "C" fn pikachu_effect_specialairlw(agent: &mut L2CAgentBase) {
     frame(agent.lua_state_agent, 3.0);
     if macros::is_excute(agent) {
         macros::LANDING_EFFECT(agent, Hash40::new("sys_landing_smoke"), Hash40::new("top"), 0, 0, 0, 0, 0, 0, 1, 0, 0, 0, 0, 0, 0, false);
+        macros::LAST_EFFECT_SET_RATE(agent, 0.85);
+    }
+    frame(agent.lua_state_agent, 6.0);
+    if macros::is_excute(agent) {
+        macros::EFFECT(agent, Hash40::new("gaogaen_revenge_start"), Hash40::new("top"), -2, 10, 0, 0, 0, 0, 1, 0, 0, 0, 0, 0, 0, false);
+        macros::EFFECT_FOLLOW(agent, Hash40::new("gaogaen_belt_fire_appeal"), Hash40::new("head"), 0, 3, 0, 0, 0, 0, 1, true);
     }
 }
 
@@ -110,6 +122,90 @@ unsafe extern "C" fn pikachu_sound_specialairlw(agent: &mut L2CAgentBase) {
     frame(agent.lua_state_agent, 6.0);
     if macros::is_excute(agent) {
         macros::PLAY_SEQUENCE(agent, Hash40::new("seq_pikachu_rnd_attack"));
+    }
+}
+
+// ---- Revenge stance effects (Incineroar) : effect_speciallwstart only, ported by tools/port-effects.py (ADR 0007) ----
+unsafe extern "C" fn pikachu_effect_speciallwstart(agent: &mut L2CAgentBase) {
+    frame(agent.lua_state_agent, 7.0);
+    if macros::is_excute(agent) {
+        macros::EFFECT(agent, Hash40::new("gaogaen_revenge_pose"), Hash40::new("top"), 0, 11, 3, 0, 0, 0, 0.8, 0, 0, 0, 0, 0, 0, true);
+    }
+    frame(agent.lua_state_agent, 8.0);
+    if macros::is_excute(agent) {
+        macros::FLASH(agent, 1, 1, 1, 0.75);
+    }
+    wait(agent.lua_state_agent, 1.0);
+    for _ in 0..2 {
+        if macros::is_excute(agent) {
+            macros::FLASH(agent, 0.7, 0.7, 0.7, 0.5);
+        }
+        wait(agent.lua_state_agent, 2.0);
+        if macros::is_excute(agent) {
+            macros::FLASH(agent, 0.67, 0, 0.78, 0.31);
+        }
+        wait(agent.lua_state_agent, 2.0);
+        if macros::is_excute(agent) {
+            macros::COL_NORMAL(agent);
+        }
+        wait(agent.lua_state_agent, 2.0);
+    }
+    if macros::is_excute(agent) {
+        macros::FLASH(agent, 0.7, 0.7, 0.7, 0.5);
+    }
+    wait(agent.lua_state_agent, 2.0);
+    if macros::is_excute(agent) {
+        macros::FLASH(agent, 0.67, 0, 0.78, 0.31);
+    }
+    wait(agent.lua_state_agent, 2.0);
+    if macros::is_excute(agent) {
+        macros::FLASH(agent, 0.7, 0.7, 0.7, 0.5);
+    }
+    wait(agent.lua_state_agent, 2.0);
+    if macros::is_excute(agent) {
+        macros::COL_NORMAL(agent);
+    }
+}
+
+// ---- Revenge stance effects AIR (Incineroar) : effect_specialairlwstart only, ported by tools/port-effects.py (ADR 0007) ----
+unsafe extern "C" fn pikachu_effect_specialairlwstart(agent: &mut L2CAgentBase) {
+    frame(agent.lua_state_agent, 7.0);
+    if macros::is_excute(agent) {
+        macros::EFFECT(agent, Hash40::new("gaogaen_revenge_pose"), Hash40::new("top"), 0, 11, 3, 0, 0, 0, 0.8, 0, 0, 0, 0, 0, 0, true);
+    }
+    frame(agent.lua_state_agent, 8.0);
+    if macros::is_excute(agent) {
+        macros::FLASH(agent, 1, 1, 1, 0.75);
+    }
+    wait(agent.lua_state_agent, 1.0);
+    for _ in 0..2 {
+        if macros::is_excute(agent) {
+            macros::FLASH(agent, 0.7, 0.7, 0.7, 0.5);
+        }
+        wait(agent.lua_state_agent, 2.0);
+        if macros::is_excute(agent) {
+            macros::FLASH(agent, 0.67, 0, 0.78, 0.31);
+        }
+        wait(agent.lua_state_agent, 2.0);
+        if macros::is_excute(agent) {
+            macros::COL_NORMAL(agent);
+        }
+        wait(agent.lua_state_agent, 2.0);
+    }
+    if macros::is_excute(agent) {
+        macros::FLASH(agent, 0.7, 0.7, 0.7, 0.5);
+    }
+    wait(agent.lua_state_agent, 2.0);
+    if macros::is_excute(agent) {
+        macros::FLASH(agent, 0.67, 0, 0.78, 0.31);
+    }
+    wait(agent.lua_state_agent, 2.0);
+    if macros::is_excute(agent) {
+        macros::FLASH(agent, 0.7, 0.7, 0.7, 0.5);
+    }
+    wait(agent.lua_state_agent, 2.0);
+    if macros::is_excute(agent) {
+        macros::COL_NORMAL(agent);
     }
 }
 
@@ -139,11 +235,17 @@ unsafe extern "C" fn pikachu_game_speciallwturn(agent: &mut L2CAgentBase) {
 }
 
 
-// ---- Revenge turn (Incineroar) : effect_speciallwturn, sys_ effects only (ADR 0002) ----
+// ---- Revenge turn (Incineroar) : effect_speciallwturn, ported by tools/port-effects.py (ADR 0007) ----
 unsafe extern "C" fn pikachu_effect_speciallwturn(agent: &mut L2CAgentBase) {
     frame(agent.lua_state_agent, 3.0);
     if macros::is_excute(agent) {
         macros::LANDING_EFFECT(agent, Hash40::new("sys_landing_smoke"), Hash40::new("top"), 0, 0, 0, 0, 0, 0, 1, 0, 0, 0, 0, 0, 0, false);
+        macros::LAST_EFFECT_SET_RATE(agent, 0.85);
+    }
+    frame(agent.lua_state_agent, 6.0);
+    if macros::is_excute(agent) {
+        macros::EFFECT(agent, Hash40::new("gaogaen_revenge_start"), Hash40::new("top"), -2, 10, 0, 0, 0, 0, 1, 0, 0, 0, 0, 0, 0, false);
+        macros::EFFECT_FOLLOW(agent, Hash40::new("gaogaen_belt_fire_appeal"), Hash40::new("head"), 0, 3, 0, 0, 0, 0, 1, true);
     }
 }
 
@@ -189,11 +291,17 @@ unsafe extern "C" fn pikachu_game_specialairlwturn(agent: &mut L2CAgentBase) {
 }
 
 
-// ---- Revenge turn AIR (Incineroar) : effect_specialairlwturn, sys_ effects only (ADR 0002) ----
+// ---- Revenge turn AIR (Incineroar) : effect_specialairlwturn, ported by tools/port-effects.py (ADR 0007) ----
 unsafe extern "C" fn pikachu_effect_specialairlwturn(agent: &mut L2CAgentBase) {
     frame(agent.lua_state_agent, 3.0);
     if macros::is_excute(agent) {
         macros::LANDING_EFFECT(agent, Hash40::new("sys_landing_smoke"), Hash40::new("top"), 0, 0, 0, 0, 0, 0, 1, 0, 0, 0, 0, 0, 0, false);
+        macros::LAST_EFFECT_SET_RATE(agent, 0.85);
+    }
+    frame(agent.lua_state_agent, 6.0);
+    if macros::is_excute(agent) {
+        macros::EFFECT(agent, Hash40::new("gaogaen_revenge_start"), Hash40::new("top"), -2, 10, 0, 0, 0, 0, 1, 0, 0, 0, 0, 0, 0, false);
+        macros::EFFECT_FOLLOW(agent, Hash40::new("gaogaen_belt_fire_appeal"), Hash40::new("head"), 0, 3, 0, 0, 0, 0, 1, true);
     }
 }
 
@@ -254,8 +362,9 @@ unsafe extern "C" fn pikachu_game_specialhi(agent: &mut L2CAgentBase) {
 }
 
 
-// ---- up-B ground (Game & Watch) : effect_specialhi, sys_ effects only (ADR 0002) ----
+// ---- up-B ground (Game & Watch) : effect_specialhi, ported by tools/port-effects.py (ADR 0007) ----
 unsafe extern "C" fn pikachu_effect_specialhi(agent: &mut L2CAgentBase) {
+
 }
 
 // ---- up-B ground (Game & Watch) : sound_specialhi, labels through tools/sound-map.tsv ----
@@ -317,8 +426,9 @@ unsafe extern "C" fn pikachu_game_specialairhi(agent: &mut L2CAgentBase) {
 }
 
 
-// ---- up-B air (Game & Watch) : effect_specialairhi, sys_ effects only (ADR 0002) ----
+// ---- up-B air (Game & Watch) : effect_specialairhi, ported by tools/port-effects.py (ADR 0007) ----
 unsafe extern "C" fn pikachu_effect_specialairhi(agent: &mut L2CAgentBase) {
+
 }
 
 // ---- up-B air (Game & Watch) : sound_specialairhi, labels through tools/sound-map.tsv ----
@@ -388,7 +498,7 @@ unsafe extern "C" fn pikachu_game_specialsstart(agent: &mut L2CAgentBase) {
 }
 
 
-// ---- Alolan Whip lunge (Incineroar) : effect_specialsstart, sys_ effects only (ADR 0002) ----
+// ---- Alolan Whip lunge (Incineroar) : effect_specialsstart, ported by tools/port-effects.py (ADR 0007) ----
 unsafe extern "C" fn pikachu_effect_specialsstart(agent: &mut L2CAgentBase) {
     frame(agent.lua_state_agent, 4.0);
     if macros::is_excute(agent) {
@@ -399,8 +509,11 @@ unsafe extern "C" fn pikachu_effect_specialsstart(agent: &mut L2CAgentBase) {
         macros::LANDING_EFFECT(agent, Hash40::new("sys_dash_smoke"), Hash40::new("top"), 6, 0, 0, 0, 0, 0, 0.8, 0, 0, 0, 0, 0, 0, false);
     }
     frame(agent.lua_state_agent, 18.0);
-    if macros::is_excute(agent) {
-        macros::FOOT_EFFECT(agent, Hash40::new("sys_run_smoke"), Hash40::new("top"), 4, 0, 0, 0, 0, 0, 1, 0, 0, 0, 0, 0, 0, false);
+    for _ in 0..8 {
+        if macros::is_excute(agent) {
+            macros::FOOT_EFFECT(agent, Hash40::new("sys_run_smoke"), Hash40::new("top"), 4, 0, 0, 0, 0, 0, 1, 0, 0, 0, 0, 0, 0, false);
+        }
+        wait(agent.lua_state_agent, 2.0);
     }
 }
 
@@ -456,11 +569,16 @@ unsafe extern "C" fn pikachu_game_specialsshoulder(agent: &mut L2CAgentBase) {
 }
 
 
-// ---- Alolan Whip shoulder (Incineroar) : effect_specialsshoulder, sys_ effects only (ADR 0002) ----
+// ---- Alolan Whip shoulder (Incineroar) : effect_specialsshoulder, ported by tools/port-effects.py (ADR 0007) ----
 unsafe extern "C" fn pikachu_effect_specialsshoulder(agent: &mut L2CAgentBase) {
     frame(agent.lua_state_agent, 12.0);
     if macros::is_excute(agent) {
         macros::LANDING_EFFECT(agent, Hash40::new("sys_down_smoke"), Hash40::new("top"), 0, 0, 0, 0, 180, 0, 0.8, 0, 0, 0, 0, 0, 0, false);
+        macros::LAST_EFFECT_SET_RATE(agent, 0.5);
+    }
+    frame(agent.lua_state_agent, 15.0);
+    if macros::is_excute(agent) {
+        macros::EFFECT_FOLLOW_FLIP(agent, Hash40::new("gaogaen_rope_launch"), Hash40::new("gaogaen_rope_launch"), Hash40::new("top"), 0, 10, -1, 0, 150, -90, 1, true, *EF_FLIP_YZ);
     }
     frame(agent.lua_state_agent, 18.0);
     if macros::is_excute(agent) {
@@ -512,11 +630,20 @@ unsafe extern "C" fn pikachu_game_specialslariat(agent: &mut L2CAgentBase) {
 }
 
 
-// ---- Alolan Whip lariat (Incineroar) : effect_specialslariat, sys_ effects only (ADR 0002) ----
+// ---- Alolan Whip lariat (Incineroar) : effect_specialslariat, ported by tools/port-effects.py (ADR 0007) ----
 unsafe extern "C" fn pikachu_effect_specialslariat(agent: &mut L2CAgentBase) {
+    if macros::is_excute(agent) {
+        macros::EFFECT_FOLLOW(agent, Hash40::new("gaogaen_belt_fire2"), Hash40::new("head"), 0, 3, 0, 0, 0, 0, 1, true);
+    }
     frame(agent.lua_state_agent, 7.0);
     if macros::is_excute(agent) {
         macros::LANDING_EFFECT(agent, Hash40::new("sys_atk_smoke"), Hash40::new("top"), 0, 0, 0, 0, 180, 0, 0.8, 0, 0, 0, 0, 0, 0, false);
+        macros::LAST_EFFECT_SET_RATE(agent, 0.5);
+        macros::EFFECT(agent, Hash40::new("gaogaen_rope_ax"), Hash40::new("top"), 0, 13, 0, 0, 180, 21, 1.5, 0, 0, 0, 0, 0, 0, true);
+    }
+    frame(agent.lua_state_agent, 9.0);
+    if macros::is_excute(agent) {
+        macros::EFFECT(agent, Hash40::new("gaogaen_rope_ax_hit"), Hash40::new("top"), 0, 14, 4, 0, 0, 0, 1, 0, 0, 0, 0, 0, 0, true);
     }
 }
 
@@ -556,7 +683,7 @@ unsafe extern "C" fn pikachu_game_specialsthrow(agent: &mut L2CAgentBase) {
 }
 
 
-// ---- Alolan Whip throw (Incineroar) : effect_specialsthrow, sys_ effects only (ADR 0002) ----
+// ---- Alolan Whip throw (Incineroar) : effect_specialsthrow, ported by tools/port-effects.py (ADR 0007) ----
 unsafe extern "C" fn pikachu_effect_specialsthrow(agent: &mut L2CAgentBase) {
     frame(agent.lua_state_agent, 4.0);
     if macros::is_excute(agent) {
@@ -627,7 +754,7 @@ unsafe extern "C" fn pikachu_game_specialsfailure(agent: &mut L2CAgentBase) {
 }
 
 
-// ---- Alolan Whip whiff (Incineroar) : effect_specialsfailure, sys_ effects only (ADR 0002) ----
+// ---- Alolan Whip whiff (Incineroar) : effect_specialsfailure, ported by tools/port-effects.py (ADR 0007) ----
 unsafe extern "C" fn pikachu_effect_specialsfailure(agent: &mut L2CAgentBase) {
     frame(agent.lua_state_agent, 1.0);
     if macros::is_excute(agent) {
@@ -636,6 +763,7 @@ unsafe extern "C" fn pikachu_effect_specialsfailure(agent: &mut L2CAgentBase) {
     frame(agent.lua_state_agent, 18.0);
     if macros::is_excute(agent) {
         macros::LANDING_EFFECT(agent, Hash40::new("sys_down_smoke"), Hash40::new("top"), -5, 0, 0, 0, 0, 0, 0.6, 0, 0, 0, 0, 0, 0, false);
+        macros::LAST_EFFECT_SET_RATE(agent, 0.7);
     }
 }
 
@@ -659,8 +787,9 @@ unsafe extern "C" fn pikachu_game_specialsend(agent: &mut L2CAgentBase) {
 }
 
 
-// ---- Alolan Whip end (Incineroar) : effect_specialsend, sys_ effects only (ADR 0002) ----
+// ---- Alolan Whip end (Incineroar) : effect_specialsend, ported by tools/port-effects.py (ADR 0007) ----
 unsafe extern "C" fn pikachu_effect_specialsend(agent: &mut L2CAgentBase) {
+
 }
 
 // ---- Alolan Whip end (Incineroar) : sound_specialsend, labels through tools/sound-map.tsv ----
@@ -715,7 +844,7 @@ unsafe extern "C" fn pikachu_game_specialairsstart(agent: &mut L2CAgentBase) {
 }
 
 
-// ---- Alolan Whip AIR lunge (Incineroar) : effect_specialairsstart, sys_ effects only (ADR 0002) ----
+// ---- Alolan Whip AIR lunge (Incineroar) : effect_specialairsstart, ported by tools/port-effects.py (ADR 0007) ----
 unsafe extern "C" fn pikachu_effect_specialairsstart(agent: &mut L2CAgentBase) {
     frame(agent.lua_state_agent, 4.0);
     if macros::is_excute(agent) {
@@ -779,8 +908,12 @@ unsafe extern "C" fn pikachu_game_specialairsshoulder(agent: &mut L2CAgentBase) 
 }
 
 
-// ---- Alolan Whip AIR shoulder (Incineroar) : effect_specialairsshoulder, sys_ effects only (ADR 0002) ----
+// ---- Alolan Whip AIR shoulder (Incineroar) : effect_specialairsshoulder, ported by tools/port-effects.py (ADR 0007) ----
 unsafe extern "C" fn pikachu_effect_specialairsshoulder(agent: &mut L2CAgentBase) {
+    frame(agent.lua_state_agent, 15.0);
+    if macros::is_excute(agent) {
+        macros::EFFECT_FOLLOW_FLIP(agent, Hash40::new("gaogaen_rope_launch"), Hash40::new("gaogaen_rope_launch"), Hash40::new("top"), 0, 10, -1, 0, 150, -90, 1, true, *EF_FLIP_YZ);
+    }
     frame(agent.lua_state_agent, 18.0);
     if macros::is_excute(agent) {
         macros::EFFECT(agent, Hash40::new("sys_smash_flash_s"), Hash40::new("top"), 0, 23, 2, 0, 0, 0, 1, 0, 0, 0, 0, 0, 0, true);
@@ -831,8 +964,19 @@ unsafe extern "C" fn pikachu_game_specialairslariat(agent: &mut L2CAgentBase) {
 }
 
 
-// ---- Alolan Whip AIR lariat (Incineroar) : effect_specialairslariat, sys_ effects only (ADR 0002) ----
+// ---- Alolan Whip AIR lariat (Incineroar) : effect_specialairslariat, ported by tools/port-effects.py (ADR 0007) ----
 unsafe extern "C" fn pikachu_effect_specialairslariat(agent: &mut L2CAgentBase) {
+    if macros::is_excute(agent) {
+        macros::EFFECT_FOLLOW(agent, Hash40::new("gaogaen_belt_fire2"), Hash40::new("head"), 0, 3, 0, 0, 0, 0, 1, true);
+    }
+    frame(agent.lua_state_agent, 7.0);
+    if macros::is_excute(agent) {
+        macros::EFFECT(agent, Hash40::new("gaogaen_rope_ax"), Hash40::new("top"), 0, 13, 0, 0, 180, 21, 1.5, 0, 0, 0, 0, 0, 0, true);
+    }
+    frame(agent.lua_state_agent, 9.0);
+    if macros::is_excute(agent) {
+        macros::EFFECT(agent, Hash40::new("gaogaen_rope_ax_hit"), Hash40::new("top"), 0, 14, 4, 0, 0, 0, 1, 0, 0, 0, 0, 0, 0, true);
+    }
 }
 
 // ---- Alolan Whip AIR lariat (Incineroar) : sound_specialairslariat, labels through tools/sound-map.tsv ----
@@ -871,7 +1015,7 @@ unsafe extern "C" fn pikachu_game_specialairsthrow(agent: &mut L2CAgentBase) {
 }
 
 
-// ---- Alolan Whip AIR throw (Incineroar) : effect_specialairsthrow, sys_ effects only (ADR 0002) ----
+// ---- Alolan Whip AIR throw (Incineroar) : effect_specialairsthrow, ported by tools/port-effects.py (ADR 0007) ----
 unsafe extern "C" fn pikachu_effect_specialairsthrow(agent: &mut L2CAgentBase) {
     frame(agent.lua_state_agent, 4.0);
     if macros::is_excute(agent) {
@@ -942,7 +1086,7 @@ unsafe extern "C" fn pikachu_game_specialairsfailure(agent: &mut L2CAgentBase) {
 }
 
 
-// ---- Alolan Whip AIR whiff (Incineroar) : effect_specialairsfailure, sys_ effects only (ADR 0002) ----
+// ---- Alolan Whip AIR whiff (Incineroar) : effect_specialairsfailure, ported by tools/port-effects.py (ADR 0007) ----
 unsafe extern "C" fn pikachu_effect_specialairsfailure(agent: &mut L2CAgentBase) {
     frame(agent.lua_state_agent, 1.0);
     if macros::is_excute(agent) {
@@ -970,8 +1114,9 @@ unsafe extern "C" fn pikachu_game_specialairsend(agent: &mut L2CAgentBase) {
 }
 
 
-// ---- Alolan Whip AIR end (Incineroar) : effect_specialairsend, sys_ effects only (ADR 0002) ----
+// ---- Alolan Whip AIR end (Incineroar) : effect_specialairsend, ported by tools/port-effects.py (ADR 0007) ----
 unsafe extern "C" fn pikachu_effect_specialairsend(agent: &mut L2CAgentBase) {
+
 }
 
 // ---- Alolan Whip AIR end (Incineroar) : sound_specialairsend, labels through tools/sound-map.tsv ----
@@ -1038,6 +1183,8 @@ pub fn install() {
         .game_acmd("game_specialairlw", pikachu_game_specialairlw, Default)
         .effect_acmd("effect_specialairlw", pikachu_effect_specialairlw, Default)
         .sound_acmd("sound_specialairlw", pikachu_sound_specialairlw, Default)
+        .effect_acmd("effect_speciallwstart", pikachu_effect_speciallwstart, Default)
+        .effect_acmd("effect_specialairlwstart", pikachu_effect_specialairlwstart, Default)
         .game_acmd("game_speciallwturn", pikachu_game_speciallwturn, Default)
         .effect_acmd("effect_speciallwturn", pikachu_effect_speciallwturn, Default)
         .sound_acmd("sound_speciallwturn", pikachu_sound_speciallwturn, Default)

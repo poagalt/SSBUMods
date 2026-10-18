@@ -23,4 +23,6 @@
 # standing in for six different fighters' signature visuals would be worse than six plain moves.
 #
 # source effect <TAB> sys_ stand-in <TAB> why this one earns a stand-in
-wolf_scratch_arc	sys_attack_arc	Wolf's f-air: the arc is the only thing on screen that shows how far the swipe reaches, and the move read as having no hitbox without it
+# RETIRED 2026-10-18: wolf_scratch_arc -> sys_attack_arc. Wolf's own claw now ships in Rat of
+# Doom's transplanted effect archive (tools/build-effects.py), and tools/port-effects.py keeps
+# the real name. This table is no longer read by the generator; it stays as the record.
