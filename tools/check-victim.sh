@@ -93,6 +93,32 @@ else
     echo "  ok  every cross-object handle goes through crate::victim::boma"
 fi
 
+# 2b. NOTHING ASSIGNS A RUST L2CValue INTO AN ENGINE TABLE SLOT.
+#
+# smash-rs's `L2CValue` is 24 bytes -- `val_type: u32, unk1: u32, inner: u64, unk2: u8`, padded --
+# where the engine's is 16. `unk2` exists only to force the AArch64 indirect-return ABI. So
+# `table[i] = L2CValue::new_int(x)` writes 24 bytes into a 16-byte slot and the last eight land on
+# the type field of slot i+1.
+#
+# THIS IS NOT THEORETICAL; IT IS TWO BUGS. The air-damage crash was this module writing
+# globalTable[0x46..0x48] and the last write running off the table into a GOT pointer. The dropped
+# back throw was the single remaining write, to 0x45, zeroing 0x46 -- measured, all eight grabs of a
+# session read `b=[0x46]=0x0` beside `hi=[0x47]=0x40 lw=[0x48]=0x40`, and the engine's own CatchCont
+# does `change_status(globalTable[0x46])` for a back throw. Writes go through `set_table_slot`,
+# which copies exactly sixteen bytes.
+#
+# Comment lines are excluded for the same reason as the check above.
+over=$(grep -rnE "\]\s*=\s*(L2CValue::|lua_val\(|L2CValue \{)" "$S" 2>/dev/null        | grep -vE '^[^:]+:[0-9]+: *//' || true)
+if [ -n "$over" ]; then
+    echo "  FAIL an L2CValue is assigned into a table slot -- that writes 24 bytes into a 16-byte"
+    echo "       slot and zeroes the type of the NEXT one; use set_table_slot:"
+    printf '%s
+' "$over" | sed 's/^/       /'
+    rc=1
+else
+    echo "  ok  no L2CValue is assigned into an engine table slot (all writes are 16-byte copies)"
+fi
+
 # 3. "Is the victim still ours" must not be asked of the engine.
 #
 # THIS IS THE REGRESSION GUARD FOR THE BUG THAT BROKE BOTH GRABS AT ONCE. The whip and the carry

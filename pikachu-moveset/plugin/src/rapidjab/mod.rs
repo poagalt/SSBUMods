@@ -59,7 +59,21 @@ use smash::{
 };
 use smashline::Main;
 
-pub const ENABLED: bool = true;
+/// OFF, AND SUPERSEDED BY THE REAL FIX. Kept only so its history is readable; do not re-enable.
+///
+/// This module restarted the attack_100 motion from outside, on the theory that the engine's loop
+/// was failing to re-run a smashline script. Four rounds of tuning its gate changed the symptom
+/// without fixing it, because the theory was wrong. The real fault was in the SCRIPT: the dump it
+/// was ported from had lost a `do { ... } while (true)` and rotated the body by one block, so the
+/// script played one hit, parked, played nine more and returned -- and smashline calls a user
+/// script once and "simply returns" when it does. tools/restore-loop.awk now emits the loop the
+/// binary actually has (Little Mac's game_attack100 -> stub 0x71000a3800 -> loop 0x71000f8130), and
+/// the script loops itself the way the game's does.
+///
+/// Turned on alongside that, this would be actively harmful: its gate watches block 2 advance,
+/// which a self-looping script does every cycle, so it would restart the motion every cycle and
+/// pre-empt the loop -- exactly the failure it was built to prevent.
+pub const ENABLED: bool = false;
 
 /// The first block AFTER `wait_loop_clear` -- the ATTACK at script frame 1.
 ///

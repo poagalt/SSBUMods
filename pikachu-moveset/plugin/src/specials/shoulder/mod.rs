@@ -2624,6 +2624,46 @@ pub unsafe fn log_throw_destinations(fighter: &mut L2CFighterCommon) {
     ));
 }
 
+/// The size of one value in the ENGINE's table storage -- NOT `size_of::<L2CValue>()`.
+///
+/// THIS IS THE ROOT CAUSE OF THE DROPPED BACK THROW AND OF THE AIR-DAMAGE CRASH BEFORE IT, and it
+/// is one fact about smash-rs: its `L2CValue` is
+///
+///     #[repr(C)] struct L2CValue { val_type: u32, unk1: u32, inner: u64-union, unk2: u8 }
+///
+/// which pads to TWENTY-FOUR bytes. `unk2` is commented "for enforcing X8 AArch64 struct
+/// behavior": it exists to push the struct past 16 bytes so AArch64 passes and returns it
+/// indirectly, matching the C++ ABI for a type with a destructor. It is a calling-convention hack,
+/// and the engine's own L2CValue is the first SIXTEEN bytes of it. Tables store values at a
+/// 16-byte stride.
+///
+/// So `fighter.global_table[0x45] = L2CValue::new_int(x)` -- which `index_int_mut` correctly
+/// points at slot 0x45 -- then writes 24 bytes there, and the last eight land on the type field of
+/// slot 0x46. Measured 2026-10-18 on all eight grabs of a session:
+///
+///     f=[0x45]=0x1f7  b=[0x46]=0x0  hi=[0x47]=0x40  lw=[0x48]=0x40
+///
+/// `global_fighter_init` sets all four to FIGHTER_STATUS_KIND_THROW (0x40). This plugin writes
+/// only 0x45. The one slot after it is the one that is zero, and the engine's own `CatchCont`
+/// reads it for the back throw -- `change_status(globalTable[0x46])`, line 141 of its decomp --
+/// so back+A in a grab was `change_status(0)`, which is WAIT: "3%, immediately drop the opponent
+/// and run left". The earlier crash is the same overrun three slots further on, when this module
+/// still wrote 0x46..0x48 and the last write ran off the end of the table into a GOT pointer.
+const ENGINE_SLOT_BYTES: usize = 16;
+
+/// Writes one value into an engine table slot WITHOUT touching the next one.
+///
+/// Copies exactly `ENGINE_SLOT_BYTES`, which is the engine's own layout, instead of letting Rust
+/// assign a 24-byte struct into a 16-byte slot. Use this for EVERY write into a table the engine
+/// owns; gate 4p fails on a plain `table[i] = L2CValue` anywhere in the plugin.
+unsafe fn set_table_slot(slot: &mut L2CValue, value: L2CValue) {
+    std::ptr::copy_nonoverlapping(
+        &value as *const L2CValue as *const u8,
+        slot as *mut L2CValue as *mut u8,
+        ENGINE_SLOT_BYTES,
+    );
+}
+
 pub unsafe fn retarget_forward_throw(fighter: &mut L2CFighterCommon) {
     const CONT_THROW_F: i32 = 0x45;
     // SCOPED TO A CATCH OR CARRY. See `is_carry_status` -- running this in every status is what
@@ -2635,7 +2675,10 @@ pub unsafe fn retarget_forward_throw(fighter: &mut L2CFighterCommon) {
         return;
     }
     if fighter.global_table[CONT_THROW_F].get_i32() != RAT_STATUS_KIND_SHOULDER_START {
-        fighter.global_table[CONT_THROW_F] = L2CValue::new_int(RAT_STATUS_KIND_SHOULDER_START as u64);
+        set_table_slot(
+            &mut fighter.global_table[CONT_THROW_F],
+            L2CValue::new_int(RAT_STATUS_KIND_SHOULDER_START as u64),
+        );
         crate::telemetry::sink::diag(format!(
             "[rat] CARGO globalTable[0x45] now points the forward throw at SHOULDER_START \
              ({RAT_STATUS_KIND_SHOULDER_START:#x}) -- the engine's own CatchCont will make the \
