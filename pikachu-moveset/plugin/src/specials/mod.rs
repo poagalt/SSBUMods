@@ -41,9 +41,9 @@ pub mod shoulder;
 pub mod specialhi;
 pub mod specialhiclose;
 pub mod specialhifall;
-// Samus's Charge Shot, replacing Thunder Jolt. Six statuses, one of them the common
-// SPECIAL_N overridden in place -- see the module header for why Samus and not Ptooie.
-pub mod chargeshot;
+// Piranha Plant's Ptooie, replacing Thunder Jolt (2026-10-18; it replaced Samus's Charge Shot,
+// which is in git history). Seven statuses, one of them the common SPECIAL_N overridden in place.
+pub mod ptooie;
 
 pub fn install() {
     lockout::install();
@@ -55,5 +55,5 @@ pub fn install() {
     specialhi::install();
     specialhiclose::install();
     specialhifall::install();
-    chargeshot::install();
+    ptooie::install();
 }

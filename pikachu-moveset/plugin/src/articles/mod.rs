@@ -204,7 +204,7 @@ pub const CANDIDATES: &[Candidate] = &[
     // shoots nothing. `clean` is a claim the audit checks, not one made here.
     // ENABLED 2026-09-19, because the ported neutral-B needs it: Charge Shot without the article
     // is a charge with nothing to fire. The donor-param audit calls it clean in all 114 slots,
-    // which is the fact that chose Samus over Piranha Plant -- see src/specials/chargeshot.
+    // which is the fact that chose Samus over Piranha Plant at the time (git history: src/specials/chargeshot).
     //
     // IT HAS NO MODEL, AND THAT IS NOT A MISSING ASSET. `fighter/samus/model/cshot` is not a path
     // in the arc at all; only `motion/cshot/cNN/motion_list.bin` is. The visible ball is made
@@ -219,7 +219,8 @@ pub const CANDIDATES: &[Candidate] = &[
     // effects), so "the novel configuration" looked like the answer. It ships
     // `motion/cshot/c00/motion_list.bin`, which is 1 of the archive's 1, and it is COMPLETE.
     // The bow was shipping 1 of 18. Novelty is not evidence.
-    Candidate { host_name: "cshot",       donor: "samus",     donor_article: "cshot",       weapon_kind: "WEAPON_KIND_SAMUS_CSHOT",         clean: true,  enabled: true,  authored: false, model_from: "samus/supermissile" },
+    // OFF 2026-10-18: Ptooie replaced Charge Shot as the neutral-B, so nothing fires this any more.
+    Candidate { host_name: "cshot",       donor: "samus",     donor_article: "cshot",       weapon_kind: "WEAPON_KIND_SAMUS_CSHOT",         clean: true,  enabled: false, authored: false, model_from: "samus/supermissile" },
     // BYLETH'S BOW, AND HER N-AIR IS ENTIRELY MADE OF IT. `game_attackairn` generates the article,
     // `ArticleModule::change_motion(BOW, "attack_air_n")` drives it, and `remove_exist` takes it
     // away again -- all three are `FIGHTER_MASTER_GENERATE_ARTICLE_BOW` calls, which
@@ -243,7 +244,14 @@ pub const CANDIDATES: &[Candidate] = &[
     // archive map so this class cannot ship again. check.sh's 3f could not see it: it compares
     // the copy against the source it was copied from, so a partial source is invisible to it.
     Candidate { host_name: "bow",         donor: "master",    donor_article: "bow",         weapon_kind: "WEAPON_KIND_MASTER_BOW",          clean: true,  enabled: true,  authored: false, model_from: "" },
-    Candidate { host_name: "spikeball",   donor: "packun",    donor_article: "spikeball",   weapon_kind: "WEAPON_KIND_PACKUN_SPIKEBALL",    clean: false, enabled: false, authored: false, model_from: "" },
+    // PIRANHA PLANT'S SPIKEBALL, ON 2026-10-18: Ptooie's ball (src/specials/ptooie). It crashed
+    // every load in September because its slot 3 reads Piranha Plant's compiled param data
+    // (`[FPA2 entry + 0x138]`, his hit_data_spikeball) and slot 55 builds camera-range pointers into
+    // it, and without him in the match that data is null. Both slots are covered in
+    // src/articles/neutralize.rs, which now runs them against a stand-in carrying his own
+    // values (the rope taught the method). Its 14 model and 10 motion files are complete in
+    // work/arc-vis, counted against the archive map, which is what the bow's crash was.
+    Candidate { host_name: "spikeball",   donor: "packun",    donor_article: "spikeball",   weapon_kind: "WEAPON_KIND_PACKUN_SPIKEBALL",    clean: false, enabled: true,  authored: false, model_from: "" },
     // THE ROPE, FOURTH TRY (2026-10-18). Tries two and three both crashed match load identically
     // (crash reports 01792305616, 01792308093): Data Abort at 0x108 on TaskWorker2, LR
     // main+0x3403a30 -- 0x20 into the rope's own vtable SLOT 3, its module start, reached from
@@ -514,6 +522,14 @@ pub unsafe fn remove_exist(
 // above -- tools/check-nativecalls.sh listed all of them as "not made" -- and the parachute row is
 // installed, so they now have an id to act on. Same rule: a no-op when the row is off, and
 // `is_exist` then says false, which is the truth about an article that was never installed.
+
+/// Ptooie's shot hands the ball to the engine with `shoot_exist`, as Byleth's bow and the charge
+/// shot never needed to; the dumped scripts pass the target as a raw `*ARTICLE_OPE_TARGET_ALL`.
+pub unsafe fn shoot_exist(boma: *mut BattleObjectModuleAccessor, host: &str, target: i32, flag: bool) {
+    if let Some(id) = article_id(host) {
+        ArticleModule::shoot_exist(boma, id, ArticleOperationTarget(target), flag);
+    }
+}
 
 pub unsafe fn is_exist(boma: *mut BattleObjectModuleAccessor, host: &str) -> bool {
     match article_id(host) {

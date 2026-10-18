@@ -120,3 +120,11 @@ seq_mewtwo_rnd_attack	seq_pikachu_rnd_attack
 seq_mariod_rnd_attack	seq_pikachu_rnd_attack
 seq_donkey_rnd_attack	seq_pikachu_rnd_attack
 seq_gaogaen_rnd_attackappeal01	seq_pikachu_rnd_attack
+# Ptooie (2026-10-18). Five sounds and Pikachu's two neutral-B entries: the spit and the shot take
+# them; the blow (n02), the end (n05) and the failure fizzle (n06) are dropped rather than played
+# as the wrong sound, until option B grows the bank.
+se_packun_special_n01	se_pikachu_special_n01
+se_packun_special_n03	se_pikachu_special_n02
+se_packun_special_n02	-
+se_packun_special_n05	-
+se_packun_special_n06	-

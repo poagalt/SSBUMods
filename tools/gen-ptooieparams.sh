@@ -1,38 +1,44 @@
 #!/usr/bin/env bash
-# Generates the `param_special_n` table src/params answers with for Charge Shot, from Samus's own
+# Generates the `param_special_n` table src/params answers with for Ptooie, from Piranha Plant's own
 # vl.prc.
 #
 # WHY THIS EXISTS, AND WHY IT IS A SECOND FILE RATHER THAN A SECOND BLOCK IN table.rs.
 #
-# Every number in the ported neutral-B is read the way her status code reads it --
+# Every number in the ported neutral-B is read the way his status code reads it --
 # `WorkModule::get_param_float(boma, param_special_n, <key>)` -- and on a Pikachu that object
-# exists but holds HIS four Thunder Jolt offsets. Her five keys are simply not in it, so every one
-# of those reads would return 0: a charge cap of 0 (fires instantly at full power), a recoil of 0,
-# and a divisor of 0 in `SpecialNF_exec`. That is the same failure that cost Alolan Whip its whole
-# victim side, and `src/params` exists because of it.
+# exists but holds HIS four Thunder Jolt offsets. Piranha Plant's eight keys are simply not in it,
+# so every one of those reads would return 0: no gravity in the air, a blow that never plays, and
+# a shot multiplier of 0. That is the same failure that cost Alolan Whip its whole victim side,
+# and `src/params` exists because of it.
 #
 # NO KEY COLLIDES. Pikachu's four are `special_n_offset_ground_x_` and friends, all ending in an
-# underscore; Samus's five all begin `cshot_`. So the provider can answer hers and fall through to
-# the engine for his, with no arbitration.
+# underscore; none of Piranha Plant's does. So the provider can answer his and fall through to the
+# engine for Pikachu's, with no arbitration.
+#
+# THE BALL HAS A SECOND OBJECT, AND IT IS READ OFF THE BALL. The spikeball's own statuses read
+# `param_spikeball` through the WEAPON's accessor -- five reads in lua2cpp_packun (accel_y,
+# speed_y_max, bound_se_speed_less and two unlabelled ints) -- and a clone owned by Pikachu has no
+# such object behind it. It is emitted whole, as one table: the hook answers either accessor from
+# it, because prcdump prints a float 25.0 as `25` and the value-shape split the param_special_n
+# table uses cannot tell `speed_y_max = 4` from an int.
 #
 # The file is separate from `table.rs` because `tools/check.sh` gate 3e2 scans every
 # `(0x..., value, "name")` row in the param table and checks it against GAOGAEN's
-# `param_special_s`. A samus row in that file would fail there for not being one of Incineroar's
+# `param_special_s`. A packun row in that file would fail there for not being one of Incineroar's
 # keys -- which is a true statement about the wrong question. One generated file per source
-# object, one gate per generated file. Same reasoning as `jab.rs`, which arrived the same day.
+# fighter, one gate per generated file.
 #
-# THE FIFTH KEY HAS NO LABEL. `vendor/param-labels/ParamLabels.csv` does not name
-# `0x002bf59db69d`, so prcdump prints the hash. It is emitted here under that hash with its use
-# for a name -- `SpecialNC_end` reads it into
-# `FIGHTER_INSTANCE_WORK_ID_INT_AIR_ESCAPE_ADD_XLU_START_FRAME` -- rather than dropped, because a
-# provider that answers four of five keys is a provider whose fifth read silently returns 0.
+# AN UNLABELLED KEY IS KEPT UNDER ITS HASH. `vendor/param-labels/ParamLabels.csv` does not name
+# every key, so prcdump prints some as a 12-digit hash40; they are emitted under that hash rather
+# than dropped, because a provider that answers most keys is a provider whose last read silently
+# returns 0.
 set -uo pipefail
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"; cd "$ROOT"
-PRC="extracted/fighter/samus/param/vl.prc"
+PRC="extracted/fighter/packun/param/vl.prc"
 DUMP=tools/prc-tool/target/release/prcdump.exe
-OUT=pikachu-moveset/plugin/src/params/cshot.rs
+OUT=pikachu-moveset/plugin/src/params/ptooie.rs
 
-[ -f "$PRC" ] || { echo "no extracted samus vl.prc" >&2; exit 1; }
+[ -f "$PRC" ] || { echo "no extracted packun vl.prc" >&2; exit 1; }
 
 # param_special_n is a list[4] whose [0] is the real struct; [1..3] are zeroed per-slot copies.
 # Same shape, and the same awk, as gen-paramprovider.sh uses on param_special_s.
@@ -42,6 +48,14 @@ rows="$("$DUMP" "$PRC" vendor/param-labels/ParamLabels.csv 2>/dev/null \
         | sed 's/^ *//')"
 
 [ -n "$rows" ] || { echo "no param_special_n in $PRC" >&2; exit 1; }
+
+# param_spikeball has the same list[4] shape.
+ball="$("$DUMP" "$PRC" vendor/param-labels/ParamLabels.csv 2>/dev/null \
+        | awk 'index($0,"  param_spikeball ")==1{f=1;next} f&&/^  [a-z0-9_]+ /{f=0} f' \
+        | awk '/^    \[0\]/{p=1;next} /^    \[[1-9]\]/{p=0} p' \
+        | sed 's/^ *//')"
+
+[ -n "$ball" ] || { echo "no param_spikeball in $PRC" >&2; exit 1; }
 
 h40() {
     perl -e '
@@ -65,21 +79,24 @@ key_of() {
 }
 name_of() {
     case "$1" in
-      0x002bf59db69d) echo "air_escape_add_xlu_start_frame (UNLABELLED in ParamLabels.csv)" ;;
       *) echo "$1" ;;
     esac
 }
 
 {
     cat <<'HDR'
-// GENERATED by tools/gen-cshotparams.sh from extracted/fighter/samus/param/vl.prc.
+// GENERATED by tools/gen-ptooieparams.sh from extracted/fighter/packun/param/vl.prc.
 // Do not edit. Re-run the generator.
 //
-// Samus's whole `param_special_n` -- the five numbers Charge Shot is made of -- as hash40 of the
-// key to the value in her prc. See src/params/mod.rs for what answers with it, and
-// src/specials/chargeshot for what reads it.
+// Piranha Plant's whole `param_special_n` -- the eight numbers Ptooie's fighter side is made of --
+// as hash40 of the key to the value in his prc. See src/params/mod.rs for what answers with it, and
+// src/specials/ptooie for what reads it (the air kinetics, the blow's motion rate, and the shot's
+// speed multiplier, the last two through the native helpers it reproduces).
+//
+// Then his whole `param_spikeball`, which the BALL reads off itself, as one table answered for
+// either accessor -- see tools/gen-ptooieparams.sh for why it is not split by type.
 HDR
-    printf '\npub static CSHOT_INTS: &[(u64, i32, &str)] = &[\n'
+    printf '\npub static PTOOIE_INTS: &[(u64, i32, &str)] = &[\n'
     printf '%s\n' "$rows" | while IFS= read -r row; do
         name="${row%% =*}"; value="${row##*= }"
         case "$value" in
@@ -88,11 +105,21 @@ HDR
           *) continue ;;
         esac
     done
-    printf '];\n\npub static CSHOT_FLOATS: &[(u64, f32, &str)] = &[\n'
+    printf '];\n\npub static PTOOIE_FLOATS: &[(u64, f32, &str)] = &[\n'
     printf '%s\n' "$rows" | while IFS= read -r row; do
         name="${row%% =*}"; value="${row##*= }"
         case "$value" in
           *.*) printf '    (%s, %s, "%s"),\n' "$(key_of "$name")" "$value" "$(name_of "$name")" ;;
+          *) continue ;;
+        esac
+    done
+    printf '];\n\npub static SPIKEBALL: &[(u64, f32, &str)] = &[\n'
+    printf '%s\n' "$ball" | while IFS= read -r row; do
+        name="${row%% =*}"; value="${row##*= }"
+        case "$value" in
+          -*|[0-9]*)
+            case "$value" in *.*|*e*) v="$value" ;; *) v="$value.0" ;; esac
+            printf '    (%s, %s, "%s"),\n' "$(key_of "$name")" "$v" "$(name_of "$name")" ;;
           *) continue ;;
         esac
     done
@@ -111,4 +138,4 @@ for tbl in $(sed -n 's/^pub static \([A-Z_]*\):.*/\1/p' "$OUT"); do
     fi
 done
 
-echo "  wrote $OUT: $(grep -c '^    (0x' "$OUT") param(s) from samus"
+echo "  wrote $OUT: $(grep -c '^    (0x' "$OUT") param(s) from packun"

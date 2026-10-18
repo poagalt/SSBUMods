@@ -195,6 +195,26 @@ Alolan Whip AIR lariat (Incineroar)|gaogaen|SpecialAirSLariat|specialairslariat
 Alolan Whip AIR throw (Incineroar)|gaogaen|SpecialAirSThrow|specialairsthrow
 Alolan Whip AIR whiff (Incineroar)|gaogaen|SpecialAirSFailure|specialairsfailure
 Alolan Whip AIR end (Incineroar)|gaogaen|SpecialAirSEnd|specialairsend
+# PIRANHA PLANT'S PTOOIE (2026-10-18). Its statuses are transcribed in src/specials/ptooie; these
+# are its game, effect and sound scripts, verbatim, with two kinds of exception, both fxsnd: rows.
+# The blow and the failure have no game script in his dump at all. The four shots share one game
+# script whose dump is not code -- methodlib operator calls and bare addresses -- so it is
+# transcribed from the binary in src/specials/ptooie/acmd.rs and only its effects and sounds come
+# from here. special_n_hit has no scripts of any kind.
+Ptooie start (Piranha Plant)|packun|SpecialNStart|specialnstart
+Ptooie blow (Piranha Plant)|fxsnd:packun|SpecialNBlow|specialnblow
+Ptooie wait (Piranha Plant)|packun|SpecialNWait|specialnwait
+Ptooie shoot f (Piranha Plant)|fxsnd:packun|SpecialNShootF|specialnshootf
+Ptooie shoot b (Piranha Plant)|fxsnd:packun|SpecialNShootB|specialnshootb
+Ptooie end (Piranha Plant)|packun|SpecialNEnd|specialnend
+Ptooie failure (Piranha Plant)|fxsnd:packun|SpecialNFailure|specialnfailure
+Ptooie AIR start (Piranha Plant)|packun|SpecialAirNStart|specialairnstart
+Ptooie AIR blow (Piranha Plant)|fxsnd:packun|SpecialAirNBlow|specialairnblow
+Ptooie AIR wait (Piranha Plant)|packun|SpecialAirNWait|specialairnwait
+Ptooie AIR shoot f (Piranha Plant)|fxsnd:packun|SpecialAirNShootF|specialairnshootf
+Ptooie AIR shoot b (Piranha Plant)|fxsnd:packun|SpecialAirNShootB|specialairnshootb
+Ptooie AIR end (Piranha Plant)|packun|SpecialAirNEnd|specialairnend
+Ptooie AIR failure (Piranha Plant)|fxsnd:packun|SpecialAirNFailure|specialairnfailure
 # EVERY REMAINING SCRIPT OF THE THREE REPLACED SPECIALS, nulled.
 #
 # Skull Bash (side-B), Quick Attack (up-B) and Thunder (down-B) are all replaced, but each has
@@ -208,8 +228,8 @@ Alolan Whip AIR end (Incineroar)|gaogaen|SpecialAirSEnd|specialairsend
 # VisibilityModule::set_whole, and the only thing that turns visibility back on is the tail of
 # those same scripts -- so reaching one and leaving early strands Pikachu invisible for the stock.
 #
-# NEUTRAL-B IS DELIBERATELY ABSENT from this list. Thunder Jolt is still Pikachu's move until
-# Ptooie lands, so specialn, specialnshoot and specialairn must keep working.
+# NEUTRAL-B IS ABSENT from this list: Ptooie plays its own sixteen motions, so Thunder Jolt's
+# specialn, specialnshoot and specialairn are simply never reached.
 #
 # The list was generated, not guessed: every game_/effect_ script Pikachu has for a replaced
 # special, minus the ones the plugin already registers.
@@ -296,6 +316,30 @@ emit_module() {
                 echo "}" >> "$file"
                 echo "" >> "$file"
                 installs="$installs        .effect_acmd(\"effect_$fname\", pikachu_effect_$fname, Default)
+"
+                continue
+                ;;
+            fxsnd:*)
+                # EFFECTS AND SOUNDS, NO GAME SCRIPT. Two reasons to want this, both from Ptooie:
+                # the source HAS no game script for the motion (Piranha Plant's blow and failure
+                # are effect and sound only), or its game script is hand-written because the dump
+                # of it is not code (his shot -- src/specials/ptooie/acmd.rs says why).
+                local fxsrc="$DUMP/lua2cpp_${fighter#fxsnd:}/${fighter#fxsnd:}/$acmd.txt"
+                if [ ! -f "$fxsrc" ]; then
+                    echo "MISSING: $slot -> $fxsrc" >&2
+                    continue
+                fi
+                echo "// ---- $slot : effect_$fname and sound_$fname only (no game script) ----" >> "$file"
+                echo "unsafe extern \"C\" fn pikachu_effect_$fname(agent: &mut L2CAgentBase) {" >> "$file"
+                "$PY_BIN" "$ROOT/tools/port-effects.py" "$fxsrc" "effect_$fname" --report "$EFFECT_REPORT" >> "$file" 2>/dev/null
+                echo "}" >> "$file"
+                echo "unsafe extern \"C\" fn pikachu_sound_$fname(agent: &mut L2CAgentBase) {" >> "$file"
+                awk -v want="sound_$fname" -v map="$ROOT/tools/sound-map.tsv" -v loops="$LOOP_SCRIPTS" \
+                    -v fname="$fname" -f "$ROOT/tools/extract-sounds.awk" "$fxsrc" >> "$file" 2>> "$SOUND_REPORT"
+                echo "}" >> "$file"
+                echo "" >> "$file"
+                installs="$installs        .effect_acmd(\"effect_$fname\", pikachu_effect_$fname, Default)
+        .sound_acmd(\"sound_$fname\", pikachu_sound_$fname, Default)
 "
                 continue
                 ;;

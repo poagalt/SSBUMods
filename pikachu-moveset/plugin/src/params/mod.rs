@@ -40,7 +40,7 @@
 // Pikachu's own keys are untouched -- every one of his is `special_s_*_` with a trailing
 // underscore and none collides with Incineroar's -- and any key not in these tables falls through
 // to the game.
-mod cshot;
+mod ptooie;
 mod table;
 
 use smash::app::{lua_bind::*, utility, BattleObjectModuleAccessor};
@@ -49,17 +49,28 @@ use smash::lib::lua_const::*;
 /// `hash40("param_special_s")`, the param OBJECT the victim's status asks for.
 const PARAM_SPECIAL_S: u64 = 0x0f_ea97_fe73;
 
-/// `hash40("param_special_n")`, the param OBJECT Charge Shot's five numbers live in.
+/// `hash40("param_special_n")`, the param OBJECT Ptooie's eight fighter-side numbers live in.
 ///
 /// PIKACHU HAS THIS OBJECT AND IT IS THE WRONG ONE. His holds four Thunder Jolt offsets --
-/// `special_n_offset_ground_x_` and friends, all with a trailing underscore -- and none of
-/// samus's `cshot_*` keys. So every read the ported move makes would fall through to the engine
-/// and come back 0: a charge cap of 0, a recoil of 0, and a divide by 0 in the recoil's ratio.
-/// That is the same failure that cost Alolan Whip its whole victim side.
+/// `special_n_offset_ground_x_` and friends, all with a trailing underscore -- and none of Piranha
+/// Plant's keys. So every read the ported move makes (its air kinetics, the blow's motion rate,
+/// the shot's speed multiplier) would fall through to the engine and come back 0: no gravity in
+/// the air, a blow that never plays, and a shot multiplier divided by a zero frame count. That is
+/// the same failure that cost Alolan Whip its whole victim side.
 ///
-/// The two key sets cannot collide -- his all end in `_`, hers all begin `cshot_` -- so this
-/// answers hers and falls through for his, with nothing to arbitrate.
+/// The two key sets cannot collide -- his all end in `_`, Piranha Plant's never do -- so this
+/// answers his and falls through for Pikachu's, with nothing to arbitrate. (Until 2026-10-18 this
+/// answered Samus's Charge Shot keys; Ptooie replaced that move.)
 const PARAM_SPECIAL_N: u64 = 0x0f_8991_92aa;
+
+/// `hash40("param_spikeball")`, the object Ptooie's BALL reads off ITSELF.
+///
+/// The spikeball's own statuses in lua2cpp_packun ask their weapon accessor for five keys of it --
+/// accel_y and speed_y_max (its fall), bound_se_speed_less (when a bounce makes a sound) and two
+/// unlabelled ints. The clone is Pikachu's article, and nothing behind Pikachu declares this
+/// object, so those reads would come back 0: a ball that hangs in the air where it was spat. The
+/// whole object is answered, from `ptooie.rs`, for a spikeball whose owner is a Rat of Doom.
+const PARAM_SPIKEBALL: u64 = 0x0f_679a_af13;
 
 /// THE WHOLE OBJECT, GENERATED. `table.rs` is written by tools/gen-paramprovider.sh straight from
 /// `extracted/fighter/gaogaen/param/vl.prc`, and the int/float split is the prc's own.
@@ -77,7 +88,7 @@ const PARAM_SPECIAL_N: u64 = 0x0f_8991_92aa;
 ///
 /// Generated rather than transcribed because fifty hand-typed floats is fifty chances to typo a
 /// value that then looks like a physics bug.
-use cshot::{CSHOT_FLOATS, CSHOT_INTS};
+use ptooie::{PTOOIE_FLOATS, PTOOIE_INTS, SPIKEBALL};
 use table::{FLOATS, INTS};
 
 /// Is this accessor a RAT OF DOOM -- a Pikachu on the gated costume?
@@ -91,12 +102,38 @@ use table::{FLOATS, INTS};
 /// THE COSTUME TEST IS NOT DECORATION. These four hooks are installed globally and see every object
 /// in the fight; smashline's `*_costume` filter, which gates every `Agent` this plugin registers,
 /// does not reach a `skyline::hook`. Without it, vanilla Pikachu on c01-c07 would be handed
-/// Incineroar's `param_special_s` and Samus's `param_special_n` -- objects he has no scripts for,
+/// Incineroar's `param_special_s` and Piranha Plant's `param_special_n` -- objects he has no scripts for,
 /// answered for a moveset he is not running.
 unsafe fn is_pikachu(boma: *mut BattleObjectModuleAccessor) -> bool {
     !boma.is_null()
         && utility::get_kind(&mut *boma) == *FIGHTER_KIND_PIKACHU
         && crate::charaslot::is_rat_costume(boma)
+}
+
+/// Is this accessor a spikeball that a RAT OF DOOM spat? Called only after the object hash has
+/// matched `param_spikeball`, so the owner lookup never runs for any other read in the game -- a
+/// vanilla Piranha Plant's ball pays it and falls through.
+unsafe fn is_rat_spikeball(boma: *mut BattleObjectModuleAccessor) -> bool {
+    if boma.is_null()
+        || utility::get_category(&mut *boma) != *BATTLE_OBJECT_CATEGORY_WEAPON
+        || utility::get_kind(&mut *boma) != *WEAPON_KIND_PACKUN_SPIKEBALL
+    {
+        return false;
+    }
+    let owner = WorkModule::get_int(boma, *WEAPON_INSTANCE_WORK_ID_INT_LINK_OWNER) as u32;
+    match crate::victim::object_boma(owner) {
+        Some(o) => is_pikachu(o),
+        None => false,
+    }
+}
+
+/// The ball's answer, for either accessor: one table, because its int/float split is not
+/// recoverable from prcdump (see tools/gen-ptooieparams.sh).
+unsafe fn spikeball(key: u64) -> Option<f32> {
+    let i = SPIKEBALL.iter().position(|(k, _, _)| *k == key)?;
+    let (_, value, name) = SPIKEBALL[i];
+    announce_spikeball(i, name, value);
+    Some(value)
 }
 
 #[skyline::hook(replace = WorkModule::get_param_int)]
@@ -124,19 +161,25 @@ unsafe fn get_param_int_hook(
     // disagree about is worse than one neither provides.
     //
     // What remains below is the two OBJECTS Pikachu genuinely does not have: Incineroar's
-    // `param_special_s` and Samus's `param_special_n`. Those are read through this accessor by
-    // transcribed lua2cpp, which is what this hook is for.
+    // `param_special_s` and Piranha Plant's `param_special_n`. Those are read through this accessor by
+    // transcribed lua2cpp, which is what this hook is for. The third, `param_spikeball`, is read
+    // by the ball rather than by Pikachu.
+    if object == PARAM_SPIKEBALL && is_rat_spikeball(boma) {
+        if let Some(value) = spikeball(key) {
+            return value as i32;
+        }
+    }
     if object == PARAM_SPECIAL_N && is_pikachu(boma) {
-        if let Some(i) = CSHOT_INTS.iter().position(|(k, _, _)| *k == key) {
-            let (_, value, name) = CSHOT_INTS[i];
-            announce_cshot(std::ptr::addr_of_mut!(SEEN_CSHOT_INT), i, name, value as f32);
+        if let Some(i) = PTOOIE_INTS.iter().position(|(k, _, _)| *k == key) {
+            let (_, value, name) = PTOOIE_INTS[i];
+            announce_ptooie(std::ptr::addr_of_mut!(SEEN_PTOOIE_INT), i, name, value as f32);
             return value;
         }
-        // Same int/float coercion as below, and for the same reason: `cshot_charge_frame` is
-        // stored as an INT and `SpecialN`'s windup reads it with `get_param_float`.
-        if let Some(i) = CSHOT_FLOATS.iter().position(|(k, _, _)| *k == key) {
-            let (_, value, name) = CSHOT_FLOATS[i];
-            announce_cshot(std::ptr::addr_of_mut!(SEEN_CSHOT_FLOAT), i, name, value);
+        // Same int/float coercion as below: the prc's type and the caller's accessor are
+        // independent, so a FLOAT key asked for as an int still answers.
+        if let Some(i) = PTOOIE_FLOATS.iter().position(|(k, _, _)| *k == key) {
+            let (_, value, name) = PTOOIE_FLOATS[i];
+            announce_ptooie(std::ptr::addr_of_mut!(SEEN_PTOOIE_FLOAT), i, name, value);
             return value as i32;
         }
     }
@@ -163,20 +206,23 @@ unsafe fn get_param_float_hook(
     object: u64,
     key: u64,
 ) -> f32 {
-    if object == PARAM_SPECIAL_N && is_pikachu(boma) {
-        if let Some(i) = CSHOT_FLOATS.iter().position(|(k, _, _)| *k == key) {
-            let (_, value, name) = CSHOT_FLOATS[i];
-            announce_cshot(std::ptr::addr_of_mut!(SEEN_CSHOT_FLOAT), i, name, value);
+    if object == PARAM_SPIKEBALL && is_rat_spikeball(boma) {
+        if let Some(value) = spikeball(key) {
             return value;
         }
-        // `cshot_charge_frame` IS AN INT IN THE PRC AND IS READ AS A FLOAT. samus's own windup
-        // does exactly that -- `FUN_7100005770` is one `get_param_float(param_special_n,
-        // cshot_charge_frame)` -- so without this coercion the charge cap reads 0 and every shot
-        // is a fully-charged one fired instantly. The same trap as
-        // `special_s_lariat_offset_x1`, which cost the whip its lariat window.
-        if let Some(i) = CSHOT_INTS.iter().position(|(k, _, _)| *k == key) {
-            let (_, value, name) = CSHOT_INTS[i];
-            announce_cshot(std::ptr::addr_of_mut!(SEEN_CSHOT_INT), i, name, value as f32);
+    }
+    if object == PARAM_SPECIAL_N && is_pikachu(boma) {
+        if let Some(i) = PTOOIE_FLOATS.iter().position(|(k, _, _)| *k == key) {
+            let (_, value, name) = PTOOIE_FLOATS[i];
+            announce_ptooie(std::ptr::addr_of_mut!(SEEN_PTOOIE_FLOAT), i, name, value);
+            return value;
+        }
+        // AN INT KEY READ AS A FLOAT still answers: `loop_down_motion_frame` is an int in the prc,
+        // and the same trap -- an accessor that disagrees with the prc's type -- cost the whip its
+        // lariat window (`special_s_lariat_offset_x1`, below).
+        if let Some(i) = PTOOIE_INTS.iter().position(|(k, _, _)| *k == key) {
+            let (_, value, name) = PTOOIE_INTS[i];
+            announce_ptooie(std::ptr::addr_of_mut!(SEEN_PTOOIE_INT), i, name, value as f32);
             return value as f32;
         }
     }
@@ -237,17 +283,30 @@ unsafe fn announce(seen: *mut u64, i: usize, name: &str, value: f32) {
     ));
 }
 
-/// The same, for Charge Shot's `param_special_n`. A separate function only because the sentence is
-/// different: this one names Samus, and says what Pikachu's own object would have answered.
-unsafe fn announce_cshot(seen: *mut u64, i: usize, name: &str, value: f32) {
+/// The same, for Ptooie's `param_special_n`. A separate function only because the sentence is
+/// different: this one names Piranha Plant, and says what Pikachu's own object would have answered.
+unsafe fn announce_ptooie(seen: *mut u64, i: usize, name: &str, value: f32) {
     let bit = 1u64 << i;
     if *seen & bit != 0 {
         return;
     }
     *seen |= bit;
     crate::telemetry::sink::diag(format!(
-        "[rat] PARAM the engine asked Pikachu for {name} -- answered {value} (Samus's; his own \
-         param_special_n has no cshot_* key and would read 0)"
+        "[rat] PARAM the engine asked Pikachu for {name} -- answered {value} (Piranha Plant's; his \
+         own param_special_n holds Thunder Jolt's keys and would read 0)"
+    ));
+}
+
+/// The same, for the ball's `param_spikeball`.
+unsafe fn announce_spikeball(i: usize, name: &str, value: f32) {
+    let bit = 1u64 << i;
+    if SEEN_SPIKEBALL & bit != 0 {
+        return;
+    }
+    SEEN_SPIKEBALL |= bit;
+    crate::telemetry::sink::diag(format!(
+        "[rat] PARAM a Rat's spikeball asked for {name} -- answered {value} (Piranha Plant's \
+         param_spikeball; nothing behind Pikachu declares it)"
     ));
 }
 
@@ -262,12 +321,13 @@ unsafe fn announce_cshot(seen: *mut u64, i: usize, name: &str, value: f32) {
 /// settled more than one diagnosis here -- and half the table could produce a false "never".
 ///
 /// 64 is now a hard ceiling rather than an accident: tools/gen-paramprovider.sh and
-/// tools/gen-cshotparams.sh refuse to emit a table longer than this, so a future prc that grows
+/// tools/gen-ptooieparams.sh refuse to emit a table longer than this, so a future prc that grows
 /// past it fails the build instead of quietly re-creating the aliasing.
 static mut SEEN_INT: u64 = 0;
 static mut SEEN_FLOAT: u64 = 0;
-static mut SEEN_CSHOT_INT: u64 = 0;
-static mut SEEN_CSHOT_FLOAT: u64 = 0;
+static mut SEEN_PTOOIE_INT: u64 = 0;
+static mut SEEN_PTOOIE_FLOAT: u64 = 0;
+static mut SEEN_SPIKEBALL: u64 = 0;
 
 /// `FIGHTER_GAOGAEN_INSTANCE_WORK_ID_FLAG_SPECIAL_S_GENERATED_ROPE`, which the VICTIM reads OFF US.
 ///

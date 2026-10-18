@@ -42,6 +42,8 @@ const SOURCES: &[&str] = &[
     "SHEIK", "MASTER", "EFLAME", "PLIZARDON", "MARIOD", "NESS", "SAMUS",
     // f-air moved Kazuya -> Falco -> WOLF.
     "WOLF",
+    // neutral-B: Piranha Plant's Ptooie (2026-10-18).
+    "PACKUN",
 ];
 
 // STATUS-SCOPED work ids that are deliberately KEPT.
@@ -122,6 +124,18 @@ const KEEP_STATUS_IDS: &[&str] = &[
     "FIGHTER_SAMUS_STATUS_SPECIAL_N_FLAG_BULLET_DISP",
     "FIGHTER_SAMUS_STATUS_SPECIAL_N_FLAG_CHARGE",
     "FIGHTER_SAMUS_STATUS_SPECIAL_N_FLAG_SHOOT",
+    // PIRANHA PLANT'S PTOOIE (2026-10-18). Its ACMDs drive the move through five of his status
+    // ids, all checked against the three rules: (1) src/specials/ptooie registers every line of
+    // all seven statuses, so no Pikachu code runs in them; (2) the flags are 0x2100000D..10 and the
+    // float 0x100000A, inside Pikachu's own status-work ranges (flags to 0x2100001A, floats past
+    // 0x1000010 on every fighter); (3) all five are STATUS_ ids. GENERATE_ARTICLE_SPIKEBALL is what
+    // makes the ball exist at all -- frame 10 of game_specialnstart -- and SHOOT_BLOW_SPIKEBALL
+    // is how the shot scripts time the release.
+    "FIGHTER_PACKUN_STATUS_SPECIAL_N_FLAG_GENERATE_ARTICLE_SPIKEBALL",
+    "FIGHTER_PACKUN_STATUS_SPECIAL_N_FLAG_SHOOT_BLOW_SPIKEBALL",
+    "FIGHTER_PACKUN_STATUS_SPECIAL_N_FLAG_SHOOT_PREVIOUS_WAIT",
+    "FIGHTER_PACKUN_STATUS_SPECIAL_N_WORK_FLAG_END_PREVIOUS_SHOOT",
+    "FIGHTER_PACKUN_STATUS_SPECIAL_N_WORK_FLOAT_SHOOT_START_SPIKEBALL_DISTANCE",
 ];
 
 // A CLONED ARTICLE'S CALL IS RETARGETED, NOT DELETED.
@@ -147,7 +161,8 @@ const KEEP_STATUS_IDS: &[&str] = &[
 // (Pyra's esword, which this port does not clone, so it keeps being stripped). An unhandled op on
 // a cloned article is NOT silently stripped -- it is reported, because that is a call somebody
 // meant to keep.
-const RETARGET_OPS: &[&str] = &["generate_article", "change_motion", "remove_exist"];
+// `shoot_exist` joined 2026-10-18 with Ptooie, whose shot scripts hand the ball to the engine.
+const RETARGET_OPS: &[&str] = &["generate_article", "change_motion", "remove_exist", "shoot_exist"];
 
 /// `(donor, DONOR_ARTICLE_IN_CAPS) -> host_name`, read out of src/articles/mod.rs so this cannot
 /// drift from the table that decides what is actually cloned.
@@ -165,7 +180,11 @@ fn cloned_articles(src_dir: &str) -> Vec<(String, String, String)> {
         };
         let (Some(host), Some(donor), Some(art)) =
             (field("host_name"), field("donor"), field("donor_article")) else { continue };
-        if !t.contains("enabled: true") || !t.contains("clean: true") { continue }
+        // ENABLED, CLEAN OR NOT. A dirty row is only installed when src/articles/neutralize.rs
+        // covers it, and `crate::articles::<op>` is a no-op whenever a row is not installed -- so a
+        // retargeted call on an uninstalled dirty row is the same no-op a stripped one would be,
+        // and on a covered one (Ptooie's spikeball) it is the call the move needs.
+        if !t.contains("enabled: true") { continue }
         out.push((donor.to_uppercase(), art.to_uppercase(), host));
     }
     out

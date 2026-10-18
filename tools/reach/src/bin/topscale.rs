@@ -76,6 +76,14 @@ const MAP: &[(&str, &str)] = &[
     ("pikachu_game_throwb", "ness"),
     ("pikachu_game_throwhi", "mewtwo"),
     ("pikachu_game_throwlw", "mariod"),
+    // Ptooie's SEARCH box over his head, on `top`, in the wait.
+    ("pikachu_game_specialnwait", "packun"),
+    ("pikachu_game_specialairnwait", "packun"),
+    // AND IN THE SHOT, WHICH THIS PASS NEVER EDITS. That script is hand-written in
+    // src/specials/ptooie/acmd.rs -- not a mod.rs, so `collect_mods` never reads it -- and it applies
+    // this same packun/pikachu ratio to its own SEARCH. The row is here so tools/check-lists.sh
+    // sees that its `top` anchor was considered, not because anything below rewrites it.
+    ("pikachu_game_specialnshoot", "packun"),
     ("pikachu_game_downattacku", "koopa"),
     ("pikachu_game_downattackd", "koopa"),
     ("pikachu_game_slipattack", "koopa"),
@@ -175,6 +183,10 @@ const SCALE_BONE_RADII: bool = true;
 const SHAPES: &[(&str, usize, usize, usize, usize)] = &[
     ("macros::ATTACK(", 3, 9, 10, 15),
     ("macros::CATCH(", 2, 3, 4, 9),
+    // A SEARCH box is geometry like any other: (agent, id, part, bone, size, x, y, z, x2, y2, z2,
+    // ...). Piranha Plant's Ptooie wait holds one over his head on `top`, the first ported script
+    // to carry one (2026-10-18).
+    ("macros::SEARCH(", 3, 4, 5, 10),
 ];
 
 // Every mod.rs under the plugin source, at any depth.

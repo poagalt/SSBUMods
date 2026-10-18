@@ -80,34 +80,29 @@ const SYNTH: &[(&str, &str, &str, &str, bool)] = &[
     // angled animations rather than playing his straight swing.
     ("attack_s4_hi",     "attack_s4_s",          "littlemac", "attack_s4_hi",     true),
     ("attack_s4_lw",     "attack_s4_s",          "littlemac", "attack_s4_lw",     true),
-    // SAMUS'S CHARGE SHOT -- eleven motions, and Pikachu has NONE of them. His neutral-B is one
-    // motion each way (`special_n`, `special_air_n`, Thunder Jolt); hers is a windup, a charge
-    // loop, a cancel, a shot and a max-charge shot, ground and air, plus an air jump cancel.
-    //
-    // The templates are his two neutral-B entries, which is the closest thing he has and is only
-    // used for the fields that are then overwritten -- `extra`, `flags`, `game_script`, `scripts`
-    // and the animation all come from Samus.
-    //
-    // `special_n_f` and `special_air_n_f` ADOPT ANIMATION NAMES PIKACHU ALREADY HAS
-    // (`d00specialn.nuanmb` / `d00specialairn.nuanmb`, which are hers and his both), so those two
-    // are drop-in REPLACEMENTS rather than new files. The other nine are new paths and need their
-    // config.json entries -- which gen-config.sh derives from what is shipped, so shipping them
-    // in tools/anim-dropin.sh is the whole of it.
-    //
-    // `flags.loop` matters on the two hold entries and is carried by `flags`: the charge pose
-    // loops for as long as the button is down, and an entry without it would play once and end,
-    // which the status loop reads as "the animation finished".
-    ("special_n_s",         "special_n",     "samus", "special_n_s",         true),
-    ("special_n_h",         "special_n",     "samus", "special_n_h",         true),
-    ("special_n_c",         "special_n",     "samus", "special_n_c",         true),
-    ("special_n_f",         "special_n",     "samus", "special_n_f",         true),
-    ("special_n_f_max",     "special_n",     "samus", "special_n_f_max",     true),
-    ("special_air_n_s",     "special_air_n", "samus", "special_air_n_s",     true),
-    ("special_air_n_h",     "special_air_n", "samus", "special_air_n_h",     true),
-    ("special_air_n_c",     "special_air_n", "samus", "special_air_n_c",     true),
-    ("special_air_n_f",     "special_air_n", "samus", "special_air_n_f",     true),
-    ("special_air_n_f_max", "special_air_n", "samus", "special_air_n_f_max", true),
-    ("special_air_n_jump_c","special_air_n", "samus", "special_air_n_jump_c",true),
+    // PIRANHA PLANT'S PTOOIE (2026-10-18, replacing Samus's Charge Shot) -- sixteen motions, and
+    // Pikachu has none of them: his neutral-B is one motion each way (`special_n`, `special_air_n`,
+    // Thunder Jolt), and Ptooie is a start, a blow, a wait, a forward and a back shot, an end, a hit
+    // and a failure, ground and air. The templates are his two neutral-B entries, used only for the
+    // fields that are then overwritten -- `extra`, `flags`, `game_script`, `scripts` and the
+    // animation all come from Piranha Plant, and every animation is a new filename for Pikachu, so
+    // each has a tools/anim-dropin.sh row.
+    ("special_n_start", "special_n", "packun", "special_n_start", true),
+    ("special_n_blow", "special_n", "packun", "special_n_blow", true),
+    ("special_n_wait", "special_n", "packun", "special_n_wait", true),
+    ("special_n_shoot_f", "special_n", "packun", "special_n_shoot_f", true),
+    ("special_n_shoot_b", "special_n", "packun", "special_n_shoot_b", true),
+    ("special_n_end", "special_n", "packun", "special_n_end", true),
+    ("special_n_hit", "special_n", "packun", "special_n_hit", true),
+    ("special_n_failure", "special_n", "packun", "special_n_failure", true),
+    ("special_air_n_start", "special_air_n", "packun", "special_air_n_start", true),
+    ("special_air_n_blow", "special_air_n", "packun", "special_air_n_blow", true),
+    ("special_air_n_wait", "special_air_n", "packun", "special_air_n_wait", true),
+    ("special_air_n_shoot_f", "special_air_n", "packun", "special_air_n_shoot_f", true),
+    ("special_air_n_shoot_b", "special_air_n", "packun", "special_air_n_shoot_b", true),
+    ("special_air_n_end", "special_air_n", "packun", "special_air_n_end", true),
+    ("special_air_n_hit", "special_air_n", "packun", "special_air_n_hit", true),
+    ("special_air_n_failure", "special_air_n", "packun", "special_air_n_failure", true),
     // DK cargo throws.
     ("throw_f_f",        "throw_f",              "donkey",    "throw_f_f",        true),
     ("throw_f_b",        "throw_b",              "donkey",    "throw_f_b",        true),

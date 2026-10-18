@@ -37,9 +37,10 @@
 //! ranges through a pointer computed from Incineroar's param data, which is null+0x108 without him.
 //!
 //! NOTHING HAPPENS UNLESS A NEUTRALIZED ROW IS ENABLED IN CANDIDATES: `install` does not even
-//! install the hook otherwise. Both rows ship `enabled: false`. Arming one is a watched-boot,
-//! single-variable experiment like any new article; the first boot's log says, once per kind,
-//! which entry and which slots were neutralised, so a crash can be attributed.
+//! install the hook otherwise. Both rows are enabled now -- the rope since 2026-10-17, the
+//! spikeball for Ptooie on 2026-10-18 -- and each was armed as its own watched boot; the first
+//! boot's log says, once per kind, which entry and which slots were neutralised, so a crash can be
+//! attributed.
 
 use smash::app::{lua_bind::{FighterEntry, FighterManager}, sv_battle_object, FighterEntryID};
 use smash::lib::lua_const::*;
@@ -233,6 +234,116 @@ extern "C" fn rope_slot3_guard(this: *mut u8, object: *mut u8, a2: u64, a3: u64)
     }
 }
 
+// ---- THE SPIKEBALL'S STAND-IN FOR PIRANHA PLANT'S PARAM DATA (2026-10-18, for Ptooie) ----------
+//
+// Its slot 3 (main 0x3476e20) reads `[FPA2 + 0x1228]` -- Piranha Plant's entry -- and then
+// `[that + 0x138]`, a std::vector of his compiled `hit_data_spikeball` records, before a camera
+// reset like the rope's; its slot 55 (0x3476dd0) builds camera pointers `entry + 0x108` and
+// `entry + 0x120`. His own param lookup puts exactly those fields there (main 0xe15240 hit_data
+// +0x138, 0xe152b8 camera_range +0x108; the clip sphere is the 0x18 after it). With him absent the
+// entry is null: slot 3 reads [null + 0x138] -- the September crash -- and slot 55's pointers are
+// null-based.
+//
+// So both slots run against a STAND-IN: for the duration of the call his entry points at a static
+// block holding his own values at his own offsets, then goes back to null. Everything else either
+// slot does runs as the game wrote it.
+//   +0x108  camera_range_spikeball   up 15, down 0, center_y 0, front 5, back -5 (his vl.prc), in
+//                                    the order the rope's guard uses (center_y, front, back, up,
+//                                    down) so the two stay consistent
+//   +0x120  camera_clip_sphere_...   node `top`, offsets 0 0 0, r 40 (offsets at +8/+0xc/+0x10, as
+//                                    the clip-sphere struct lookup returns them)
+//   +0x138  hit_data_spikeball       EMPTY (begin == end): its 0x38-byte compiled layout is not yet
+//                                    pinned down, and a wrong record would hand HitModule a garbage
+//                                    joint. Cost: the ball has no hurtbox until it is.
+// A pointer the slots left null-based (slot 55 may already have run, unpatched, inside the
+// object's initialise) is rebased onto the block by slot 3's shim, as the rope's guard does.
+const PACKUN_STANDIN_SIZE: usize = 0x200;
+static mut PACKUN_STANDIN: [u64; PACKUN_STANDIN_SIZE / 8] = [0; PACKUN_STANDIN_SIZE / 8];
+static mut PACKUN_STANDIN_READY: bool = false;
+static mut SPIKE_SLOT3_ORIGINAL: usize = 0;
+static mut SPIKE_SLOT55_ORIGINAL: usize = 0;
+static mut SPIKE_LOGGED: bool = false;
+
+unsafe fn packun_standin() -> usize {
+    let base = core::ptr::addr_of_mut!(PACKUN_STANDIN) as *mut u8;
+    if !PACKUN_STANDIN_READY {
+        PACKUN_STANDIN_READY = true;
+        let f = |off: usize, v: f32| *(base.add(off) as *mut f32) = v;
+        // camera range
+        for (i, v) in [0.0f32, 5.0, -5.0, 15.0, 0.0].iter().enumerate() {
+            f(0x108 + 4 * i, *v);
+        }
+        // clip sphere
+        *(base.add(0x120) as *mut u64) = smash::hash40("top");
+        f(0x128, 0.0);
+        f(0x12c, 0.0);
+        f(0x130, 0.0);
+        f(0x134, 40.0);
+        // an empty vector: begin == end, both pointing inside the block
+        let empty = base.add(0x1c0) as u64;
+        *(base.add(0x138) as *mut u64) = empty;
+        *(base.add(0x140) as *mut u64) = empty;
+        *(base.add(0x148) as *mut u64) = empty;
+    }
+    base as usize
+}
+
+/// Run `f` with Piranha Plant's FPA2 entry pointing at the stand-in, if (and only if) it is null.
+unsafe fn with_packun_standin(f: impl FnOnce()) {
+    if FPA2_INSTANCE_PTR == 0 {
+        let _ = donor_absent(*FIGHTER_KIND_PACKUN);
+    }
+    let inst = if FPA2_INSTANCE_PTR == 0 { 0 } else { *(FPA2_INSTANCE_PTR as *const usize) };
+    if inst == 0 {
+        f();
+        return;
+    }
+    let at = (inst + 0x70 + *FIGHTER_KIND_PACKUN as usize * 0x38) as *mut usize;
+    if *at != 0 {
+        f();
+        return;
+    }
+    *at = packun_standin();
+    f();
+    *at = 0;
+}
+
+extern "C" fn spikeball_slot3_shim(this: *mut u8, object: *mut u8, a2: u64, a3: u64) {
+    unsafe {
+        let standin = packun_standin();
+        let boma = *(object.add(0x20) as *const *mut u8);
+        if !boma.is_null() {
+            let cam = *(boma.add(0x60) as *const *mut u8);
+            if !cam.is_null() {
+                let mut rebased = 0;
+                for off in (0x20..0x80).step_by(8) {
+                    let at = cam.add(off) as *mut usize;
+                    let v = *at;
+                    if (0x100..PACKUN_STANDIN_SIZE).contains(&v) {
+                        *at = standin + v;
+                        rebased += 1;
+                    }
+                }
+                if !SPIKE_LOGGED {
+                    SPIKE_LOGGED = true;
+                    crate::telemetry::sink::diag(format!(
+                        "[rat] articles: spikeball slot-3 shim: {rebased} null-based camera pointer(s) rebased onto the stand-in"
+                    ));
+                }
+            }
+        }
+        let original: extern "C" fn(*mut u8, *mut u8, u64, u64) = core::mem::transmute(SPIKE_SLOT3_ORIGINAL);
+        with_packun_standin(|| original(this, object, a2, a3));
+    }
+}
+
+extern "C" fn spikeball_slot55_shim(this: *mut u8, a1: u64, a2: u64, a3: u64) {
+    unsafe {
+        let original: extern "C" fn(*mut u8, u64, u64, u64) = core::mem::transmute(SPIKE_SLOT55_ORIGINAL);
+        with_packun_standin(|| original(this, a1, a2, a3));
+    }
+}
+
 /// The private singleton for one row, built on first use from the object's OWN class: the
 /// specializer the engine just stored at +0x3bb0 points at its vtable's address point, so the
 /// group is copied from there and the listed slots repointed at `default_slot`.
@@ -254,6 +365,14 @@ unsafe fn private_singleton(row: usize, singleton: usize, slots: &[usize]) -> us
     if NEUTRALIZED[row].0 == "rope" {
         ROPE_SLOT3_ORIGINAL = group[VTABLE_HEADER_WORDS + 3];
         group[VTABLE_HEADER_WORDS + 3] = rope_slot3_guard as usize;
+    }
+    // The spikeball's two listed slots run against the stand-in instead of returning: the
+    // ORIGINALS are read off the class's own vtable, since the loop above already overwrote them.
+    if NEUTRALIZED[row].0 == "spikeball" {
+        SPIKE_SLOT3_ORIGINAL = *point.add(3);
+        SPIKE_SLOT55_ORIGINAL = *point.add(55);
+        group[VTABLE_HEADER_WORDS + 3] = spikeball_slot3_shim as usize;
+        group[VTABLE_HEADER_WORDS + 55] = spikeball_slot55_shim as usize;
     }
     let group: &'static mut [usize] = Box::leak(group.into_boxed_slice());
     let singleton: &'static mut usize = Box::leak(Box::new(group.as_ptr().add(VTABLE_HEADER_WORDS) as usize));

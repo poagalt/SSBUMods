@@ -9,10 +9,13 @@
 # Nineteen of the 61 are played ONLY by scripts Rat of Doom replaces -- his tilts, smashes and
 # aerials, the old Quick Attack / Skull Bash / Thunder, the d-air landing -- so those nineteen take
 # donor audio. Everything he still does as Pikachu (walk, run, jump, land, shield, rolls he kept,
-# neutral-B, taunts, Final Smash, victory) keeps Pikachu's own sound. The 59 donor sounds do not
-# fit in 19, so tools/sound-map.tsv points near-duplicates at one entry (Little Mac's three jab
-# swings share one, Byleth's five n-air hits share one, Incineroar's eight side-B sounds share
-# two). Option B -- growing the bank so all 59 fit -- is the backup if the sharing bothers him.
+# taunts, Final Smash, victory) keeps Pikachu's own sound. The 59 donor sounds do not fit in 19,
+# so tools/sound-map.tsv points near-duplicates at one entry (Little Mac's three jab swings share
+# one, Byleth's five n-air hits share one, Incineroar's eight side-B sounds share two). Option B
+# -- growing the bank so all 59 fit -- is the backup if the sharing bothers him.
+#
+# NEUTRAL-B JOINED THEM ON 2026-10-18, when Ptooie replaced Thunder Jolt: his two entries
+# (special_N01, special_N02) take Piranha Plant's spit and shot, making 21 swapped.
 #
 # The list of what is free came from mapping every entry to the Pikachu scripts that play it
 # (vendor/SSBU-Dumped-Scripts/smashline/lua2cpp_pikachu). Entries NO script plays (jump03,
@@ -36,3 +39,5 @@ se_pikachu_special_S01_charge	gaogaen	se_gaogaen_special_S07
 se_pikachu_special_S02_s	falco	se_falco_attackhard_H01
 se_pikachu_special_S02_m	ness	se_ness_throw_pk01
 se_pikachu_special_S02_l	mewtwo	se_mewtwo_throw_H
+se_pikachu_special_N01	packun	se_packun_special_n01
+se_pikachu_special_N02	packun	se_packun_special_n03

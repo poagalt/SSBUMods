@@ -1123,6 +1123,288 @@ unsafe extern "C" fn pikachu_effect_specialairsend(agent: &mut L2CAgentBase) {
 unsafe extern "C" fn pikachu_sound_specialairsend(agent: &mut L2CAgentBase) {
 }
 
+// ---- Ptooie start (Piranha Plant) : game_specialnstart ----
+unsafe extern "C" fn pikachu_game_specialnstart(agent: &mut L2CAgentBase) {
+    frame(agent.lua_state_agent, 1.0);
+    macros::FT_MOTION_RATE(agent, 0.7);
+    frame(agent.lua_state_agent, 9.0);
+    macros::FT_MOTION_RATE(agent, 1.0);
+    frame(agent.lua_state_agent, 10.0);
+    if macros::is_excute(agent) {
+        WorkModule::on_flag(agent.module_accessor, *FIGHTER_PACKUN_STATUS_SPECIAL_N_FLAG_GENERATE_ARTICLE_SPIKEBALL);
+    }
+    frame(agent.lua_state_agent, 11.0);
+    macros::FT_MOTION_RATE(agent, 0.7);
+}
+
+
+// ---- Ptooie start (Piranha Plant) : effect_specialnstart, ported by tools/port-effects.py (ADR 0007) ----
+unsafe extern "C" fn pikachu_effect_specialnstart(agent: &mut L2CAgentBase) {
+    frame(agent.lua_state_agent, 2.0);
+    if macros::is_excute(agent) {
+        macros::LANDING_EFFECT(agent, Hash40::new("sys_landing_smoke"), Hash40::new("top"), 0, 0, 0, 0, 0, 0, 0.8, 0, 0, 0, 0, 0, 0, true);
+    }
+    frame(agent.lua_state_agent, 10.0);
+    if macros::is_excute(agent) {
+        macros::EFFECT(agent, Hash40::new("packun_spikeball_start"), Hash40::new("mouth"), 2, 0, 0, 0, 0, -90, 1, 0, 0, 0, 0, 0, 0, true);
+    }
+}
+
+// ---- Ptooie start (Piranha Plant) : sound_specialnstart, labels through tools/sound-map.tsv ----
+unsafe extern "C" fn pikachu_sound_specialnstart(agent: &mut L2CAgentBase) {
+    frame(agent.lua_state_agent, 10.0);
+    if macros::is_excute(agent) {
+        macros::PLAY_SE(agent, Hash40::new("se_pikachu_special_n01"));
+    }
+}
+
+// ---- Ptooie blow (Piranha Plant) : effect_specialnblow and sound_specialnblow only (no game script) ----
+unsafe extern "C" fn pikachu_effect_specialnblow(agent: &mut L2CAgentBase) {
+    if macros::is_excute(agent) {
+        macros::EFFECT_FOLLOW(agent, Hash40::new("packun_spikeball_blow"), Hash40::new("mouth"), 8, 0, 0, -1, 90, -90, 1, true);
+        macros::LAST_EFFECT_SET_RATE(agent, 1.4);
+    }
+    if macros::is_excute(agent) {
+        macros::FOOT_EFFECT(agent, Hash40::new("packun_spikeball_smoke"), Hash40::new("top"), 0, 0, 0, 0, 0, 0, 1, 0, 0, 0, 0, 0, 0, false);
+        macros::LAST_EFFECT_SET_RATE(agent, 1.5);
+    }
+    wait(agent.lua_state_agent, 5.0);
+}
+unsafe extern "C" fn pikachu_sound_specialnblow(agent: &mut L2CAgentBase) {
+}
+
+// ---- Ptooie wait (Piranha Plant) : game_specialnwait ----
+unsafe extern "C" fn pikachu_game_specialnwait(agent: &mut L2CAgentBase) {
+    if macros::is_excute(agent) {
+        macros::SEARCH(agent, 0, 0, Hash40::new("top"), 3.625, 0.0, 6.34375, 0.0, 0.0, 7.25, 0.0, *COLLISION_KIND_MASK_ATTACK, *HIT_STATUS_MASK_ALL, 1, *COLLISION_SITUATION_MASK_GA, *COLLISION_CATEGORY_MASK_ALL, *COLLISION_PART_MASK_ALL, true);
+    }
+    if WorkModule::get_int(agent.module_accessor, *FIGHTER_INSTANCE_WORK_ID_INT_KIND) == *FIGHTER_KIND_KIRBY {
+        if macros::is_excute(agent) {
+            macros::SEARCH(agent, 0, 0, Hash40::new("top"), 3.625, 0.0, 2.71875, 0.0, 0.0, 2.71875, 0.0, *COLLISION_KIND_MASK_ATTACK, *HIT_STATUS_MASK_ALL, 1, *COLLISION_SITUATION_MASK_GA, *COLLISION_CATEGORY_MASK_ALL, *COLLISION_PART_MASK_ALL, true);
+        }
+    }
+}
+
+// ---- Ptooie wait (Piranha Plant) : effect_specialnwait, ported by tools/port-effects.py (ADR 0007) ----
+unsafe extern "C" fn pikachu_effect_specialnwait(agent: &mut L2CAgentBase) {
+
+}
+
+// ---- Ptooie wait (Piranha Plant) : sound_specialnwait, labels through tools/sound-map.tsv ----
+unsafe extern "C" fn pikachu_sound_specialnwait(agent: &mut L2CAgentBase) {
+}
+
+// ---- Ptooie shoot f (Piranha Plant) : effect_specialnshootf and sound_specialnshootf only (no game script) ----
+unsafe extern "C" fn pikachu_effect_specialnshootf(agent: &mut L2CAgentBase) {
+    frame(agent.lua_state_agent, 12.0);
+    if macros::is_excute(agent) {
+        macros::LANDING_EFFECT(agent, Hash40::new("sys_atk_smoke"), Hash40::new("top"), -1, 0, 0, 0, 0, 0, 0.7, 0, 0, 0, 0, 0, 0, false);
+    }
+    frame(agent.lua_state_agent, 14.0);
+    if macros::is_excute(agent) {
+        macros::EFFECT_ATTR(agent, Hash40::new("packun_spikeball_shoot"), Hash40::new("mouth"), 8, 1, 0, 0, 90, -90, 1.2, 0, 0, 0, 0, 0, 0, true, *EFFECT_SUB_ATTRIBUTE_NO_JOINT_SCALE);
+    }
+}
+unsafe extern "C" fn pikachu_sound_specialnshootf(agent: &mut L2CAgentBase) {
+    frame(agent.lua_state_agent, 6.0);
+    if macros::is_excute(agent) {
+        macros::PLAY_SE(agent, Hash40::new("se_pikachu_special_n02"));
+    }
+}
+
+// ---- Ptooie shoot b (Piranha Plant) : effect_specialnshootb and sound_specialnshootb only (no game script) ----
+unsafe extern "C" fn pikachu_effect_specialnshootb(agent: &mut L2CAgentBase) {
+    frame(agent.lua_state_agent, 12.0);
+    if macros::is_excute(agent) {
+        macros::LANDING_EFFECT(agent, Hash40::new("sys_atk_smoke"), Hash40::new("top"), 1, 0, 0, 0, 180, 0, 0.7, 0, 0, 0, 0, 0, 0, false);
+    }
+    frame(agent.lua_state_agent, 14.0);
+    if macros::is_excute(agent) {
+        macros::EFFECT_ATTR(agent, Hash40::new("packun_spikeball_shoot"), Hash40::new("mouth"), 8, 1, 0, 0, 90, -90, 1.2, 0, 0, 0, 0, 0, 0, true, *EFFECT_SUB_ATTRIBUTE_NO_JOINT_SCALE);
+    }
+}
+unsafe extern "C" fn pikachu_sound_specialnshootb(agent: &mut L2CAgentBase) {
+    frame(agent.lua_state_agent, 6.0);
+    if macros::is_excute(agent) {
+        macros::PLAY_SE(agent, Hash40::new("se_pikachu_special_n02"));
+    }
+}
+
+// ---- Ptooie end (Piranha Plant) : game_specialnend ----
+unsafe extern "C" fn pikachu_game_specialnend(agent: &mut L2CAgentBase) {
+    frame(agent.lua_state_agent, 1.0);
+    if macros::is_excute(agent) {
+        crate::articles::remove_exist(agent.module_accessor, "spikeball", ArticleOperationTarget(*ARTICLE_OPE_TARGET_ALL));
+    }
+    macros::FT_MOTION_RATE(agent, 1.0);
+}
+
+
+// ---- Ptooie end (Piranha Plant) : effect_specialnend, ported by tools/port-effects.py (ADR 0007) ----
+unsafe extern "C" fn pikachu_effect_specialnend(agent: &mut L2CAgentBase) {
+    frame(agent.lua_state_agent, 2.0);
+    if macros::is_excute(agent) {
+        macros::LANDING_EFFECT(agent, Hash40::new("sys_landing_smoke_s"), Hash40::new("top"), 0, -1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 0, 0, true);
+        macros::LAST_EFFECT_SET_RATE(agent, 1.2);
+    }
+    frame(agent.lua_state_agent, 5.0);
+    if macros::is_excute(agent) {
+        macros::EFFECT_ATTR(agent, Hash40::new("packun_spikeball_end"), Hash40::new("mouth"), 2, 0, 0, 0, 0, -90, 1, 0, 0, 0, 0, 0, 0, true, *EFFECT_SUB_ATTRIBUTE_NO_JOINT_SCALE);
+    }
+}
+
+// ---- Ptooie end (Piranha Plant) : sound_specialnend, labels through tools/sound-map.tsv ----
+unsafe extern "C" fn pikachu_sound_specialnend(agent: &mut L2CAgentBase) {
+    frame(agent.lua_state_agent, 1.0);
+    if macros::is_excute(agent) {
+        macros::STOP_SE(agent, Hash40::new("se_pikachu_special_n02"));
+    }
+}
+
+// ---- Ptooie failure (Piranha Plant) : effect_specialnfailure and sound_specialnfailure only (no game script) ----
+unsafe extern "C" fn pikachu_effect_specialnfailure(agent: &mut L2CAgentBase) {
+    frame(agent.lua_state_agent, 22.0);
+    if macros::is_excute(agent) {
+        macros::EFFECT(agent, Hash40::new("sys_misfire"), Hash40::new("top"), 0, 30, 0, 0, 0, 0, 1, 0, 0, 0, 0, 0, 0, true);
+    }
+}
+unsafe extern "C" fn pikachu_sound_specialnfailure(agent: &mut L2CAgentBase) {
+    frame(agent.lua_state_agent, 7.0);
+    if macros::is_excute(agent) {
+        macros::PLAY_SE(agent, Hash40::new("se_pikachu_special_n01"));
+    }
+}
+
+// ---- Ptooie AIR start (Piranha Plant) : game_specialairnstart ----
+unsafe extern "C" fn pikachu_game_specialairnstart(agent: &mut L2CAgentBase) {
+    frame(agent.lua_state_agent, 1.0);
+    macros::FT_MOTION_RATE(agent, 0.7);
+    frame(agent.lua_state_agent, 9.0);
+    macros::FT_MOTION_RATE(agent, 1.0);
+    frame(agent.lua_state_agent, 10.0);
+    if macros::is_excute(agent) {
+        WorkModule::on_flag(agent.module_accessor, *FIGHTER_PACKUN_STATUS_SPECIAL_N_FLAG_GENERATE_ARTICLE_SPIKEBALL);
+    }
+    frame(agent.lua_state_agent, 11.0);
+    macros::FT_MOTION_RATE(agent, 0.7);
+}
+
+
+// ---- Ptooie AIR start (Piranha Plant) : effect_specialairnstart, ported by tools/port-effects.py (ADR 0007) ----
+unsafe extern "C" fn pikachu_effect_specialairnstart(agent: &mut L2CAgentBase) {
+    frame(agent.lua_state_agent, 10.0);
+    if macros::is_excute(agent) {
+        macros::EFFECT(agent, Hash40::new("packun_spikeball_start"), Hash40::new("mouth"), 2, 0, 0, 0, 0, -90, 1, 0, 0, 0, 0, 0, 0, true);
+    }
+}
+
+// ---- Ptooie AIR start (Piranha Plant) : sound_specialairnstart, labels through tools/sound-map.tsv ----
+unsafe extern "C" fn pikachu_sound_specialairnstart(agent: &mut L2CAgentBase) {
+    frame(agent.lua_state_agent, 10.0);
+    if macros::is_excute(agent) {
+        macros::PLAY_SE(agent, Hash40::new("se_pikachu_special_n01"));
+    }
+}
+
+// ---- Ptooie AIR blow (Piranha Plant) : effect_specialairnblow and sound_specialairnblow only (no game script) ----
+unsafe extern "C" fn pikachu_effect_specialairnblow(agent: &mut L2CAgentBase) {
+    if macros::is_excute(agent) {
+        macros::EFFECT_FOLLOW(agent, Hash40::new("packun_spikeball_blow"), Hash40::new("mouth"), 8, 0, 0, -1, 90, -90, 1, true);
+        macros::LAST_EFFECT_SET_RATE(agent, 1.4);
+    }
+}
+unsafe extern "C" fn pikachu_sound_specialairnblow(agent: &mut L2CAgentBase) {
+}
+
+// ---- Ptooie AIR wait (Piranha Plant) : game_specialairnwait ----
+unsafe extern "C" fn pikachu_game_specialairnwait(agent: &mut L2CAgentBase) {
+    if macros::is_excute(agent) {
+        macros::SEARCH(agent, 0, 0, Hash40::new("top"), 3.625, 0.0, 6.34375, 0.0, 0.0, 7.25, 0.0, *COLLISION_KIND_MASK_ATTACK, *HIT_STATUS_MASK_ALL, 1, *COLLISION_SITUATION_MASK_GA, *COLLISION_CATEGORY_MASK_ALL, *COLLISION_PART_MASK_ALL, true);
+    }
+    if WorkModule::get_int(agent.module_accessor, *FIGHTER_INSTANCE_WORK_ID_INT_KIND) == *FIGHTER_KIND_KIRBY {
+        if macros::is_excute(agent) {
+            macros::SEARCH(agent, 0, 0, Hash40::new("top"), 3.625, 0.0, 2.71875, 0.0, 0.0, 2.71875, 0.0, *COLLISION_KIND_MASK_ATTACK, *HIT_STATUS_MASK_ALL, 1, *COLLISION_SITUATION_MASK_GA, *COLLISION_CATEGORY_MASK_ALL, *COLLISION_PART_MASK_ALL, true);
+        }
+    }
+}
+
+// ---- Ptooie AIR wait (Piranha Plant) : effect_specialairnwait, ported by tools/port-effects.py (ADR 0007) ----
+unsafe extern "C" fn pikachu_effect_specialairnwait(agent: &mut L2CAgentBase) {
+
+}
+
+// ---- Ptooie AIR wait (Piranha Plant) : sound_specialairnwait, labels through tools/sound-map.tsv ----
+unsafe extern "C" fn pikachu_sound_specialairnwait(agent: &mut L2CAgentBase) {
+}
+
+// ---- Ptooie AIR shoot f (Piranha Plant) : effect_specialairnshootf and sound_specialairnshootf only (no game script) ----
+unsafe extern "C" fn pikachu_effect_specialairnshootf(agent: &mut L2CAgentBase) {
+    frame(agent.lua_state_agent, 14.0);
+    if macros::is_excute(agent) {
+        macros::EFFECT_ATTR(agent, Hash40::new("packun_spikeball_shoot"), Hash40::new("mouth"), 8, 1, 0, 0, 90, -90, 1.2, 0, 0, 0, 0, 0, 0, true, *EFFECT_SUB_ATTRIBUTE_NO_JOINT_SCALE);
+    }
+}
+unsafe extern "C" fn pikachu_sound_specialairnshootf(agent: &mut L2CAgentBase) {
+    frame(agent.lua_state_agent, 6.0);
+    if macros::is_excute(agent) {
+        macros::PLAY_SE(agent, Hash40::new("se_pikachu_special_n02"));
+    }
+}
+
+// ---- Ptooie AIR shoot b (Piranha Plant) : effect_specialairnshootb and sound_specialairnshootb only (no game script) ----
+unsafe extern "C" fn pikachu_effect_specialairnshootb(agent: &mut L2CAgentBase) {
+    frame(agent.lua_state_agent, 14.0);
+    if macros::is_excute(agent) {
+        macros::EFFECT_ATTR(agent, Hash40::new("packun_spikeball_shoot"), Hash40::new("mouth"), 8, 1, 0, 0, 90, -90, 1.2, 0, 0, 0, 0, 0, 0, true, *EFFECT_SUB_ATTRIBUTE_NO_JOINT_SCALE);
+    }
+}
+unsafe extern "C" fn pikachu_sound_specialairnshootb(agent: &mut L2CAgentBase) {
+    frame(agent.lua_state_agent, 6.0);
+    if macros::is_excute(agent) {
+        macros::PLAY_SE(agent, Hash40::new("se_pikachu_special_n02"));
+    }
+}
+
+// ---- Ptooie AIR end (Piranha Plant) : game_specialairnend ----
+unsafe extern "C" fn pikachu_game_specialairnend(agent: &mut L2CAgentBase) {
+    frame(agent.lua_state_agent, 1.0);
+    if macros::is_excute(agent) {
+        crate::articles::remove_exist(agent.module_accessor, "spikeball", ArticleOperationTarget(*ARTICLE_OPE_TARGET_ALL));
+    }
+    macros::FT_MOTION_RATE(agent, 1.0);
+}
+
+
+// ---- Ptooie AIR end (Piranha Plant) : effect_specialairnend, ported by tools/port-effects.py (ADR 0007) ----
+unsafe extern "C" fn pikachu_effect_specialairnend(agent: &mut L2CAgentBase) {
+    frame(agent.lua_state_agent, 5.0);
+    if macros::is_excute(agent) {
+        macros::EFFECT_ATTR(agent, Hash40::new("packun_spikeball_end"), Hash40::new("mouth"), 2, 0, 0, 0, 0, -90, 1, 0, 0, 0, 0, 0, 0, true, *EFFECT_SUB_ATTRIBUTE_NO_JOINT_SCALE);
+    }
+}
+
+// ---- Ptooie AIR end (Piranha Plant) : sound_specialairnend, labels through tools/sound-map.tsv ----
+unsafe extern "C" fn pikachu_sound_specialairnend(agent: &mut L2CAgentBase) {
+    frame(agent.lua_state_agent, 1.0);
+    if macros::is_excute(agent) {
+        macros::STOP_SE(agent, Hash40::new("se_pikachu_special_n02"));
+    }
+}
+
+// ---- Ptooie AIR failure (Piranha Plant) : effect_specialairnfailure and sound_specialairnfailure only (no game script) ----
+unsafe extern "C" fn pikachu_effect_specialairnfailure(agent: &mut L2CAgentBase) {
+    frame(agent.lua_state_agent, 22.0);
+    if macros::is_excute(agent) {
+        macros::EFFECT(agent, Hash40::new("sys_misfire"), Hash40::new("top"), 0, 30, 0, 0, 0, 0, 1, 0, 0, 0, 0, 0, 0, true);
+    }
+}
+unsafe extern "C" fn pikachu_sound_specialairnfailure(agent: &mut L2CAgentBase) {
+    frame(agent.lua_state_agent, 7.0);
+    if macros::is_excute(agent) {
+        macros::PLAY_SE(agent, Hash40::new("se_pikachu_special_n01"));
+    }
+}
+
 // ---- Skull Bash release, nulled : empty override of game_specials AND effect_specials ----
 unsafe extern "C" fn pikachu_game_specials(_agent: &mut L2CAgentBase) {}
 unsafe extern "C" fn pikachu_effect_specials(_agent: &mut L2CAgentBase) {}
@@ -1233,6 +1515,40 @@ pub fn install() {
         .game_acmd("game_specialairsend", pikachu_game_specialairsend, Default)
         .effect_acmd("effect_specialairsend", pikachu_effect_specialairsend, Default)
         .sound_acmd("sound_specialairsend", pikachu_sound_specialairsend, Default)
+        .game_acmd("game_specialnstart", pikachu_game_specialnstart, Default)
+        .effect_acmd("effect_specialnstart", pikachu_effect_specialnstart, Default)
+        .sound_acmd("sound_specialnstart", pikachu_sound_specialnstart, Default)
+        .effect_acmd("effect_specialnblow", pikachu_effect_specialnblow, Default)
+        .sound_acmd("sound_specialnblow", pikachu_sound_specialnblow, Default)
+        .game_acmd("game_specialnwait", pikachu_game_specialnwait, Default)
+        .effect_acmd("effect_specialnwait", pikachu_effect_specialnwait, Default)
+        .sound_acmd("sound_specialnwait", pikachu_sound_specialnwait, Default)
+        .effect_acmd("effect_specialnshootf", pikachu_effect_specialnshootf, Default)
+        .sound_acmd("sound_specialnshootf", pikachu_sound_specialnshootf, Default)
+        .effect_acmd("effect_specialnshootb", pikachu_effect_specialnshootb, Default)
+        .sound_acmd("sound_specialnshootb", pikachu_sound_specialnshootb, Default)
+        .game_acmd("game_specialnend", pikachu_game_specialnend, Default)
+        .effect_acmd("effect_specialnend", pikachu_effect_specialnend, Default)
+        .sound_acmd("sound_specialnend", pikachu_sound_specialnend, Default)
+        .effect_acmd("effect_specialnfailure", pikachu_effect_specialnfailure, Default)
+        .sound_acmd("sound_specialnfailure", pikachu_sound_specialnfailure, Default)
+        .game_acmd("game_specialairnstart", pikachu_game_specialairnstart, Default)
+        .effect_acmd("effect_specialairnstart", pikachu_effect_specialairnstart, Default)
+        .sound_acmd("sound_specialairnstart", pikachu_sound_specialairnstart, Default)
+        .effect_acmd("effect_specialairnblow", pikachu_effect_specialairnblow, Default)
+        .sound_acmd("sound_specialairnblow", pikachu_sound_specialairnblow, Default)
+        .game_acmd("game_specialairnwait", pikachu_game_specialairnwait, Default)
+        .effect_acmd("effect_specialairnwait", pikachu_effect_specialairnwait, Default)
+        .sound_acmd("sound_specialairnwait", pikachu_sound_specialairnwait, Default)
+        .effect_acmd("effect_specialairnshootf", pikachu_effect_specialairnshootf, Default)
+        .sound_acmd("sound_specialairnshootf", pikachu_sound_specialairnshootf, Default)
+        .effect_acmd("effect_specialairnshootb", pikachu_effect_specialairnshootb, Default)
+        .sound_acmd("sound_specialairnshootb", pikachu_sound_specialairnshootb, Default)
+        .game_acmd("game_specialairnend", pikachu_game_specialairnend, Default)
+        .effect_acmd("effect_specialairnend", pikachu_effect_specialairnend, Default)
+        .sound_acmd("sound_specialairnend", pikachu_sound_specialairnend, Default)
+        .effect_acmd("effect_specialairnfailure", pikachu_effect_specialairnfailure, Default)
+        .sound_acmd("sound_specialairnfailure", pikachu_sound_specialairnfailure, Default)
         .game_acmd("game_specials", pikachu_game_specials, Default)
         .effect_acmd("effect_specials", pikachu_effect_specials, Default)
         .game_acmd("game_specialshold", pikachu_game_specialshold, Default)

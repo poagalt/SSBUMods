@@ -23,6 +23,14 @@ WHERE THE NAMES COME FROM: the plugin source itself. Every `Hash40::new("<donor>
 in an effect call -- the generated move scripts and hand-written status code alike -- is a name the
 archive must provide, so nothing is listed by hand and nothing can drift.
 
+AND THE CLONED ARTICLES' OWN SCRIPTS, which are not in the plugin source at all: a clone runs its
+donor's scripts, so a name only the article plays never appeared in the scan. Piranha Plant's
+spikeball was the first to need it -- its Loop status plays `packun_spikeball_wind` while the ball
+is being blown upward, and nothing of Pikachu's names it. Every ENABLED row of the Candidates table
+in src/articles/mod.rs contributes the effect calls in its donor article's dumped scripts whose name
+is the article's own (`packun_spikeball_*`) -- not every donor name, or the Cloud sword clone would
+drag in his whole Final Smash (`cloud_final2_*`), which its scripts name and Rat of Doom never plays.
+
 HOW IT IS MERGED, with KillzXGaming's EffectConverter v1.9 (vendor/tools/EffectConverter; VFX
 version 22 is inside its supported range) to DUMP, and tools/effmerge to BUILD -- the converter's
 own folder-to-archive path plus the texture-bank and model-bank re-saves v1.9 leaves commented out. Each donor archive is dumped once to
@@ -117,7 +125,36 @@ def wanted_names(donors):
                         trails.add(n)
                     elif n.split("_")[0] in donors and n.split("_")[0] != "pikachu":
                         names.add(n)
+    for donor, article in cloned_articles():
+        scripts = os.path.join(ROOT, "vendor", "SSBU-Dumped-Scripts", "smashline", "lua2cpp_%s" % donor,
+                               "%s_%s" % (donor, article))
+        if not os.path.isdir(scripts):
+            continue
+        for f in sorted(os.listdir(scripts)):
+            text = open(os.path.join(scripts, f), encoding="utf-8").read()
+            for m in call.finditer(text):
+                depth, i = 1, m.end()
+                while i < len(text) and depth:
+                    depth += {"(": 1, ")": -1}.get(text[i], 0)
+                    i += 1
+                for n in re.findall(r'Hash40::new\("([a-z0-9_]+)"\)', text[m.end():i]):
+                    if n.startswith("%s_%s" % (donor, article)) and donor in donors:
+                        names.add(n)
     return names, trails
+
+
+def cloned_articles():
+    """(donor, donor_article) for every ENABLED row of src/articles/mod.rs's Candidates table."""
+    rows = []
+    for line in open(os.path.join(SRC, "articles", "mod.rs"), encoding="utf-8"):
+        t = line.strip()
+        if not t.startswith("Candidate {") or "enabled: true" not in t:
+            continue
+        d = re.search(r'donor: "([a-z0-9_]+)"', t)
+        a = re.search(r'donor_article: "([a-z0-9_]+)"', t)
+        if d and a:
+            rows.append((d.group(1), a.group(1)))
+    return rows
 
 
 def dump(donor):

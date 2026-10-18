@@ -166,24 +166,22 @@ pub const RAT_STATUS_KIND_SPECIAL_LW_HIT: i32 = 0x201;
 /// counter was ported, with nothing able to reach them.
 pub const RAT_STATUS_KIND_SPECIAL_LW_TURN: i32 = 0x206;
 
-/// SAMUS'S CHARGE SHOT, five of her six statuses.
+/// PIRANHA PLANT'S PTOOIE, six of his seven statuses (2026-10-18, replacing Samus's Charge Shot).
 ///
-/// The sixth is `FIGHTER_STATUS_KIND_SPECIAL_N` itself, which is COMMON and which she overrides
-/// in place -- Init, Pre, Main, End and Exit all registered -- so this port does the same and
-/// needs no new id for it. The other five are hers alone: her own ids are 0x1E1..0x1E5, which on
-/// Pikachu are SPECIAL_HI_WARP, SPECIAL_S_HOLD and three of Skull Bash's, so reusing them would
-/// put the charge loop inside Quick Attack's warp. New ids, as ADR 0006 requires.
-///
-/// The order matters only in that `_H` is where a press goes and `_F` is where a release goes;
-/// they are numbered in the order the move visits them.
-pub const RAT_STATUS_KIND_SPECIAL_N_H: i32 = 0x207;
-pub const RAT_STATUS_KIND_SPECIAL_N_C: i32 = 0x208;
-pub const RAT_STATUS_KIND_SPECIAL_N_E: i32 = 0x209;
-pub const RAT_STATUS_KIND_SPECIAL_N_F: i32 = 0x20A;
-pub const RAT_STATUS_KIND_SPECIAL_N_JUMP_CANCEL: i32 = 0x20B;
+/// The seventh is `FIGHTER_STATUS_KIND_SPECIAL_N` itself, which is COMMON (0x1DC on every fighter)
+/// and which he overrides in place, so this port does the same. The other six are his alone: his
+/// own ids are 0x1E1..0x1E6, which on Pikachu are SPECIAL_HI_WARP, SPECIAL_S_HOLD and Skull Bash's,
+/// so reusing them would put the ball's loop inside Quick Attack's warp. New ids, as ADR 0006
+/// requires, numbered in his order: LOOP (the blow), WAIT, SHOOT, END, HIT_END, FAILURE.
+pub const RAT_STATUS_KIND_SPECIAL_N_LOOP: i32 = 0x207;
+pub const RAT_STATUS_KIND_SPECIAL_N_WAIT: i32 = 0x208;
+pub const RAT_STATUS_KIND_SPECIAL_N_SHOOT: i32 = 0x209;
+pub const RAT_STATUS_KIND_SPECIAL_N_END: i32 = 0x20A;
+pub const RAT_STATUS_KIND_SPECIAL_N_HIT_END: i32 = 0x20B;
+pub const RAT_STATUS_KIND_SPECIAL_N_FAILURE: i32 = 0x20C;
 
 /// One past the highest id above. Anything new goes here and this moves up.
-pub const RAT_STATUS_KIND_NUM: i32 = 0x20C;
+pub const RAT_STATUS_KIND_NUM: i32 = 0x20D;
 
 // Two things that must stay true, checked at compile time rather than trusted:
 //   * every id above Pikachu's own NUM, so none of them shadows one of his statuses;
@@ -192,7 +190,7 @@ pub const RAT_STATUS_KIND_NUM: i32 = 0x20C;
 // is a runtime lazy static and cannot be used in a const context.
 const _: () = {
     let first = RAT_STATUS_KIND_SPECIAL_HI_CLOSE;
-    let last = RAT_STATUS_KIND_SPECIAL_N_JUMP_CANCEL;
+    let last = RAT_STATUS_KIND_SPECIAL_N_FAILURE;
     assert!(first >= 0x1F0);
     assert!(last < RAT_STATUS_KIND_NUM);
 };

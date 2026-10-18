@@ -1039,9 +1039,18 @@ unsafe fn rope_spawn(fighter: &mut L2CFighterCommon) {
     }
     // ROPE_X is where the victim meets the ropes -- the same line `whip_flight` attaches them at.
     let (x, y) = (rope_x, rope_y);
-    ArticleModule::set_pos(boma, id, Vector3f { x, y, z: 0.0 });
     ROPE_AGE[entry.min(7)] = 0;
     if let Some(abm) = crate::articles::accessor(boma, id) {
+        // WHERE THE CALLBACK BUILT IT, before anything of ours moves it: the question the 10-18 log
+        // could not answer, because every line it has is from after a frame of the rope's own update.
+        crate::telemetry::sink::diag(format!(
+            "[rat] WHIP p{entry} rope born at ({:.2},{:.2}) sit={} correct={} -- floats read back ({:.2},{:.2})",
+            PostureModule::pos_x(abm), PostureModule::pos_y(abm), StatusModule::situation_kind(abm),
+            GroundModule::get_correct(abm),
+            WorkModule::get_float(boma, *FIGHTER_GAOGAEN_STATUS_SPECIAL_S_FLOAT_ROPE_X),
+            WorkModule::get_float(boma, SPECIAL_S_FLOAT_ROPE_Y)
+        ));
+        place_rope(abm, x, y);
         PostureModule::set_lr(abm, -lr);
         PostureModule::update_rot_y_lr(abm);
     }
@@ -1106,10 +1115,12 @@ unsafe fn rope_hold(boma: *mut BattleObjectModuleAccessor) {
     };
     let (x, y) = (state::rope_x(e), state::rope_y(e));
     let (px, py) = (PostureModule::pos_x(abm), PostureModule::pos_y(abm));
-    if ROPE_AGE[e] >= 0 && ROPE_AGE[e] < 12 {
+    let logging = ROPE_AGE[e] >= 0 && ROPE_AGE[e] < 12;
+    if logging {
         crate::telemetry::sink::diag(format!(
-            "[rat] WHIP p{e} rope f{} at ({px:.2},{py:.2}) want ({x:.2},{y:.2}) st={:#x} sit={} speed=({:.2},{:.2})",
+            "[rat] WHIP p{e} rope f{} at ({px:.2},{py:.2}) want ({x:.2},{y:.2}) st={:#x} sit={} correct={} speed=({:.2},{:.2})",
             ROPE_AGE[e], StatusModule::status_kind(abm), StatusModule::situation_kind(abm),
+            GroundModule::get_correct(abm),
             KineticModule::get_sum_speed_x(abm, *KINETIC_ENERGY_RESERVE_ATTRIBUTE_MAIN),
             KineticModule::get_sum_speed_y(abm, *KINETIC_ENERGY_RESERVE_ATTRIBUTE_MAIN)
         ));
@@ -1117,10 +1128,35 @@ unsafe fn rope_hold(boma: *mut BattleObjectModuleAccessor) {
     if ROPE_AGE[e] >= 0 {
         ROPE_AGE[e] += 1;
     }
-    if (px - x).abs() > 0.1 || (py - y).abs() > 0.1 {
-        KineticModule::clear_speed_all(abm);
-        ArticleModule::set_pos(boma, id, Vector3f { x, y, z: 0.0 });
+    if (px - x).abs() > 0.1 || (py - y).abs() > 0.1 || GroundModule::get_correct(abm) != *GROUND_CORRECT_KIND_NONE {
+        place_rope(abm, x, y);
+        if logging {
+            crate::telemetry::sink::diag(format!(
+                "[rat] WHIP p{e} rope placed -> ({:.2},{:.2}) sit={} correct={}",
+                PostureModule::pos_x(abm), PostureModule::pos_y(abm), StatusModule::situation_kind(abm),
+                GroundModule::get_correct(abm)
+            ));
+        }
     }
+}
+
+/// PUTS THE ROPE WHERE THE WHIP WAS USED AND TAKES IT OUT OF THE GROUND'S HANDS.
+///
+/// The 10-18 log, twelve frames of every whip: an airborne rope is born in the AIR situation and
+/// by the next frame it is a GROUND object at y = 0.00 with zero speed -- not falling, snapped --
+/// and `ArticleModule::set_pos` from Pikachu's side, every frame, never once moved it. Native
+/// `generate_rope` sets the posts' height to Incineroar's own pos.y (or the hit point of its
+/// horizontal wall check) and the rope stands there in the air, so the likeliest thing snapping
+/// ours is the ground correction its own statuses ask for -- the `correct=` in the log lines says
+/// whether it was. So: no ground correction, the AIR situation, and the position written into the
+/// rope's OWN posture, again on any frame the correction has come back, because each of the rope's
+/// statuses may set its own on entry.
+unsafe fn place_rope(abm: *mut BattleObjectModuleAccessor, x: f32, y: f32) {
+    GroundModule::set_correct(abm, GroundCorrectKind(*GROUND_CORRECT_KIND_NONE));
+    StatusModule::set_situation_kind(abm, SituationKind(*SITUATION_KIND_AIR), true);
+    KineticModule::clear_speed_all(abm);
+    let z = PostureModule::pos_z(abm);
+    PostureModule::set_pos(abm, &Vector3f { x, y, z });
 }
 
 unsafe extern "C" fn rope_watch(fighter: &mut L2CFighterCommon) {
