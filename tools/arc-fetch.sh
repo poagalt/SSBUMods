@@ -19,6 +19,12 @@
 # The real cause of that hang was `share-to-added` -- see docs/the-weapons.md. Nothing about this
 # plugin was involved.
 #
+# NEVER PROBE PORT 43022 WITH A RAW TCP CONNECT, and this cost a session's bank pull on 2026-10-18.
+# The plugin serves ONE connection per accept, so a bare `exec 3<>/dev/tcp/...` that opens and drops
+# the socket leaves it serving a dead connection: every later arc-pull then hangs on "connecting..."
+# for its whole timeout and arc-probe gets no answer, though the port still reads open. Use
+# `arc-probe.exe` to check liveness. If it is already wedged, only a game restart clears it.
+#
 # THE GAME HAS TO BE RUNNING. Port 43022 is served by the arc-network plugin INSIDE the game
 # process (vendor/libarc_network.nro), so closing or restarting Smash drops the connection. That
 # makes this the one tool here that competes with playtesting for the console, which is why it
