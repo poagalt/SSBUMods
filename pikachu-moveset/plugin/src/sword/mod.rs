@@ -99,39 +99,34 @@ enum Attach {
 struct Weapon {
     /// The merged mesh object in Pikachu's body model, or "" when the weapon has no mesh.
     mesh: &'static str,
-    /// The LEFT-HAND copy of that mesh, or "" when the weapon does not dual-wield.
+    /// The FACING-LEFT copy of that mesh, or "" when the weapon has none.
     ///
-    /// Pikachu holds a sword in BOTH hands for a sword move, and the reason is Part 9: `haver` is
-    /// 3.958 units off his centreline in the lateral axis, so facing swings the hand through about
-    /// eight units of camera depth on a body roughly two deep. One sword is in front of his
-    /// silhouette facing one way and behind it facing the other, and no attachment mechanism fixes
-    /// that because it is the rig, not the binding. Two swords mean one is always in front.
+    /// ONE SWORD, IN THE HAND THAT SWINGS IT (2026-10-18), replacing the dual-wield of 2026-09-19.
     ///
-    /// `tools/dual-wield.py` appends these to the shipped model -- same vertices, same material,
-    /// bound to `HaveL` instead of `HaveR` -- and `--verify` checks they stay vertex-identical to
-    /// their right-hand copy. They are toggled together with `mesh` and never independently: a
-    /// sword appearing in one hand and not the other would be worse than the problem.
+    /// Pikachu's turnaround MIRRORS his animation, and every facing-left playtest said so in the
+    /// same three observations, in every build from 09-13 to 09-19:
+    ///   1. the swing is traced by his visible LEFT hand ("the left hand is the one tracing the
+    ///      correct animation but the sword is held in the right hand", Corrin up-air, 09-17);
+    ///   2. a hitbox anchored on `haver` follows that swing ("corrin's hitboxes are correct again",
+    ///      "Chrom and mythra seem to have their hitboxes correct in both directions", 09-17);
+    ///   3. a mesh single-bound to `HaveR` renders at the OTHER hand -- asked directly, the Falchion
+    ///      facing left sat "At the other hand's position".
+    /// Facing right all three agree, which is why every single-sword build was right that way.
     ///
-    /// Empty for the parachute (no mesh at all) and for the staff (a staff is held in one hand;
-    /// a second would read as a bug rather than as a flourish).
+    /// So the mirror swaps the have bones for rendering: facing left, `HaveR`'s mesh is drawn where
+    /// the idle hand is, and a mesh on `HaveL` is drawn where the swinging hand is -- by the same
+    /// symmetry that put `HaveR`'s there facing right. The copies tools/dual-wield.py appends (the
+    /// same vertices, bound to `HaveL`) are therefore exactly the facing-left sword. Showing `mesh`
+    /// facing right and only this facing left puts one sword in the swinging hand both ways, on top
+    /// of the hitboxes that were already there, with no geometry touched.
+    ///
+    /// Dual-wielding read as correct because the swinging hand always held one of the two; the
+    /// other was the bug it carried. A held ARTICLE needs none of this -- `ArticleModule::have` by
+    /// joint name follows the swing like the hitboxes do, which is why Cloud's back-air has been
+    /// right both ways all along.
+    ///
+    /// Empty for the parachute (no mesh) and the staff (no copy was ever made).
     mesh_l: &'static str,
-    // WORTH INVESTIGATING (user request, 2026-09-19): hide whichever of the pair is on the FAR
-    // side of the body and show only the near one, instead of always showing both.
-    //
-    // Dual-wielding works -- confirmed on every weapon -- but it is a workaround, not the native
-    // look: the donor swings one sword and Pikachu now carries two. The visual is correct in both
-    // facings because one of the pair is always in front; the cost is that the other is always
-    // there too.
-    //
-    // The facing is already known every frame (`PostureModule::lr`), and `set_mesh_visibility`
-    // already takes each mesh independently, so the change is small: show `mesh` when lr is one
-    // sign and `mesh_l` when it is the other. What needs checking on hardware is whether the
-    // swap reads cleanly at the moment he turns, and which sign maps to which hand -- `haver` is
-    // 3.958 off the centreline in the lateral axis, so the near/far assignment follows directly
-    // from lr's sign but is worth confirming rather than deriving.
-    //
-    // That would make the visuals entirely correct with one sword on screen, which is what the
-    // game does.
     /// The cloned article's host name, or "" when the weapon is not an article in the game.
     article: &'static str,
     /// The bone ON PIKACHU this article is attached to, lowercase.
@@ -481,6 +476,22 @@ static mut GEN_LOGGED: [u32; 8] = [0; 8];
 /// The article half is edge-triggered against `is_exist` rather than called every frame --
 /// `generate_article` on an article that already exists is not a no-op worth relying on, and
 /// `remove_exist` every frame would fight the article's own lifetime.
+/// One sword, in the swinging hand: `mesh` facing right, `mesh_l` facing left (see `mesh_l`).
+/// Every mesh is set every frame, shown or hidden, because a merged mesh defaults to VISIBLE and
+/// only this call keeps it hidden.
+unsafe fn show_mesh(boma: *mut BattleObjectModuleAccessor, w: &Weapon, on: bool) {
+    if w.mesh.is_empty() {
+        return;
+    }
+    if w.mesh_l.is_empty() {
+        ModelModule::set_mesh_visibility(boma, Hash40::new(w.mesh), on);
+        return;
+    }
+    let facing_right = PostureModule::lr(boma) >= 0.0;
+    ModelModule::set_mesh_visibility(boma, Hash40::new(w.mesh), on && facing_right);
+    ModelModule::set_mesh_visibility(boma, Hash40::new(w.mesh_l), on && !facing_right);
+}
+
 unsafe extern "C" fn pikachu_weapon_frame(fighter: &mut L2CFighterCommon) {
     let boma = fighter.module_accessor;
     let motion = MotionModule::motion_kind(boma);
@@ -679,24 +690,11 @@ unsafe extern "C" fn pikachu_weapon_frame(fighter: &mut L2CFighterCommon) {
                 if !live {
                     ARTICLE_MOTION[wi] = 0;
                 }
-                if !w.mesh.is_empty() {
-                    ModelModule::set_mesh_visibility(boma, Hash40::new(w.mesh), want && !live);
-                    if !w.mesh_l.is_empty() {
-                        ModelModule::set_mesh_visibility(
-                            boma, Hash40::new(w.mesh_l), want && !live);
-                    }
-                }
+                show_mesh(boma, w, want && !live);
             }
             // No article installed for this weapon -- either it has none in the game, or its row
             // is disabled. Fall back to the merged mesh.
-            None => {
-                if !w.mesh.is_empty() {
-                    ModelModule::set_mesh_visibility(boma, Hash40::new(w.mesh), want);
-                    if !w.mesh_l.is_empty() {
-                        ModelModule::set_mesh_visibility(boma, Hash40::new(w.mesh_l), want);
-                    }
-                }
-            }
+            None => show_mesh(boma, w, want),
         }
     }
 }

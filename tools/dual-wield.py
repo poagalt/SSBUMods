@@ -1,5 +1,14 @@
 #!/usr/bin/env python3
-"""Give Pikachu a LEFT-hand copy of each sword, so a sword move reads correctly in both facings.
+"""Give Pikachu a LEFT-hand copy of each sword: the sword he shows when facing LEFT.
+
+WHAT THE COPIES ARE FOR NOW (2026-10-18). They are no longer shown together with the right-hand
+mesh. Pikachu's turnaround mirrors his animation, so facing left his visible LEFT hand swings and a
+mesh on `HaveR` is drawn at the idle hand -- the "sword in the wrong hand" of every facing-left
+playtest. src/sword shows the `HaveR` mesh facing right and only this `HaveL` copy facing left,
+which is one sword in the swinging hand both ways (see `mesh_l` in src/sword/mod.rs). The name is
+historical; the copies and this tool are unchanged.
+
+THE ORIGINAL RATIONALE, kept for the record:
 
 THE PROBLEM THIS SOLVES. A weapon single-bound to `HaveR` is geometrically correct in both
 facings -- Part 9 proves that, and facing is a rigid Y rotation -- but `HaveR` sits 3.958 units off

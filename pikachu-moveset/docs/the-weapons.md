@@ -318,6 +318,36 @@ two-handed prop split across both hands, not a mirrored pair. What it does confi
 construction: **rigid single-bind, appended subindices, no skeleton change** -- which is what four of
 the five weapons here already did, and which Mythra now does too.
 
+## One sword, in the swinging hand (2026-10-18)
+
+The dual-wield above was a workaround, and the user asked for it to go: one sword, in the correct
+hand, with correct animations and hitboxes. Reading every facing-left playtest from 09-13 to 09-19
+together (the full list is in this session's history, summarised here) gives the same three
+observations in every single-sword build, whatever the binding or bake:
+
+1. The swing is traced by his visible LEFT hand. "The left hand is the one tracing the correct
+   animation but the sword is held in the right hand" (Corrin up-air, 09-17).
+2. Hitboxes anchored on `haver` follow that swing. "Corrin's hitboxes are correct again"; "Chrom
+   and mythra seem to have their hitboxes correct in both directions" (09-17).
+3. A mesh single-bound to `HaveR` renders at the other hand. Asked directly, the Falchion facing
+   left sat "At the other hand's position". The user identified work/shots/04.jpg as exactly this:
+   Pikachu facing left, the sword in his right hand.
+
+Facing right, all three agree. So Pikachu's turnaround MIRRORS the animation, and the mirror draws
+`HaveR`'s mesh at the idle hand. By the same symmetry, a mesh on `HaveL` is drawn at the swinging
+hand facing left, and dual-wielding looked right only because one of the two was always there.
+
+So `src/sword` now shows the `HaveR` mesh facing right and only the `_l` copy (`HaveL`, same
+vertices) facing left: one sword, in the swinging hand, on top of hitboxes that already followed
+it. Nothing about the geometry changed, and hbtrace puts every sword move's hitboxes at 0.00
+deviation from the donor's own. Held articles need none of this: `ArticleModule::have` by joint
+name follows the swing the way hitboxes do, which is why Cloud's back-air was always right.
+
+The 09-13 to 09-18 conclusions that facing is a pure rotation ("occluded, not mirrored") reasoned
+from `|handr - origin|` and from the name `rot_y_lr`. A reflection preserves that distance too, so
+neither excluded a mirror. The mirror itself was never measured from the binary. The evidence is
+the three observations above, which no rotation produces.
+
 ## The rope is not a policy choice, and ADR 0004 is not what I said it was
 
 Worth stating plainly because I got it wrong twice in conversation: **ADR 0004 is "never hand a
