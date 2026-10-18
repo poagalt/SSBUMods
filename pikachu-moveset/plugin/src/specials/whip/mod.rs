@@ -1040,6 +1040,7 @@ unsafe fn rope_spawn(fighter: &mut L2CFighterCommon) {
     // ROPE_X is where the victim meets the ropes -- the same line `whip_flight` attaches them at.
     let (x, y) = (rope_x, rope_y);
     ArticleModule::set_pos(boma, id, Vector3f { x, y, z: 0.0 });
+    ROPE_AGE[entry.min(7)] = 0;
     if let Some(abm) = crate::articles::accessor(boma, id) {
         PostureModule::set_lr(abm, -lr);
         PostureModule::update_rot_y_lr(abm);
@@ -1078,8 +1079,53 @@ unsafe fn rope_end(boma: *mut BattleObjectModuleAccessor) {
 /// on to the rebound. This one plays `bend` inside Wait, so if a whip ever leaves by a path neither
 /// native site covers -- he is hit after the victim reached the ropes, say -- the rope would stand
 /// there. So: no whip status and a rope still up means it closes, the same way.
+/// Frames since the current rope was spawned, per entry, for the hold's first-frames log.
+static mut ROPE_AGE: [i32; 8] = [-1; 8];
+
+/// THE ROPE STAYS WHERE IT WAS BUILT, as Incineroar's does.
+///
+/// Natively the rope is built at (ROPE_X, the captor's pos.y) and nothing moves it: an aerial whip
+/// leaves the ropes standing in the air. Ours were built at the same point -- the spawn callback
+/// reads exactly the two status floats `rope_spawn` writes (main 0xabee38..0xabee70, x then y over
+/// the `top` joint's position) -- and still stood on the floor in two playtests, so something in
+/// the rope's own frame moves a Pikachu-owned rope that leaves Incineroar's alone (its kinetics or
+/// ground correction running on the missing Incineroar params is the likely one). Rather than
+/// guess which, the rope is held at the point native code builds it, every frame it exists, and
+/// the first frames after each spawn log where it actually was, so the next log names the motion.
+unsafe fn rope_hold(boma: *mut BattleObjectModuleAccessor) {
+    let e = entry_of(boma);
+    let Some(id) = crate::articles::article_id("rope") else {
+        return;
+    };
+    if !crate::articles::rope_ready() || !ArticleModule::is_exist(boma, id) || !state::rope_x_set(e) {
+        ROPE_AGE[e] = -1;
+        return;
+    }
+    let Some(abm) = crate::articles::accessor(boma, id) else {
+        return;
+    };
+    let (x, y) = (state::rope_x(e), state::rope_y(e));
+    let (px, py) = (PostureModule::pos_x(abm), PostureModule::pos_y(abm));
+    if ROPE_AGE[e] >= 0 && ROPE_AGE[e] < 12 {
+        crate::telemetry::sink::diag(format!(
+            "[rat] WHIP p{e} rope f{} at ({px:.2},{py:.2}) want ({x:.2},{y:.2}) st={:#x} sit={} speed=({:.2},{:.2})",
+            ROPE_AGE[e], StatusModule::status_kind(abm), StatusModule::situation_kind(abm),
+            KineticModule::get_sum_speed_x(abm, *KINETIC_ENERGY_RESERVE_ATTRIBUTE_MAIN),
+            KineticModule::get_sum_speed_y(abm, *KINETIC_ENERGY_RESERVE_ATTRIBUTE_MAIN)
+        ));
+    }
+    if ROPE_AGE[e] >= 0 {
+        ROPE_AGE[e] += 1;
+    }
+    if (px - x).abs() > 0.1 || (py - y).abs() > 0.1 {
+        KineticModule::clear_speed_all(abm);
+        ArticleModule::set_pos(boma, id, Vector3f { x, y, z: 0.0 });
+    }
+}
+
 unsafe extern "C" fn rope_watch(fighter: &mut L2CFighterCommon) {
     let boma = fighter.module_accessor;
+    rope_hold(boma);
     let st = StatusModule::status_kind(boma);
     let whip = st == *FIGHTER_STATUS_KIND_SPECIAL_S
         || st == RAT_STATUS_KIND_SPECIAL_S_THROW
@@ -2398,7 +2444,7 @@ unsafe extern "C" fn followup_main_loop(fighter: &mut L2CFighterCommon) -> L2CVa
 /// vl.prc this mod shipped crashed on fighter load and that cause is not settled (gen-vlprc.sh's
 /// header and check.sh 3b read it differently), so the observable on arming is, first, that
 /// Pikachu loads at all, and then how the whip behaves at a ledge against Incineroar's.
-pub const WHIP_CLIFF_HANGDATA: bool = false;
+pub const WHIP_CLIFF_HANGDATA: bool = true;
 /// `FIGHTER_GAOGAEN_CLIFF_HANG_DATA_SPECIAL_S` (const-table offset 0xb610, value 1): the index the
 /// source passes, and the one `gen-vlprc.sh` asserts the appended box lands at.
 const WHIP_CLIFF_HANGDATA_INDEX: u32 = 1;

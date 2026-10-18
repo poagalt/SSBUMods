@@ -514,7 +514,23 @@ const AURA_BONES: [(&str, f32); 7] = [
     ("hip", 0.0),
     ("tail3", 0.0),
 ];
-const AURA_SIZE: f32 = 1.5;
+/// 1.5 was still "pretty hard to see" (playtest 2026-10-18); 1.9 with the colour boost below.
+const AURA_SIZE: f32 = 1.9;
+/// Each flame's colour multiplier. The aura is an additive flame, so >1 brightens it.
+const AURA_COLOR: (f32, f32, f32) = (1.5, 1.2, 1.0);
+
+// THE BODY TINT, for the same playtest. Incineroar's revenge state also changes HIM -- his C++
+// swaps a model variant and drives his emissive with the banked rate (`revenge_emissive`) -- and
+// Pikachu has neither a variant nor an emissive slot, so the flames were the whole cue. A
+// ColorBlendModule tint in Incineroar's flame orange gives Pikachu the body half of it: it breathes
+// over AURA_PULSE frames between TINT_MIN and a peak that climbs with the banked rate, the way his
+// emissive does, and it is re-applied every TINT_EVERY frames so a status's COL_NORMAL cannot
+// strip it for longer than that.
+const AURA_PULSE: i32 = 48;
+const TINT_EVERY: i32 = 2;
+const TINT_MIN: f32 = 0.22;
+const TINT_MAX_AT_CAP: f32 = 0.62;
+static mut AURA_CLOCK: [i32; 8] = [0; 8];
 
 /// One live handle per AURA_BONES point, per entry. 0 = not requested.
 static mut AURA_HANDLE: [[u32; 7]; 8] = [[0; 7]; 8];
@@ -528,6 +544,7 @@ unsafe fn aura_request(fighter: &mut L2CFighterCommon, i: usize) {
         &mut **fighter, Hash40::new("gaogaen_revenge_aura"), Hash40::new(bone),
         0, 0, z, 0, 0, 0, AURA_SIZE, false
     );
+    macros::LAST_EFFECT_SET_COLOR(&mut **fighter, AURA_COLOR.0, AURA_COLOR.1, AURA_COLOR.2);
     let e = entry_of(fighter.module_accessor);
     AURA_HANDLE[e][i] = EffectModule::get_last_handle(fighter.module_accessor) as u32;
 }
@@ -581,6 +598,9 @@ unsafe fn aura_off(fighter: &mut L2CFighterCommon) {
     AURA_HANDLE[e] = [0; 7];
     // `effect_speciallwrevengeend`, the whole of it.
     macros::EFFECT_OFF_KIND(&mut **fighter, Hash40::new("gaogaen_revenge_aura"), false, false);
+    // And the tint, which is ours.
+    macros::COL_NORMAL(&mut **fighter);
+    AURA_CLOCK[e] = 0;
     // `FighterSpecializer_Gaogaen::revenge_off` (`main 0xab86f0`) ends its visual teardown with
     // `ModelModule::set_emmisive_scale(1.0)` alongside resetting `set_power_mul_5th` and
     // `set_reaction_mul_3rd` -- both of which this function already mirrors in `clear_boost`. 1.0
@@ -628,6 +648,19 @@ unsafe fn aura_tick(fighter: &mut L2CFighterCommon) {
     // `def_light_004_emi`/`_005_emi` really do glow with the banked rate while it is out.
     let emissive = revenge_emissive(boma, RATE[e]);
     ModelModule::set_emmisive_scale(boma, emissive);
+
+    // The tint (see AURA_PULSE). The peak tracks the banked rate against its cap, as the emissive
+    // law above does, so a maxed Revenge glows harder than a fresh one.
+    let t = AURA_CLOCK[e];
+    AURA_CLOCK[e] = (t + 1) % AURA_PULSE;
+    if t % TINT_EVERY == 0 {
+        let cap = RATE_MAX.max(1.0);
+        let banked = ((RATE[e] - 1.0) / (cap - 1.0)).max(0.0).min(1.0);
+        let peak = TINT_MIN + (TINT_MAX_AT_CAP - TINT_MIN) * (0.5 + 0.5 * banked);
+        let phase = (t as f32 / AURA_PULSE as f32) * std::f32::consts::TAU;
+        let alpha = TINT_MIN + (peak - TINT_MIN) * (0.5 - 0.5 * phase.cos());
+        macros::FLASH(&mut **fighter, 1.0, 0.42, 0.05, alpha);
+    }
 }
 
 /// Drop a stored boost and everything that goes with it.
