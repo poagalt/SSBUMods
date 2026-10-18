@@ -26,7 +26,8 @@
 # Frames land in work/frames/ as PNGs, newest run replacing the last.
 set -uo pipefail
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"
-HOST="${SWITCH_HOST:-<console-ip>}"
+. "$ROOT/tools/console.sh"
+HOST="$CONSOLE_HOST"
 PORT="${SYSDVR_RTSP_PORT:-6666}"
 N="${1:-1}"
 FPS="${2:-6}"

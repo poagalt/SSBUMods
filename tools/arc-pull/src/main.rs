@@ -3,7 +3,7 @@ use std::io::{BufRead, Write};
 
 fn main() {
     let mut args = std::env::args().skip(1);
-    let addr = args.next().unwrap_or_else(|| "<console-ip>:43022".into());
+    let addr = args.next().unwrap_or_else(arc_pull::default_addr);
     let outdir = args.next().unwrap_or_else(|| "out".into());
 
     eprintln!("connecting to {addr} ...");

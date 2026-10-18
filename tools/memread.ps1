@@ -21,7 +21,7 @@
 # build stamp for exactly that reason -- check it against tools/gen-buildstamp.sh output before
 # believing a dump.
 param(
-    [string]$Target = "<console-ip>",
+    [string]$Target = "",
     [int]$Port = 6900,
     [string[]]$Regions = @("data", "bss"),
     [string]$OutDir = "vendor/main",
@@ -30,6 +30,14 @@ param(
 
 $ErrorActionPreference = "Stop"
 $root = Split-Path -Parent (Split-Path -Parent $MyInvocation.MyCommand.Path)
+# NO BUILT-IN CONSOLE, same rule as tools/console.sh: -Target, then FTP_HOST, then
+# .console-host.local, and otherwise stop. The old default was the development console.
+if (-not $Target) { $Target = $env:FTP_HOST }
+if (-not $Target) {
+    $hostFile = Join-Path $root ".console-host.local"
+    if (Test-Path $hostFile) { $Target = (Get-Content $hostFile -Raw).Trim() }
+}
+if (-not $Target) { throw "no console set: write its address to .console-host.local, or pass -Target" }
 $outPath = Join-Path $root $OutDir
 if (-not (Test-Path $outPath)) { New-Item -ItemType Directory -Force $outPath | Out-Null }
 

@@ -12,7 +12,7 @@
 use smash_arc::{ArcFile, ArcLookup, Hash40, HashLabels};
 
 fn main() {
-    let addr = std::env::args().nth(1).unwrap_or_else(|| "<console-ip>:43022".into());
+    let addr = std::env::args().nth(1).unwrap_or_else(arc_pull::default_addr);
     eprintln!("connecting to {addr} ...");
     let arc = ArcFile::open_over_network(addr.as_str()).expect("failed to open arc over network");
     // The archive stores hashes, not strings. `vendor/Hashes.txt` is the community name list

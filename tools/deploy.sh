@@ -19,12 +19,14 @@
 set -uo pipefail
 
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"
-# THE HOST IS OVERRIDABLE because there are now two consoles -- the 13.0.5 development card and
-# a second one on 13.0.4 at a different address. Same convention as tools/ftpq.sh, so one
-# exported FTP_HOST steers every tool that talks to a card.
-HOST=${FTP_HOST:-<console-ip>}
+# WHICH CARD: tools/console.sh, shared by every tool that talks to a console. There are two -- the
+# 13.0.5 development card and the 13.0.4 one being played -- and the address lives in
+# `.console-host.local` (FTP_HOST overrides it per command). No built-in default; see that file.
+. "$ROOT/tools/console.sh"
+HOST=$CONSOLE_HOST
 PORT=${FTP_PORT:-5000}
 B="ftp://$HOST:$PORT"
+echo "  deploying to $HOST (tools/console.sh)"
 
 # CREDENTIALS, AND WHY THIS MATTERS MORE THAN IT LOOKS.
 #

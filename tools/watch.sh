@@ -8,7 +8,8 @@
 # Works while the game is running, which is when FTP is unavailable.
 set -uo pipefail
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"
-IP=<console-ip>
+. "$ROOT/tools/console.sh"
+IP=$CONSOLE_HOST
 SECS="${1:-1800}"
 LOG="$ROOT/work/playtest-$(date +%H%M%S).log"
 mkdir -p "$ROOT/work"

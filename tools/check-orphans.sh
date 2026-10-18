@@ -11,7 +11,8 @@
 # ship; this finds stale PATHS we no longer ship at all. Both are "the card is not the tree".
 set -uo pipefail
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"; cd "$ROOT"
-HOST=${FTP_HOST:-<console-ip>}
+. "$ROOT/tools/console.sh"
+HOST=$CONSOLE_HOST
 PORT=${FTP_PORT:-5000}
 PASS="$(tr -d '\r\n' < "$ROOT/.ftp-credentials.local" 2>/dev/null)"
 B="ftp://$HOST:$PORT"

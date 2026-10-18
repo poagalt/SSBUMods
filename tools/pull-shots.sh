@@ -24,7 +24,8 @@
 #   bash tools/pull-shots.sh 5 --frames   also split the newest clip into stills at 6 fps
 set -uo pipefail
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"
-HOST="${SWITCH_HOST:-<console-ip>}"
+. "$ROOT/tools/console.sh"
+HOST="$CONSOLE_HOST"
 PORT="${SWITCH_FTP_PORT:-5000}"
 B="ftp://$HOST:$PORT"
 N="${1:-5}"

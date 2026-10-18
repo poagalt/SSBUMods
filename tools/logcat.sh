@@ -23,7 +23,8 @@
 # the game, no FTP, no reboot.
 set -uo pipefail
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"
-HOST="${SWITCH_HOST:-<console-ip>}"
+. "$ROOT/tools/console.sh"
+HOST="$CONSOLE_HOST"
 PORT="${SKYLINE_LOG_PORT:-6969}"
 SECS="${1:-0}"
 FILTER="${2:-}"

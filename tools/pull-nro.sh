@@ -35,6 +35,7 @@
 # Ghidra script that produced the rest of that repo and can be pointed at these.
 set -uo pipefail
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"; cd "$ROOT"
+. "$ROOT/tools/console.sh"
 OUT=vendor/nro
 mkdir -p "$OUT"
 
@@ -70,7 +71,7 @@ echo "asking for:"
 sed 's/^/  /' "$LIST"
 
 # arc-pull reads paths on STDIN and takes host:port then an output directory.
-if ! tools/arc-pull/target/release/arc-pull.exe "<console-ip>:43022" "$OUT" < "$LIST" 2>&1 | tail -20; then
+if ! tools/arc-pull/target/release/arc-pull.exe "$CONSOLE_HOST:43022" "$OUT" < "$LIST" 2>&1 | tail -20; then
     echo
     echo "FAILED. The tooling talks to the game, not to the card:"
     echo "  * Smash must be running with the arc_network plugin loaded"

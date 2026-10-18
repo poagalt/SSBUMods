@@ -12,7 +12,7 @@ use smash_arc::{ArcFile, ArcLookup, Hash40};
 
 fn main() {
     let mut a = std::env::args().skip(1);
-    let addr = a.next().unwrap_or_else(|| "<console-ip>:43022".into());
+    let addr = a.next().unwrap_or_else(arc_pull::default_addr);
     let sample: usize = a.next().and_then(|s| s.parse().ok()).unwrap_or(20);
 
     let labels = ["vendor/Hashes.txt", "../../vendor/Hashes.txt"]

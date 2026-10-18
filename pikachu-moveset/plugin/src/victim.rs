@@ -64,6 +64,26 @@ pub unsafe fn boma(id: u32) -> Option<*mut BattleObjectModuleAccessor> {
     Some(acc)
 }
 
+/// The module accessor for ANY battle object -- a weapon, an article -- or None if anything is wrong.
+///
+/// `boma` above is for fighters and starts with `plausible`, which is fighter-shaped on purpose
+/// (`entry << 16`) and so refuses every weapon id. This keeps everything else, including the
+/// load-bearing check: the accessor must say it is the object we asked for. For a caller that
+/// already holds an article handle from `ArticleModule::get_article` and needs its own modules.
+///
+/// # Safety
+/// The caller must be on the game thread, inside a fighter callback.
+pub unsafe fn object_boma(id: u32) -> Option<*mut BattleObjectModuleAccessor> {
+    if id == *BATTLE_OBJECT_ID_INVALID as u32 || sv_battle_object::is_null(id) {
+        return None;
+    }
+    let acc = sv_battle_object::module_accessor(id);
+    if acc.is_null() || (*acc).battle_object_id != id {
+        return None;
+    }
+    Some(acc)
+}
+
 /// Every live fighter that is not `me`, as `(battle object id, accessor)`.
 pub unsafe fn others(me: u32) -> Vec<(u32, *mut BattleObjectModuleAccessor)> {
     let mut out = Vec::new();

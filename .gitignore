@@ -4,6 +4,7 @@ extracted/
 target/
 pikachu-moveset/plugin/target/
 .ftp-credentials.local
+.console-host.local
 !releases/**/*.nro
 work/
 # Derived from Nintendo assets -- reproducible from tools/, not redistributed via git.

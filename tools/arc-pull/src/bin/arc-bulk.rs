@@ -96,7 +96,7 @@ fn main() {
         i += 1;
     }
     let mut pos = positional.into_iter();
-    let addr = pos.next().unwrap_or_else(|| "<console-ip>:43022".into());
+    let addr = pos.next().unwrap_or_else(arc_pull::default_addr);
     let outdir = pos.next().unwrap_or_else(|| "extracted".into());
 
     let labels = ["vendor/Hashes.txt", "../../vendor/Hashes.txt"]

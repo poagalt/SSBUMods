@@ -23,7 +23,8 @@ ROOT="$(cd "$(dirname "$0")/.." && pwd)"; cd "$ROOT"
 OUT=vendor/main
 mkdir -p "$OUT"
 
-HOST=<console-ip>
+. "$ROOT/tools/console.sh"
+HOST=$CONSOLE_HOST
 PORT=5000
 B="ftp://$HOST:$PORT"
 FTP_USER=poaga

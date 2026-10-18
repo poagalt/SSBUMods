@@ -33,7 +33,8 @@ set -uo pipefail
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"; cd "$ROOT"
 LIST="${1:?usage: arc-fetch.sh <path-list> <outdir> [addr]}"
 OUT="${2:?usage: arc-fetch.sh <path-list> <outdir> [addr]}"
-ADDR="${3:-<console-ip>:43022}"
+. "$ROOT/tools/console.sh"
+ADDR="${3:-$CONSOLE_HOST:43022}"
 mkdir -p "$OUT"
 
 # `prebuilt:/nro/release/x.nro` lands at `<out>/prebuilt/nro/release/x.nro` -- arc-pull strips the

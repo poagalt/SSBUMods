@@ -12,7 +12,8 @@
 #   bash tools/ftpq.sh del <path>      delete
 set -uo pipefail
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"
-HOST=${FTP_HOST:-<console-ip>}
+. "$ROOT/tools/console.sh"
+HOST=$CONSOLE_HOST
 PORT=${FTP_PORT:-5000}
 USER=${FTP_USER:-poaga}
 PASS="$(tr -d '\r\n' < "$ROOT/.ftp-credentials.local" 2>/dev/null)"

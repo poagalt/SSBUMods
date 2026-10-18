@@ -19,7 +19,8 @@
 # usage: bash tools/pull-crash.sh
 set -uo pipefail
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"
-HOST=<console-ip>
+. "$ROOT/tools/console.sh"
+HOST=$CONSOLE_HOST
 PORT=5000
 B="ftp://$HOST:$PORT"
 

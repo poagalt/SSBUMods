@@ -29,7 +29,7 @@ const BLOCK: usize = 4 * 1024 * 1024;
 
 fn main() {
     let mut a = std::env::args().skip(1);
-    let addr = a.next().unwrap_or_else(|| "<console-ip>:43022".into());
+    let addr = a.next().unwrap_or_else(arc_pull::default_addr);
     let out_p = a.next().unwrap_or_else(|| "extracted/data.arc".into());
 
     let mut reader = BlockReader::new(addr.as_str()).expect("failed to connect to arc_network");

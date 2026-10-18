@@ -62,14 +62,12 @@ use {
 enum Attach {
     /// `ArticleModule::have` alone -- the engine's own mechanism, and what the game does.
     Have,
-    /// Drive the article's own PostureModule from the owner's joint every frame. The fallback if
-    /// `have` turns out not to hold for a cloned article, and it cannot get the blade's angle
-    /// right -- see `drive`.
+    /// PLACE the article at the owner's `socket` every frame -- position and facing, no `have`.
+    /// The parachute's, because its layout is relative to the owner's ORIGIN; see its row.
     Manual,
     /// `have` on spawn, then drive anyway. Only useful if `have` half-works.
     Both,
 }
-const ATTACH: Attach = Attach::Have;
 
 struct Weapon {
     /// The merged mesh object in Pikachu's body model, or "" when the weapon has no mesh.
@@ -211,6 +209,10 @@ struct Weapon {
     /// a joint the script never asked for. So this keeps generate-and-hold with the script that
     /// owns it and takes only the lifecycle guarantee.
     acmd_owned: bool,
+    /// How this article follows him -- `have` onto `socket`, or placed at it every frame. Per row
+    /// because the two kinds of article want different things: a held weapon is IN the hand, and
+    /// the parachute hangs over the whole body. See `Attach`.
+    attach: Attach,
 }
 
 const WEAPONS: &[Weapon] = &[
@@ -222,9 +224,9 @@ const WEAPONS: &[Weapon] = &[
     // model and its `numshexb` entry_flags say `draw_model: true`, so with no row nothing would
     // ever call `set_mesh_visibility(false)` on it and it would be permanently visible. An empty
     // motion list means `want` is always false, which hides it every frame.
-    motions: &[], own_motion: false, persist: false, acmd_owned: false },
+    motions: &[], own_motion: false, persist: false, acmd_owned: false, attach: Attach::Have },
     // Cloud's Buster Sword -- his back-air. `WEAPON_KIND_CLOUD_FUSIONSWORD`, seven bones.
-    Weapon { mesh: "cloud_sword", mesh_l: "cloud_sword_l", article: "fusionsword", socket: "haver", probe_bone: "fusionsword1", motions: &["attack_air_b"], own_motion: false, persist: false, acmd_owned: false },
+    Weapon { mesh: "cloud_sword", mesh_l: "cloud_sword_l", article: "fusionsword", socket: "haver", probe_bone: "fusionsword1", motions: &["attack_air_b"], own_motion: false, persist: false, acmd_owned: false, attach: Attach::Have },
     // Mythra's sword -- her dash attack and all three tilts. `WEAPON_KIND_ELIGHT_ESWORD`, eleven
     // bones, and the article carries `Sword_lightA..F2` which the graft had to flatten into one
     // bake because a grafted bone has no animation track.
@@ -266,6 +268,7 @@ const WEAPONS: &[Weapon] = &[
         // reference at all), so the native lifetime really is "created at entry, held forever".
         // Reproducing that is not a thing to do by retrying a failing generate every frame.
         persist: false, acmd_owned: false,
+        attach: Attach::Have,
     },
     // G&W's parachute -- his up-B, all four motions of the sequence. THIS ONE HAS NO MESH AND
     // NEVER DID: the canopy opens on its own `model.nuanmb` (`Have -> Rot -> All ->
@@ -274,82 +277,43 @@ const WEAPONS: &[Weapon] = &[
     // through `VisibilityModule::set_int64(para3/para4, on/off)`, which comes free with the clone.
     Weapon {
         mesh: "", mesh_l: "",
-        // SOCKET `haver`, AND `rot` WAS TRIED AND REGRESSED IT. `have` at `haver` made the
-        // parachute follow -- the probe's lateral offset went from 4.647 to 0.000 in both facings
-        // and the playtest called it "animated correctly" -- but left it at the HAND, which is
-        // itself off-centre, so the canopy sat out to whichever side he faced. Moving the socket
-        // to `rot` to centre it stopped it following at all ("back to not animated"), so `rot` is
-        // not a socket `have` accepts. `Rot` is bone index 1, the facing-rotation node, so being
-        // special is plausible; what is established is only that it does not work.
+        // HISTORY: `have` at `haver` made it follow but left it at the off-centre HAND ("animated
+        // correctly but statically offset"); `rot` stopped it following at all (2026-09-18, before
+        // the 2026-10-12 ordering bug in `HELD` existed, so that refusal is real).
+        // SOCKET `trans`, PLACED EVERY FRAME -- HIS ORIGIN, WHICH IS WHERE G&W'S PARACHUTE LIVES.
         //
-        // So `haver` is the best known state and the lateral offset is the open question. Two
-        // untried candidates, in order: an ORDINARY central bone near the same height (`bust` at
-        // y 5.865 or `hip` at 3.607, against `haver`'s 4.591) which tests whether the refusal was
-        // about `rot` being special or about central bones generally; and failing that, keep
-        // `have` at `haver` and nudge the position laterally with `ArticleModule::set_pos`, which
-        // risks fighting the attachment and so is second.
-        // SOCKET `have` -- PIKACHU'S HEAD POINT, NOT HIS HAND. MEASURED 2026-10-18, offline, by
-        // forward kinematics through his own skeleton (validated against the bind pose: hip y=3.607
-        // and haver 3.958 off the centreline, both matching numbers this file already recorded).
+        // MEASURED 2026-10-18, and every number below is from the game's own files or from the
+        // probe on console #2, not inferred.
         //
-        // The parachute's own skeleton is `Have -> Rot -> All -> canopy`, bind pose all at the
-        // origin, and its open-canopy motion puts `Rot` at y=2.58 above `Have`. So the canopy sits
-        // ~2.6 units above wherever the article's ROOT is held. That is why every socket so far
-        // produced "appears, but never in the right spot above pikachu":
+        // `have` onto `have` WORKED: root-to-socket read (0.00,0.00,0.00) on every frame of every
+        // up-B, both facings, visible throughout. It was the wrong place. Pikachu's `Have` is NOT
+        // a hat point -- it is 3.61 units IN FRONT of his face (bind: Head z 0.36, Have z 3.97),
+        // and his ported drift animation swings the head through z -6.5 .. +7.7 in held poses, so
+        // a canopy on `Have` jumps from in front of him to behind him every ~28 frames.
         //
-        //     bone     x      y      parent
-        //     Head     0.00   7.20   Neck
-        //     HaveR   -3.96   4.59   HandR    <- `haver`: canopy at y~7.2, off to one side
-        //     Have     0.00   7.25   HEAD     <- canopy at y~9.8, centred, above the head
+        // WHERE G&W PUTS IT. G&W has NO `Have` bone (45 bones; Trans, Rot, Hip, Neck, Head, HaveL,
+        // HaveR), and his status code never calls `have`, so his parachute is not matched to any
+        // joint by name. Its canopy carries its own height instead: `gamewatch/model/parachute`'s
+        // meshes, through its `Rot` bone (56.2 degrees about X, +2.58 up), span y 7.3 .. 20.6
+        // above the article's ROOT and roughly centred fore-aft, and their lowest points -- the
+        // string ends -- sit at y 7.3, right where G&W's raised hands are (his `HaveR` is at 7.7).
+        // So the root sits at his ORIGIN, the canopy is authored above it, and the hands meet the
+        // strings because the meshes were modelled that way.
         //
-        // `Have` is a direct child of `Head` and G&W's up-B animation does not animate it (it drives
-        // HaveL/HaveR and the arm chain), so it rides with the head at a fixed point through the
-        // rise and the drift -- effectively a hat point. And it is the same NAME as the parachute's
-        // own root bone, which is the match G&W's rig was built around.
-        article: "parachute", socket: "have",
+        // Pikachu gets the same layout: the root at his `Trans` -- his origin, which moves with
+        // him and never swings -- placed every frame with his facing (`Attach::Manual`, `drive`).
+        // `have` cannot do it: it accepts the item-holding joints (`haver`, `have`) and refused
+        // both body joints tried (`rot` on 2026-09-18, `handr`).
+        article: "parachute", socket: "trans",
         probe_bone: "all",
         motions: &["special_hi", "special_air_hi", "special_hi_open", "special_hi_close"],
-        // TURNED OFF AFTER IT CRASHED THE GAME ON UP-B. 2026-09-18.
-        //
-        // Everything in Part 6 of docs/the-article-path.md still stands as a reading of the
-        // game: G&W drives the parachute with `change_motion` and never calls `have`, and all
-        // four motion names below are really in the article's shipped `motion_list.bin` (checked
-        // by scanning the file for their hash40s -- they are at 0x58, 0xa4, 0xf0 and 0x13c). What
-        // is NOT established is why calling it here faults, and the crash report has not been
-        // read yet, so re-enabling this without one would be a guess.
-        //
-        // `false` restores `have`, which is the last state a playtest reported working at all
-        // ("animated correctly but statically offset"). The offset is the known cost and it is
-        // worth paying to get a bootable build, because the two `persist` rows in this same
-        // build are the experiment actually worth a boot.
-        // `have`, not `own_motion`, AND THE PLAYTEST HISTORY IS WHY. The one configuration that ever
-        // "animated correctly" was `have` -- its only fault was the socket being the right hand.
-        // `own_motion` (change_motion, no attachment) left the article placed once and frozen where it
-        // spawned. Part 6 of docs/the-article-path.md is right that G&W plays the article's motion in
-        // step with the fighter's; what it got wrong is concluding nothing holds the root -- a canopy
-        // 2.6 units above its root has to be held somewhere, and the hand was the wrong somewhere.
+        // NOT `own_motion`: the up-B's status code (`src/specials/specialhi`, `specialhifall`,
+        // `specialhiclose`) already hands the article its motion on each status change, exactly
+        // as G&W's does, so this module only shows it and places it. Two callers of
+        // `change_motion` would restart the canopy's animation.
         own_motion: false,
-        // RE-ENABLED 2026-10-17, and the blocker above is now answered.
-        //
-        // THE EVIDENCE THAT IT HAD TO CHANGE: with `own_motion: false` the probe caught the
-        // parachute at `all=(4.647,-2.699,-2.458)` on frame 6 AND frame 7 -- the same point twice,
-        // which is a detached object placed once and never driven. `exist=true` throughout, and
-        // visibility is now set unconditionally, so it was on screen the whole time, just sitting
-        // in space beside him. That is the same reading Part 6 gave in September, now measured
-        // rather than predicted, and it is why "the parachute does not show".
-        //
-        // WHY RE-ENABLING IS NOT THE 2026-09-18 CRASH AGAIN. That build called `change_motion` on
-        // the frame the article was generated. This one cannot: the call is gated on `exists`,
-        // which is read BEFORE the generate block, so the motion is given on the frame AFTER it
-        // appears -- the deferral is written out at that call site and exists precisely because
-        // calling into a module constructed moments earlier in the same frame was the one
-        // plausible cause nobody could rule out.
-        //
-        // AND IT IS THE GAME'S MECHANISM. G&W drives the parachute with `change_motion` and never
-        // calls `have`; with `own_motion` true this stops calling `have` on `haver` -- his right
-        // HAND, which was never where a parachute belongs -- and lets the article's own motion
-        // carry it, which is what Part 6 read out of `lua2cpp_gamewatch` in the first place.
         persist: false, acmd_owned: false,
+        attach: Attach::Manual,
     },
     // Palutena's staff -- her neutral-air and her grab. The grab motions are hers too: the three
     // catch boxes in `moves.tsv` are Palutena's, and a staff grab with no staff reads as a bug.
@@ -370,6 +334,7 @@ const WEAPONS: &[Weapon] = &[
         motions: &[],
         own_motion: false,
         persist: false, acmd_owned: false,
+        attach: Attach::Have,
     },
     // Corrin's Yato -- his up-air. NOT AN ARTICLE IN THE GAME: it is a rigid single-bound mesh in
     // his body model, which is why it was the only one of the five that grafted without adding a
@@ -391,8 +356,8 @@ const WEAPONS: &[Weapon] = &[
     //
     // No article: `eflame`'s sword is a model directory, not a `WEAPON_KIND_*` this port clones,
     // and the merged mesh is the path that works anyway.
-    Weapon { mesh: "pyra_sword", mesh_l: "pyra_sword_l", article: "", socket: "haver", probe_bone: "", motions: &["attack_air_lw"], own_motion: false, persist: false, acmd_owned: false },
-    Weapon { mesh: "corrin_sword", mesh_l: "corrin_sword_l", article: "yato", socket: "haver", probe_bone: "haver", motions: &["attack_air_hi"], own_motion: false, persist: false, acmd_owned: false },
+    Weapon { mesh: "pyra_sword", mesh_l: "pyra_sword_l", article: "", socket: "haver", probe_bone: "", motions: &["attack_air_lw"], own_motion: false, persist: false, acmd_owned: false, attach: Attach::Have },
+    Weapon { mesh: "corrin_sword", mesh_l: "corrin_sword_l", article: "yato", socket: "haver", probe_bone: "haver", motions: &["attack_air_hi"], own_motion: false, persist: false, acmd_owned: false, attach: Attach::Have },
     // Byleth's bow -- her n-air, and the whole move is the bow. `WEAPON_KIND_MASTER_BOW`.
     //
     // NO MESH AND `acmd_owned`: it is a real article in the game, so nothing is merged into
@@ -402,7 +367,7 @@ const WEAPONS: &[Weapon] = &[
     // article, so the guard must not pull it out from under that.
     Weapon { mesh: "", mesh_l: "", article: "bow", socket: "haver", probe_bone: "",
         motions: &["attack_air_n", "landing_air_n"], own_motion: false, persist: false,
-        acmd_owned: true },
+        acmd_owned: true, attach: Attach::Have },
 ];
 
 /// THE PROBE THAT ANSWERS "DID THE ARTICLE TAKE", because the last three rounds could not.
@@ -430,10 +395,39 @@ const WEAPONS: &[Weapon] = &[
 /// Buffered through `sink::log`, not `sink::diag`: diag pays a file open and an SD flush per line
 /// by design, and that is exactly the hitch that would make the mod differ from native.
 const ARTICLE_PROBE: bool = true;
-/// Frames of each motion to sample.
-const PROBE_FRAMES: u32 = 8;
-/// One bit per (frame, facing) per weapon per player, so a held move logs once and not every pass.
-static mut PROBE_SEEN: [[u32; 6]; 8] = [[0; 6]; 8];
+/// Sample every `PROBE_STRIDE`th frame of each motion, up to 32 samples per motion.
+///
+/// The first version took frames 0-7 and nothing else. For the parachute those are the first
+/// frames of the RISE, when its own `game_specialhi` has both canopy meshes switched off -- it
+/// measured the one stretch of the up-B where there is nothing to see, and never reached the
+/// 120-frame drift where the canopy is actually out.
+const PROBE_STRIDE: u32 = 4;
+/// Motion episodes logged per weapon per player, so a long session does not fill the card.
+const PROBE_EPISODES: u32 = 12;
+/// Per player, per weapon: the motion being sampled, which sample slots it has logged, and how
+/// many episodes have been logged so far. A new motion starts a new episode.
+static mut PROBE_MOTION: [[u64; 8]; 8] = [[0; 8]; 8];
+static mut PROBE_SEEN: [[u32; 8]; 8] = [[0; 8]; 8];
+static mut PROBE_EPISODE: [[u32; 8]; 8] = [[0; 8]; 8];
+
+/// Whether the CURRENT instance of each article has been through `hold`, per player.
+///
+/// THIS IS WHY NO PARACHUTE CAME OUT OF UP-B, measured 2026-10-18 on console #2. `hold` used to
+/// run only inside the generate block -- "if I generated it, I hold it". Since 2026-10-12 the
+/// up-B's own status code (`src/specials/specialhi`, transcribing G&W's `SpecialHi_main`)
+/// generates the parachute first and HIDES it, and the status `main` runs before this per-frame
+/// callback. So by the time this module looked, the article already existed, the generate block
+/// was skipped, and with it the only `have` and the only `set_visibility_whole(true)` the
+/// parachute ever got. The log said so in three ways: `exist=true` on frame 0 of every up-B, no
+/// `ARTICLE parachute GENERATE` line in the whole session, and the lateral offset back at 4.647
+/// -- the unattached value -- where `have` had once made it read 0.000.
+///
+/// So holding is keyed on the INSTANCE now, not on who made it: the first frame an article exists
+/// while its move is running, it is held and shown, once. The flag drops the moment the article
+/// stops existing, so the next instance is held again.
+static mut HELD: [[bool; 8]; 8] = [[false; 8]; 8];
+/// How many `hold` calls have been logged, so the line says the adoption ran without repeating.
+static mut HOLD_LOGGED: u32 = 0;
 
 /// The motion last handed to each `own_motion` article, so `change_motion` fires on the EDGE.
 ///
@@ -456,6 +450,7 @@ static mut GEN_LOGGED: [u32; 8] = [0; 8];
 unsafe extern "C" fn pikachu_weapon_frame(fighter: &mut L2CFighterCommon) {
     let boma = fighter.module_accessor;
     let motion = MotionModule::motion_kind(boma);
+    let entry = (WorkModule::get_int(boma, *FIGHTER_INSTANCE_WORK_ID_INT_ENTRY_ID) as usize).min(7);
     for (wi, w) in WEAPONS.iter().enumerate() {
         let want = w.motions.iter().any(|m| motion == smash::hash40(m));
         let id = if w.article.is_empty() {
@@ -554,15 +549,50 @@ unsafe extern "C" fn pikachu_weapon_frame(fighter: &mut L2CFighterCommon) {
                         true,
                         ArticleOperationTarget(*ARTICLE_OPE_TARGET_ALL),
                     );
-                    if !w.own_motion && !matches!(ATTACH, Attach::Manual) {
-                        hold(boma, id, w);
-                    }
                 } else if !want && exists && !w.persist {
                     ArticleModule::remove_exist(
                         boma,
                         id,
                         ArticleOperationTarget(*ARTICLE_OPE_TARGET_ALL),
                     );
+                }
+                // HELD ONCE PER INSTANCE, WHOEVER GENERATED IT. See `HELD`. Before the `persist`
+                // visibility below, so a persistent row still ends the frame showing `want`.
+                //
+                // NOT FOR `acmd_owned`: the script that generates those already decides where they
+                // go, and a `have` onto a joint it never asked for would change what works.
+                if !ArticleModule::is_exist(boma, id) {
+                    HELD[entry][wi] = false;
+                } else if !HELD[entry][wi]
+                    && (want || w.persist)
+                    && !w.acmd_owned
+                    && !w.own_motion
+                {
+                    // A placed article is only SHOWN here -- G&W's own status code generated it
+                    // hidden -- and `drive` below does the placing, every frame it is live.
+                    if matches!(w.attach, Attach::Manual) {
+                        ArticleModule::set_visibility_whole(
+                            boma,
+                            id,
+                            true,
+                            ArticleOperationTarget(*ARTICLE_OPE_TARGET_ALL),
+                        );
+                    } else {
+                        hold(boma, id, w);
+                    }
+                    HELD[entry][wi] = true;
+                    if ARTICLE_PROBE && HOLD_LOGGED < 16 {
+                        HOLD_LOGGED += 1;
+                        crate::telemetry::sink::log(format!(
+                            "ARTICLE {} HOLD p{entry} socket={} generated_here={} status={:#x} motion={:#x} f={:.0}",
+                            w.article,
+                            w.socket,
+                            !exists,
+                            StatusModule::status_kind(boma),
+                            motion,
+                            MotionModule::frame(boma),
+                        ));
+                    }
                 }
                 // VISIBILITY IS WHAT CHANGES, for the same reason. `set_visibility_whole` is the
                 // call G&W's own status code uses on the parachute, with `ARTICLE_OPE_TARGET_ALL`
@@ -607,7 +637,7 @@ unsafe extern "C" fn pikachu_weapon_frame(fighter: &mut L2CFighterCommon) {
                 if live && exists && w.own_motion && ARTICLE_MOTION[wi] != motion {
                     ARTICLE_MOTION[wi] = motion;
                     ArticleModule::change_motion(boma, id, Hash40::new_raw(motion), false, -1.0);
-                } else if live && !w.own_motion && !matches!(ATTACH, Attach::Have) {
+                } else if live && !w.own_motion && !matches!(w.attach, Attach::Have) {
                     drive(boma, id, w);
                 }
                 if !live {
@@ -635,11 +665,15 @@ unsafe extern "C" fn pikachu_weapon_frame(fighter: &mut L2CFighterCommon) {
     }
 }
 
-/// An article's own module accessor, straight off the `Article` struct.
+/// An article's own module accessor, through the engine's own lookup.
 ///
-/// `Article` is `{ vtable, module_accessor, generate_id }`, so this needs no battle-object-id
-/// round trip -- which matters, because everything below has to reach the ARTICLE's PostureModule
-/// rather than the fighter's, and they are different objects.
+/// This used to read `(*article).module_accessor` off smash-rs's `Article` struct, which is
+/// `{ vtable, module_accessor, generate_id }` by smash-rs's reading of the layout and nobody's
+/// measurement. `lua_bind::Article::get_battle_object_id` is the game's, and
+/// `crate::victim::object_boma` makes the accessor confirm its own id, so a wrong layout or a
+/// stale handle comes back null instead of as an arbitrary pointer. It matters
+/// because everything that reaches the ARTICLE's modules rather than the fighter's goes through
+/// this, and they are different objects.
 unsafe fn article_boma(
     boma: *mut BattleObjectModuleAccessor,
     id: i32,
@@ -648,7 +682,8 @@ unsafe fn article_boma(
     if a.is_null() {
         return std::ptr::null_mut();
     }
-    (*a).module_accessor
+    let object_id = smash::app::lua_bind::Article::get_battle_object_id(a) as u32;
+    crate::victim::object_boma(object_id).unwrap_or(std::ptr::null_mut())
 }
 
 /// THE ENGINE'S OWN ATTACHMENT, found at last: `ArticleModule::have`.
@@ -729,12 +764,15 @@ unsafe fn drive(boma: *mut BattleObjectModuleAccessor, id: i32, w: &Weapon) {
     if abm.is_null() {
         return;
     }
+    // POSITION AND FACING, AND NOTHING ELSE. This used to copy the socket joint's rotation too,
+    // through `joint_global_rotation`, whose output convention nobody measured -- and for the one
+    // row that uses this, the parachute, the right orientation is simply his facing: its canopy
+    // is authored upright in his frame, which is how G&W's sits over G&W.
     let mut p = Vector3f { x: 0.0, y: 0.0, z: 0.0 };
     ModelModule::joint_global_position(boma, Hash40::new(w.socket), &mut p, true);
-    let mut r = Vector3f { x: 0.0, y: 0.0, z: 0.0 };
-    ModelModule::joint_global_rotation(boma, Hash40::new(w.socket), &mut r, true);
     PostureModule::set_pos(abm, &p);
-    PostureModule::set_rot(abm, &r, 0);
+    PostureModule::set_lr(abm, PostureModule::lr(boma));
+    PostureModule::update_rot_y_lr(abm);
 }
 
 /// ONE-SHOT ARTICLE CENSUS, logged the first time any ported weapon's motion runs.
@@ -781,7 +819,7 @@ unsafe fn probe(
         let e = WorkModule::get_int(boma, *FIGHTER_INSTANCE_WORK_ID_INT_ENTRY_ID) as usize;
         if e >= 8 { 0 } else { e }
     };
-    if wi >= 6 {
+    if wi >= 8 {
         return;
     }
     census(boma);
@@ -789,16 +827,26 @@ unsafe fn probe(
     if frame < 0.0 {
         return;
     }
-    let f = frame as u32;
-    if f >= PROBE_FRAMES {
+    let motion = MotionModule::motion_kind(boma);
+    if PROBE_MOTION[entry][wi] != motion {
+        PROBE_MOTION[entry][wi] = motion;
+        PROBE_SEEN[entry][wi] = 0;
+        PROBE_EPISODE[entry][wi] += 1;
+    }
+    if PROBE_EPISODE[entry][wi] > PROBE_EPISODES {
         return;
     }
-    let lr = PostureModule::lr(boma);
-    let bit = 1u32 << (f + if lr < 0.0 { PROBE_FRAMES } else { 0 });
+    let f = frame as u32;
+    let slot = f / PROBE_STRIDE;
+    if slot >= 32 {
+        return;
+    }
+    let bit = 1u32 << slot;
     if PROBE_SEEN[entry][wi] & bit != 0 {
         return;
     }
     PROBE_SEEN[entry][wi] |= bit;
+    let lr = PostureModule::lr(boma);
 
     let Some(id) = id else {
         crate::telemetry::sink::log(format!(
@@ -809,85 +857,77 @@ unsafe fn probe(
     };
 
     let exist = ArticleModule::is_exist(boma, id);
-    // `haver` is the fighter's own hand and the reference every graft was measured against, so a
-    // correctly attached article's bind bone should sit at a fixed offset from it in BOTH facings.
-    let mut hv = Vector3f { x: -9999.0, y: -9999.0, z: 0.0 };
-    ModelModule::joint_global_position(boma, Hash40::new("haver"), &mut hv, true);
-    let mut hd = Vector3f { x: -9999.0, y: -9999.0, z: 0.0 };
+    // THE OWNER'S SOCKET AND HEAD, in world space, through the same call every fighter-side
+    // number in this project was measured with.
+    let mut sock = Vector3f { x: 0.0, y: 0.0, z: 0.0 };
+    ModelModule::joint_global_position(boma, Hash40::new(w.socket), &mut sock, true);
+    let mut hd = Vector3f { x: 0.0, y: 0.0, z: 0.0 };
     ModelModule::joint_global_position(boma, Hash40::new("head"), &mut hd, true);
 
     let where_ = if !exist || w.probe_bone.is_empty() {
         "-".to_string()
     } else {
-        // TARGET_FIRST, not TARGET_ALL. `ALL` is 0 and means "every instance", which is
-        // meaningful for an operation and not for a GETTER -- the swords came back at y-17 and
-        // y-53 under it, numbers no bone on a 11-unit-tall fighter can hold, while the parachute
-        // (max_count 1, so ALL and FIRST coincide) read consistently and matched what the
-        // playtest saw. So the sword readings were the query's fault, not the article's.
-        let p = ArticleModule::get_joint_pos(
+        // THE ARTICLE'S OWN BONES THROUGH THE ARTICLE'S OWN ModelModule, which is the same call
+        // as the owner's side above -- so both ends of every difference come from one API.
+        //
+        // `ArticleModule::get_joint_pos` is still printed (`gjp`) but no longer trusted. On the
+        // 2026-10-18 capture it put the WORKING fusion sword's first bone 62 units below the hand
+        // on every frame, which no bone on an 11-unit fighter can be; whatever space it reports
+        // in, it is not the one `joint_global_position` does.
+        //
+        // The article's accessor comes from the engine's own lookup --
+        // `lua_bind::Article::get_battle_object_id` then `sv_battle_object::module_accessor` --
+        // and not from reading `(*article).module_accessor`, whose offset is smash-rs's guess at
+        // a struct layout. A wrong guess there is an arbitrary pointer.
+        let gjp = ArticleModule::get_joint_pos(
             boma,
             id,
             Hash40::new(w.probe_bone),
             ArticleOperationTarget(*ARTICLE_OPE_TARGET_FIRST),
         );
-        // ORIENTATION, NOT JUST POSITION -- the half that was missing when it mattered most.
-        //
-        // Every article bug so far has been reported as a SHAPE: "in the wrong hand", "straight
-        // down through the model", "stuck inside his body facing up". Position alone cannot
-        // distinguish any of those from a correct placement, so each one cost a round trip
-        // through a human description. `ArticleModule::get_joint_rotate` is bound and was simply
-        // never called.
-        //
-        // The fighter's own joint is read alongside it with `ModelModule::joint_global_rotation`,
-        // because the number that matters is the DIFFERENCE. An article that `have` has aligned to
-        // the hand reads the same rotation as `haver`; one that only got a position reads the
-        // owner's facing instead, and one that got neither reads zero. Those three are the live
-        // hypotheses about what `have` actually carries, and one boot now separates them.
-        // THE ROTATION READ IS REMOVED AGAIN, AND THIS IS WHY. 2026-09-18.
-        //
-        // It read the article's own orientation via `article_boma()` ->
-        // `ModelModule::joint_global_rotation`, which is the measurement this document has wanted
-        // since Part 5. But the build that introduced it is also the first build that STALLED the
-        // game on the loading screen into a match, and the build immediately before it -- same mod
-        // tree, plugin differing only by this block -- loaded fine and was played.
-        //
-        // SysDVR was blamed for the first stall and that was wrong: the second stall happened with
-        // SysDVR not running at all (port 6666 closed), which leaves this block as the only
-        // correlated change.
-        //
-        // No mechanism is claimed. The probe only runs while a ported motion is playing, which a
-        // loading screen is not, so the obvious story does not fit. What IS unsafe here is the
-        // pointer: `ArticleModule::get_article` can hand back an article that is not fully
-        // initialised, and `(*a).module_accessor` on one of those is garbage that
-        // `joint_global_rotation` will happily dereference. Undefined behaviour fits "hangs at an
-        // unpredictable moment" better than any clean theory does.
-        //
-        // It comes back only with a safer way to reach the article's orientation, and only on a
-        // boot where it is the single variable.
-        if hv.x < -9000.0 {
-            format!("{}=({:.3},{:.3},{:.3}) abs", w.probe_bone, p.x, p.y, p.z)
+        let abm = article_boma(boma, id);
+        if abm.is_null() {
+            format!("abm=null gjp=({:.2},{:.2},{:.2})", gjp.x, gjp.y, gjp.z)
         } else {
-            // Lateral axis times `lr`: a bone that follows the fighter reads the same both ways.
+            // ROOT vs SOCKET is the attachment test: `have` pins the article's root bone to the
+            // socket, so a held article reads ~(0,0,0) here on every frame and a loose one
+            // drifts as he moves. The parachute's root is `Have`; the swords' is `HaveR`.
+            let root = if w.article == "parachute" { "have" } else { "haver" };
+            let mut ar = Vector3f { x: 0.0, y: 0.0, z: 0.0 };
+            ModelModule::joint_global_position(abm, Hash40::new(root), &mut ar, true);
+            // PROBE BONE vs HEAD is the question the playtest asks -- "above Pikachu" -- with the
+            // lateral axis times `lr`, so a correctly-following bone reads the same both ways.
+            let mut ap = Vector3f { x: 0.0, y: 0.0, z: 0.0 };
+            ModelModule::joint_global_position(abm, Hash40::new(w.probe_bone), &mut ap, true);
+            let pos = *PostureModule::pos(abm);
             format!(
-                "{}=({:.3},{:.3},{:.3}) rel-haver  ({:.3},{:.3},{:.3}) rel-HEAD",
+                "root-sock=({:.2},{:.2},{:.2}) {}-head=({:.2},{:.2},{:.2}) apos-head=({:.2},{:.2},{:.2}) \
+                 vis={} head=({:.1},{:.1}) gjp=({:.2},{:.2},{:.2})",
+                (ar.x - sock.x) * lr,
+                ar.y - sock.y,
+                ar.z - sock.z,
                 w.probe_bone,
-                (p.x - hv.x) * lr,
-                p.y - hv.y,
-                p.z - hv.z,
-                // RELATIVE TO THE HEAD as well, because "above Pikachu" is a statement about the head
-                // and the parachute was judged against the hand for months. A canopy correctly held
-                // at the `have` head point should read roughly (0, +2.6, +3.6) here on every frame of
-                // the up-B: centred, above, and moving WITH him. Constant world coordinates and a
-                // drifting head offset mean it is not attached at all.
-                (p.x - hd.x) * lr,
-                p.y - hd.y,
-                p.z - hd.z
+                (ap.x - hd.x) * lr,
+                ap.y - hd.y,
+                ap.z - hd.z,
+                (pos.x - hd.x) * lr,
+                pos.y - hd.y,
+                pos.z - hd.z,
+                u8::from(VisibilityModule::is_visible(abm)),
+                hd.x,
+                hd.y,
+                gjp.x,
+                gjp.y,
+                gjp.z
             )
         }
     };
     crate::telemetry::sink::log(format!(
-        "ARTICLE {} f{f} lr{:+.0} id={id:#x} exist={exist} {where_}",
-        w.article, lr
+        "ARTICLE {} f{f} lr{:+.0} st={:#x} id={id:#x} exist={exist} held={} {where_}",
+        w.article,
+        lr,
+        StatusModule::status_kind(boma),
+        u8::from(HELD[entry][wi]),
     ));
 }
 
