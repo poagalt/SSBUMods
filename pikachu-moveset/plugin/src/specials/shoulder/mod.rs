@@ -647,13 +647,32 @@ unsafe fn requested_throw(fighter: &mut L2CFighterCommon) -> Option<i32> {
     // flipped by the time ATTACK_N appears, the fix is in the turn's guard, not here.
 
     // DK tests them in this order: f, b, hi, lw.
-    for (mask, name, status) in [
-        (*FIGHTER_PAD_CMD_CAT2_FLAG_THROW_F, "f", RAT_STATUS_KIND_THROW_F_F),
-        (*FIGHTER_PAD_CMD_CAT2_FLAG_THROW_B, "b", RAT_STATUS_KIND_THROW_F_B),
-        (*FIGHTER_PAD_CMD_CAT2_FLAG_THROW_HI, "hi", RAT_STATUS_KIND_THROW_F_HI),
-        (*FIGHTER_PAD_CMD_CAT2_FLAG_THROW_LW, "lw", RAT_STATUS_KIND_THROW_F_LW),
+    //
+    // AND THE CHOSEN DIRECTION IS WRITTEN WHERE `throw_init` READS IT, which is the half this port
+    // never closed. `throw_init` picks the victim's thrown animation off
+    // `FIGHTER_STATUS_CATCH_WAIT_WORK_INT_MOTION_KIND` -- faithfully, because that is what DK
+    // reads -- but on DK the writer is his CatchWait, and our carry reaches the throw statuses
+    // straight from here without passing through it. So the work int was never written, every
+    // cargo throw read 0, fell past the three `if`s, and gave the victim `thrown_f_donkey_lw`.
+    //
+    // Measured 2026-10-17: a back throw that dispatched CORRECTLY to RAT_THROW_F_B logged
+    // "motion_kind=0x0 -> victim plays thrown_f_donkey_lw". The status was right and the throw
+    // still looked wrong, which is what "back throw still doesn't work" was describing by then.
+    //
+    // Writing it here rather than teaching `throw_init` to read the status kind keeps DK's own
+    // read intact and puts the write where the decision is made.
+    for (mask, name, status, motion) in [
+        (*FIGHTER_PAD_CMD_CAT2_FLAG_THROW_F, "f", RAT_STATUS_KIND_THROW_F_F, "throw_f_f"),
+        (*FIGHTER_PAD_CMD_CAT2_FLAG_THROW_B, "b", RAT_STATUS_KIND_THROW_F_B, "throw_f_b"),
+        (*FIGHTER_PAD_CMD_CAT2_FLAG_THROW_HI, "hi", RAT_STATUS_KIND_THROW_F_HI, "throw_f_hi"),
+        (*FIGHTER_PAD_CMD_CAT2_FLAG_THROW_LW, "lw", RAT_STATUS_KIND_THROW_F_LW, "throw_f_lw"),
     ] {
         if cat2 & mask != 0 || stick[name].try_get_bool().unwrap_or(false) {
+            WorkModule::set_int64(
+                boma,
+                Hash40::new(motion).hash,
+                *FIGHTER_STATUS_CATCH_WAIT_WORK_INT_MOTION_KIND,
+            );
             return Some(status);
         }
     }

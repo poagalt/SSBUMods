@@ -37,10 +37,11 @@
 //! WHAT THIS DOES, AND WHY THESE TWO CALLS. On the frame the motion wraps, ask the engine to run
 //! the script again:
 //!
-//!   `MotionModule::set_frame_sync_anim_cmd(0.0)` -- "set the frame AND sync the animcmd", the
-//!   engine's own way of putting a motion and its script back to the same point. The motion has
-//!   just wrapped to 0 of its own accord, so as an animation change this is a no-op; what it is
-//!   for is the script half.
+//!   `MotionModule::change_motion` back to `attack_100` -- a FRESH motion instance, which is the
+//!   part that matters. `set_frame_sync_anim_cmd` was tried first and restarts the script while
+//!   leaving the instance alone, and the instance is what `wait_loop_clear` waits on: the jab hit
+//!   correctly for about a second and then stopped hitting at all while Pikachu kept jabbing,
+//!   because the restarted script reached its park and the loop signal had already been spent.
 //!
 //! IT REPORTS WHETHER IT WORKED, which is the point of doing it this way round. The counters stay
 //! in, so the next capture answers it outright: `acmd_enter` climbing to roughly twenty-two per
@@ -112,12 +113,31 @@ unsafe extern "C" fn rapid_jab_frame(fighter: &mut L2CFighterCommon) {
     if enter != pass {
         return;
     }
-    // ARGUMENTS TAKEN FROM THE ENGINE'S OWN USE OF IT, not guessed. `sub_wait_motion_mtrans`
-    // (common) is the canonical resync of a LOOPING motion's animcmd -- the same shape of problem
-    // -- and it calls `set_frame_sync_anim_cmd(boma, 0.0, true, false, false)`. Ghidra renders that
-    // as four arguments because the float rides a float register and does not appear in the
-    // integer list; the frame it pushes just above the call is 0.
-    MotionModule::set_frame_sync_anim_cmd(boma, 0.0, true, false, false);
+    // A FULL `change_motion`, NOT `set_frame_sync_anim_cmd`, AND THE DIFFERENCE IS THE LOOP STATE.
+    //
+    // The frame-sync version restarted the script and left the motion instance alone -- and the
+    // motion instance is what `wait_loop_clear` waits on. Measured from the other side: the jab
+    // worked for about a second and then stopped hitting at all while Pikachu kept jabbing. That
+    // is the restarted script reaching its park and the park never resuming, because the loop
+    // signal it waits for had already been spent on the first wrap of a motion that was never
+    // replaced.
+    //
+    // `change_motion` to the same motion gives a fresh instance, so the signal is available again
+    // and the park resumes on the NEXT wrap, which is the rhythm the script is written for: one
+    // hit on the cycle that starts it, ten on the cycle its park resumes into. It is also what the
+    // engine does in this very status -- `status_Attack100_Main_uniq_func` hands over to
+    // `attack_100_end` with exactly this call -- and the motion has just wrapped to frame 0 of its
+    // own accord, so as an animation change it is invisible.
+    MotionModule::change_motion(
+        boma,
+        Hash40::new("attack_100"),
+        0.0,
+        1.0,
+        false,
+        0.0,
+        false,
+        false,
+    );
 }
 
 pub fn install() {
@@ -125,8 +145,7 @@ pub fn install() {
         return;
     }
     crate::telemetry::sink::diag(
-        "[rat] RAPIDJAB re-triggering the attack_100 script on every motion wrap; watch \
-         acmd_enter in JABPROBE -- about 22 per hold means it took, still 1 means it did not"
+        "[rat] RAPIDJAB re-triggering the attack_100 motion when its script has run out; watch          acmd_enter and acmd_pass in JABPROBE -- both climbing together means the park is          resuming, acmd_pass stalling means it is not"
             .into(),
     );
     crate::charaslot::agent("pikachu")
