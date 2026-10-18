@@ -244,21 +244,21 @@ pub const CANDIDATES: &[Candidate] = &[
     // the copy against the source it was copied from, so a partial source is invisible to it.
     Candidate { host_name: "bow",         donor: "master",    donor_article: "bow",         weapon_kind: "WEAPON_KIND_MASTER_BOW",          clean: true,  enabled: true,  authored: false, model_from: "" },
     Candidate { host_name: "spikeball",   donor: "packun",    donor_article: "spikeball",   weapon_kind: "WEAPON_KIND_PACKUN_SPIKEBALL",    clean: false, enabled: false, authored: false, model_from: "" },
-    // THE ROPE, THIRD TRY (2026-10-18). The second crashed the first match load on 13.0.4 (crash
-    // report 01792305616): Data Abort writing null+0x108 on TaskWorker2, LR main+0x3403a30, 0x20 into
-    // the rope's own vtable SLOT 3 (0x3403fc0 in the 13.0.5 dump), reached from StartModules under
-    // smashline's fighter_initialize_object_data. Slot 3 is the rope's module start: a CameraModule
-    // call that sets the weapon's camera range, then its GroundModule setup. The camera range comes
-    // from `camera_range_<weapon>` in the OWNER's vl.prc (camera_range_spikeball, _ganond, _rope
-    // ...), Pikachu has none, so the range array at module+0x28 was never allocated and the setter
-    // (13.0.5 0x3eb010) stored through null. That is a param read, but through the owner's
-    // FighterParamHolder, not FighterParamAccessor2, so tools/check-article-donor-params.sh rightly
-    // calls slot 3 clean. The fix is the game's own data: tools/gen-vlprc.sh copies Incineroar's
-    // camera_range_rope and param_rope into Pikachu's vl.prc verbatim while this row is on, and
-    // install() whitelists camera_range_rope with smashline::add_param_object (smashline serves only
-    // `param_<article>` and whitelisted names from the host's vl.prc). Slots 40 and 55 stay
-    // neutralized. The class overrides 13 of 114 slots against 2-3 for every article that loads,
-    // so a further failure is possible; the crash address will say which slot.
+    // THE ROPE, FOURTH TRY (2026-10-18). Tries two and three both crashed match load identically
+    // (crash reports 01792305616, 01792308093): Data Abort at 0x108 on TaskWorker2, LR
+    // main+0x3403a30 -- 0x20 into the rope's own vtable SLOT 3, its module start, reached from
+    // StartModules under smashline's fighter_initialize_object_data. Slot 3 first calls its
+    // CameraModule's vfunc +0x50, which resets the camera ranges from a pointer held at camera+0x30
+    // (13.0.5 0x3eaa80, loop of 20-byte records). That pointer was 0x108: Incineroar's compiled
+    // param lookup returns camera_range_rope as `data + 0x108` (main 0xac8de0), and with no
+    // Incineroar in the match his data base is null. Try three copied camera_range_rope into
+    // Pikachu's vl.prc and whitelisted it with smashline; the identical crash proved the pointer
+    // never comes from the owner's params at all, so that was backed out. Try four is in
+    // src/articles/neutralize.rs: the rope's private vtable gets a slot-3 guard that, when the
+    // camera pointer is bogus, points it at Incineroar's own five camera_range_rope values before
+    // running the real slot 3 -- and the private vtable now goes on whenever the donor's param
+    // entry is absent, because the old owner test never matched at match load (no NEUTRALISED line
+    // in either crash log).
     Candidate { host_name: "rope",        donor: "gaogaen",   donor_article: "rope",        weapon_kind: "WEAPON_KIND_GAOGAEN_ROPE",        clean: false, enabled: true,  authored: false, model_from: "" },
     // G&W's FIREMEN AND TRAMPOLINE, which his special_hi main generates beside the parachute
     // (FIGHTER_GAMEWATCH_GENERATE_ARTICLE_RESCUE). Audits clean. LAST so no existing article id
@@ -400,12 +400,6 @@ pub fn install() {
     // inactive on a mismatch; cloning the rope anyway would put an article in the game whose two
     // Incineroar-only slots nothing has repointed.
     neutralize::install();
-    // THE ROPE'S CAMERA RANGE, from Pikachu's own vl.prc (see the rope row). smashline builds its
-    // served-name list at fighter load, so this has to be registered before then -- here, once.
-    if CANDIDATES.iter().any(|c| c.host_name == "rope" && c.enabled) {
-        smashline::add_param_object("pikachu", "camera_range_rope");
-        crate::telemetry::sink::diag("[rat] articles: camera_range_rope whitelisted for pikachu".to_string());
-    }
     for (i, c) in installed() {
         if !c.clean && !neutralize::active() {
             crate::telemetry::sink::diag(format!(

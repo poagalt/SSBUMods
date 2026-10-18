@@ -27,9 +27,14 @@
 //!   and the 114 slots follow (0x390 bytes, exactly the spacing of neighbouring singletons). So a
 //!   private copy is an 8-byte object pointing at a copied group, and carries no hidden state.
 //!
-//! WHO GETS IT. Only a weapon whose kind is a NEUTRALIZED row's kind AND whose owner entry is a
-//! Pikachu -- every Pikachu runs this moveset, and asking the engine for the entry's current fighter
-//! means no state of ours has to be up to date when this runs (it may run at fighter load).
+//! WHO GETS IT. A weapon whose kind is a NEUTRALIZED row's kind, whenever that row's DONOR has no
+//! param entry (see `donor_absent`) -- the exact condition under which the class crashes, whoever
+//! owns it -- or, with the donor present, when the owner entry is a Rat of Doom. The owner test
+//! alone never matched at match load (2026-10-18), because the entry's fighter is not answerable
+//! while the fighter's objects are still being built.
+//!
+//! THE ROPE ALSO GETS A GUARDED SLOT 3 (`rope_slot3_guard`): its module start resets its camera
+//! ranges through a pointer computed from Incineroar's param data, which is null+0x108 without him.
 //!
 //! NOTHING HAPPENS UNLESS A NEUTRALIZED ROW IS ENABLED IN CANDIDATES: `install` does not even
 //! install the hook otherwise. Both rows ship `enabled: false`. Arming one is a watched-boot,
@@ -144,6 +149,90 @@ unsafe fn owner_is_pikachu(entry: u32) -> bool {
     crate::victim::boma(id).map_or(false, |b| crate::charaslot::is_rat_costume(b))
 }
 
+/// The fighter whose `FighterParamAccessor2` entry a NEUTRALIZED row's class reads.
+fn donor_kind(host: &str) -> Option<i32> {
+    match host {
+        "rope" => Some(*FIGHTER_KIND_GAOGAEN),
+        "spikeball" => Some(*FIGHTER_KIND_PACKUN),
+        _ => None,
+    }
+}
+
+static mut FPA2_INSTANCE_PTR: usize = 0;
+
+/// IS THE DONOR'S PARAM ENTRY ABSENT? That is the condition that makes these classes crash, so it
+/// is the condition that decides who gets the private vtable.
+///
+/// The owner test alone NEVER MATCHED AT MATCH LOAD: two rope boots crashed with no NEUTRALISED
+/// line in either log, although `diag` writes straight to the card. At fighter load the entry's
+/// `current_fighter_id` and the costume test's battle-object lookup are not answerable yet. And
+/// it was the wrong question anyway: clone_weapon gives EVERY Pikachu the article, vanilla
+/// costumes included, and each of them crashes the same way when the donor is absent.
+///
+/// `FighterParamAccessor2` holds one 56-byte entry per fighter kind at `this + 0x70`, whose first
+/// word is the fighter's param data -- proven from `hit_target_no_impl` (see
+/// tools/check-article-donor-params.sh), and null exactly when that fighter is not loaded, which
+/// is the `[null + 0x138]` the spikeball died on. When the donor IS in the match, his data is
+/// there, the class runs as the game wrote it, and nobody's article is touched.
+unsafe fn donor_absent(fighter_kind: i32) -> bool {
+    if FPA2_INSTANCE_PTR == 0 {
+        let mut out: usize = 0;
+        let name = "_ZN3lib9SingletonIN3app21FighterParamAccessor2EE9instance_E\0";
+        if skyline::nn::ro::LookupSymbol(&mut out as *mut usize, name.as_ptr()) != 0 || out == 0 {
+            // Cannot tell: treat as absent, because absent is the case that crashes.
+            return true;
+        }
+        FPA2_INSTANCE_PTR = out;
+    }
+    let inst = *(FPA2_INSTANCE_PTR as *const usize);
+    if inst == 0 || fighter_kind < 0 {
+        return true;
+    }
+    *((inst + 0x70 + fighter_kind as usize * 0x38) as *const usize) == 0
+}
+
+/// THE ROPE'S CAMERA RANGE, Incineroar's own `camera_range_rope` (fighter/gaogaen/param/vl.prc):
+/// center_y 10, front 19, back -9, up 12, down -9, in the file's order. Four copies, because the
+/// camera reset loops over a record count it reads from the module, and one is expected.
+/// Mutable so it lands in writable memory: the camera reads it as param data, and nothing proves
+/// it never writes back through the pointer.
+static mut ROPE_CAMERA_RANGE: [[f32; 5]; 4] = [[10.0, 19.0, -9.0, 12.0, -9.0]; 4];
+static mut ROPE_SLOT3_ORIGINAL: usize = 0;
+static mut ROPE_GUARD_LOGGED: bool = false;
+
+/// THE ROPE'S SLOT 3, GUARDED. Slot 3 is the rope's module start, and its first act is its
+/// CameraModule's vfunc +0x50, which tail-calls +0x58 (13.0.5 0x3eaa80): reset each camera range
+/// record from the pointer at camera+0x30. That pointer is Incineroar's compiled param lookup for
+/// camera_range_rope, `data + 0x108` (main 0xac8de0) -- and with no Incineroar in the match the data
+/// base is null, so it reads 0x108, and the reset faulted on it in both crash reports (01792305616,
+/// 01792308093: LR main+0x3403a30, PC in that loop). So: a pointer below one page is not a pointer;
+/// point it at his values, then run the real slot 3 with every other step untouched.
+extern "C" fn rope_slot3_guard(this: *mut u8, object: *mut u8, a2: u64, a3: u64) {
+    unsafe {
+        let boma = *(object.add(0x20) as *const *mut u8);
+        if !boma.is_null() {
+            let cam = *(boma.add(0x60) as *const *mut u8);
+            if !cam.is_null() {
+                let at = cam.add(0x30) as *mut usize;
+                let before = *at;
+                if before < 0x1000 {
+                    *at = core::ptr::addr_of_mut!(ROPE_CAMERA_RANGE) as usize;
+                }
+                if !ROPE_GUARD_LOGGED {
+                    ROPE_GUARD_LOGGED = true;
+                    let count = *(cam.add(0x20) as *const u32);
+                    crate::telemetry::sink::diag(format!(
+                        "[rat] articles: rope slot-3 guard: camera range pointer {before:#x}{} (record count {count})",
+                        if before < 0x1000 { " -> Incineroar's camera_range_rope" } else { ", left alone" }
+                    ));
+                }
+            }
+        }
+        let original: extern "C" fn(*mut u8, *mut u8, u64, u64) = core::mem::transmute(ROPE_SLOT3_ORIGINAL);
+        original(this, object, a2, a3);
+    }
+}
+
 /// The private singleton for one row, built on first use from the object's OWN class: the
 /// specializer the engine just stored at +0x3bb0 points at its vtable's address point, so the
 /// group is copied from there and the listed slots repointed at `default_slot`.
@@ -162,15 +251,34 @@ unsafe fn private_singleton(row: usize, singleton: usize, slots: &[usize]) -> us
     for &s in slots {
         group[VTABLE_HEADER_WORDS + s] = default_slot as usize;
     }
+    if NEUTRALIZED[row].0 == "rope" {
+        ROPE_SLOT3_ORIGINAL = group[VTABLE_HEADER_WORDS + 3];
+        group[VTABLE_HEADER_WORDS + 3] = rope_slot3_guard as usize;
+    }
     let group: &'static mut [usize] = Box::leak(group.into_boxed_slice());
     let singleton: &'static mut usize = Box::leak(Box::new(group.as_ptr().add(VTABLE_HEADER_WORDS) as usize));
     PRIVATE[row] = singleton as *mut usize as usize;
     PRIVATE[row]
 }
 
+static mut SEEN: [u32; 2] = [0; 2];
+
 unsafe fn neutralise(object: *mut u8, kind: u32, entry: u32) {
     for (row, row_kind, slots, host) in live_rows() {
-        if kind as i32 != row_kind || !owner_is_pikachu(entry) {
+        if kind as i32 != row_kind {
+            continue;
+        }
+        let absent = donor_kind(host).map_or(true, |k| donor_absent(k));
+        let ours = !absent && owner_is_pikachu(entry);
+        if SEEN[row] < 4 {
+            SEEN[row] += 1;
+            crate::telemetry::sink::diag(format!(
+                "[rat] articles: {host} object {object:p} initialised for entry {entry}: donor params {} -> {}",
+                if absent { "ABSENT" } else { "present" },
+                if absent || ours { "private vtable" } else { "left native (the donor's own article)" }
+            ));
+        }
+        if !(absent || ours) {
             continue;
         }
         let at = object.add(SPECIALIZER_AT) as *mut usize;
