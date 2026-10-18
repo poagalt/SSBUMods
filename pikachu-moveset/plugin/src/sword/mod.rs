@@ -78,7 +78,20 @@ enum Attach {
     /// ORIENTATION | POSITION, true)` and no `link` call before it -- a generated article is
     /// already linked to its owner. Unlike `have`, it is not limited to item-holding joints, and
     /// `top` is every model's implicit root, so the article needs no bone of that name.
+    ///
+    /// TRIED ON THE PARACHUTE 2026-10-18 AND THE DRAWN MODEL STILL DID NOT FOLLOW ("still stays in
+    /// the same place directly above pikachu"), while the probe again read its skeleton on his
+    /// origin every frame. So the probe's joint reads do not see what is drawn, and whatever
+    /// `have` sets up that this call does not -- most likely the link itself -- is what the
+    /// renderer follows. Kept for the record, used by no row.
     Constrain,
+    /// `have` onto `socket` -- the one call measured to move the DRAWN model -- then retarget that
+    /// constraint's owner-side joint to `top` with `LinkModule::set_model_constraint_target_joint`,
+    /// keeping the link `have` made. `have` itself refuses body joints, so this is the way to end
+    /// up on his origin through a link the renderer follows. The link state is logged around both
+    /// calls (`link_state`), so if the retarget does not take, the next build knows which link
+    /// number and joints `have` used.
+    HaveTop,
     /// `have` on spawn, then drive anyway. Only useful if `have` half-works.
     Both,
 }
@@ -314,12 +327,16 @@ const WEAPONS: &[Weapon] = &[
         // So the root sits at his ORIGIN, the canopy is authored above it, and the hands meet the
         // strings because the meshes were modelled that way.
         //
-        // Pikachu gets the same layout: the article's `top` constrained onto his `top` -- his
-        // origin, which moves and turns with him and never swings (`Attach::Constrain`). `have`
-        // cannot do it: it accepts the item-holding joints (`haver`, `have`) and refused both
-        // body joints tried (`rot` on 2026-09-18, `handr`). Placing it every frame with
-        // `PostureModule::set_pos` (`Attach::Manual`) moved its skeleton but not the drawn model.
-        article: "parachute", socket: "top",
+        // `have` ONTO `have` IS THE ANSWER, AND THE PLAYTEST SAID SO BEFORE THIS ANALYSIS DID.
+        // poagalt, 2026-10-18: "the first time you got the parachute to show up, it was correctly
+        // moving back and forth with pikachu ... It's only since then that it's been static." That
+        // first time was this attach. The swing that the measurements above read as a flaw -- the
+        // canopy riding his head through the drift's stepped poses -- is the motion he wanted.
+        // Three builds then moved it to his origin and every one left the DRAWN canopy static:
+        // per-frame placement (`Attach::Manual`), the spikeball's constraint (`Attach::Constrain`),
+        // and `have` retargeted to `top` (`Attach::HaveTop`, deployed, untested). Only `have`'s own
+        // link is known to move what is drawn. Do not move this off `have` without a playtest.
+        article: "parachute", socket: "have",
         probe_bone: "all",
         motions: &["special_hi", "special_air_hi", "special_hi_open", "special_hi_close"],
         // NOT `own_motion`: the up-B's status code (`src/specials/specialhi`, `specialhifall`,
@@ -328,7 +345,7 @@ const WEAPONS: &[Weapon] = &[
         // `change_motion` would restart the canopy's animation.
         own_motion: false,
         persist: false, acmd_owned: false,
-        attach: Attach::Constrain,
+        attach: Attach::Have,
     },
     // Palutena's staff -- her neutral-air and her grab. The grab motions are hers too: the three
     // catch boxes in `moves.tsv` are Palutena's, and a staff grab with no staff reads as a bug.
@@ -443,6 +460,8 @@ static mut PROBE_EPISODE: [[u32; 8]; 8] = [[0; 8]; 8];
 static mut HELD: [[bool; 8]; 8] = [[false; 8]; 8];
 /// How many `hold` calls have been logged, so the line says the adoption ran without repeating.
 static mut HOLD_LOGGED: u32 = 0;
+/// How many link-state lines have been logged (three per adoption), for the same reason.
+static mut LINK_LOGGED: u32 = 0;
 
 /// The motion last handed to each `own_motion` article, so `change_motion` fires on the EDGE.
 ///
@@ -586,6 +605,7 @@ unsafe extern "C" fn pikachu_weapon_frame(fighter: &mut L2CFighterCommon) {
                     // G&W's own status code generated the parachute HIDDEN, so every path shows it.
                     match w.attach {
                         Attach::Constrain => constrain(boma, id, w),
+                        Attach::HaveTop => have_then_top(boma, id, w),
                         Attach::Manual => {
                             ArticleModule::set_visibility_whole(
                                 boma,
@@ -775,6 +795,43 @@ unsafe fn hold(boma: *mut BattleObjectModuleAccessor, id: i32, w: &Weapon) {
 /// which is offline data work and is the next step. It is left out rather than guessed because
 /// composing Euler angles by eye is how this project has lost rounds before -- and because a
 /// weapon that tracks the hand at the wrong angle is legible enough to measure the angle from.
+/// `Attach::HaveTop`. See the variant.
+unsafe fn have_then_top(boma: *mut BattleObjectModuleAccessor, id: i32, w: &Weapon) {
+    let abm = article_boma(boma, id);
+    link_state(abm, w, "before-have");
+    hold(boma, id, w);
+    link_state(abm, w, "after-have");
+    if !abm.is_null() {
+        LinkModule::set_model_constraint_target_joint(abm, Hash40::new("top"));
+    }
+    link_state(abm, w, "after-retarget-top");
+}
+
+/// One line of the article's link state: whether it has a model constraint, which constraint/link
+/// number, the article-side and owner-side joint hashes, and which link numbers point at a parent.
+/// hash40 for reference: have 0x4d27eea40, haver 0x51a07c0e7, top 0x31ed91fca, trans 0x570211ebd.
+unsafe fn link_state(abm: *mut BattleObjectModuleAccessor, w: &Weapon, when: &str) {
+    if !ARTICLE_PROBE || abm.is_null() || LINK_LOGGED >= 12 {
+        return;
+    }
+    LINK_LOGGED += 1;
+    let mut links = String::new();
+    for ln in 0..8 {
+        if LinkModule::is_link(abm, ln) {
+            links.push_str(&format!(" {ln}->{:#x}", LinkModule::get_parent_object_id(abm, ln)));
+        }
+    }
+    crate::telemetry::sink::log(format!(
+        "ARTICLE {} LINK {when}: model_constraint={} no={:#x} joint={:#x} target={:#x} links=[{}]",
+        w.article,
+        LinkModule::is_model_constraint(abm),
+        LinkModule::get_model_constraint_no(abm),
+        LinkModule::get_model_constraint_joint(abm),
+        LinkModule::get_model_constraint_target_joint(abm),
+        links.trim(),
+    ));
+}
+
 /// `Attach::Constrain`: the article's `top` onto the owner's `socket`, once per instance, then
 /// shown. The engine keeps it there from then on, the same way it keeps a `have`-d sword in hand.
 unsafe fn constrain(boma: *mut BattleObjectModuleAccessor, id: i32, w: &Weapon) {
@@ -940,12 +997,17 @@ unsafe fn probe(
             let mut ap = Vector3f { x: 0.0, y: 0.0, z: 0.0 };
             ModelModule::joint_global_position(abm, Hash40::new(w.probe_bone), &mut ap, true);
             let pos = *PostureModule::pos(abm);
+            let mut tr = Vector3f { x: 0.0, y: 0.0, z: 0.0 };
+            ModelModule::joint_global_position(boma, Hash40::new("trans"), &mut tr, true);
             format!(
-                "root-sock=({:.2},{:.2},{:.2}) {}-head=({:.2},{:.2},{:.2}) apos-head=({:.2},{:.2},{:.2}) \
-                 vis={} head=({:.1},{:.1}) gjp=({:.2},{:.2},{:.2})",
+                "root-sock=({:.2},{:.2},{:.2}) root-trans=({:.2},{:.2},{:.2}) {}-head=({:.2},{:.2},{:.2}) \
+                 apos-head=({:.2},{:.2},{:.2}) vis={} head=({:.1},{:.1}) gjp=({:.2},{:.2},{:.2})",
                 (ar.x - sock.x) * lr,
                 ar.y - sock.y,
                 ar.z - sock.z,
+                (ar.x - tr.x) * lr,
+                ar.y - tr.y,
+                ar.z - tr.z,
                 w.probe_bone,
                 (ap.x - hd.x) * lr,
                 ap.y - hd.y,

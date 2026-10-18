@@ -78,22 +78,6 @@ unsafe extern "C" fn pikachu_sound_attackairn(agent: &mut L2CAgentBase) {
     if macros::is_excute(agent) {
         macros::PLAY_SE(agent, Hash40::new("se_pikachu_attackair_n01"));
     }
-    frame(agent.lua_state_agent, 13.0);
-    if macros::is_excute(agent) {
-        macros::PLAY_SE(agent, Hash40::new("se_pikachu_attackair_n01"));
-    }
-    frame(agent.lua_state_agent, 18.0);
-    if macros::is_excute(agent) {
-        macros::PLAY_SE(agent, Hash40::new("se_pikachu_attackair_n01"));
-    }
-    frame(agent.lua_state_agent, 23.0);
-    if macros::is_excute(agent) {
-        macros::PLAY_SE(agent, Hash40::new("se_pikachu_attackair_n01"));
-    }
-    frame(agent.lua_state_agent, 29.0);
-    if macros::is_excute(agent) {
-        macros::PLAY_SE(agent, Hash40::new("se_pikachu_attackair_n01"));
-    }
 }
 
 // ---- f-air (Wolf) : game_attackairf ----

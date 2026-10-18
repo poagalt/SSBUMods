@@ -42,11 +42,16 @@ se_gamewatch_wave05_mi	se_pikachu_smash_s01
 se_gamewatch_wave06_mi	se_pikachu_smash_s01
 se_gamewatch_wave01_hi	se_pikachu_smash_s01
 # ---- aerials ----
+# Byleth's n-air plays FIVE DIFFERENT sounds at frames 7/13/18/23/29, and n01 is the long one --
+# 0.75 s, the whole spin (n02-n05 are 0.22-0.55 s layers on top). Pointing all five at n01's entry
+# restarted that 0.75 s sound every five frames, which is the stutter the 2026-10-18 playtest
+# heard ("sounds bad"). So n01 plays once and runs out, and the four layers are dropped until
+# option B gives them entries of their own.
 se_master_attackair_n01	se_pikachu_attackair_n01
-se_master_attackair_n02	se_pikachu_attackair_n01
-se_master_attackair_n03	se_pikachu_attackair_n01
-se_master_attackair_n04	se_pikachu_attackair_n01
-se_master_attackair_n05	se_pikachu_attackair_n01
+se_master_attackair_n02	-
+se_master_attackair_n03	-
+se_master_attackair_n04	-
+se_master_attackair_n05	-
 se_master_landing02	se_pikachu_landing02
 se_wolf_attackair_f01	se_pikachu_attackair_f01
 se_cloud_attackair_b01	se_pikachu_attackair_l01
