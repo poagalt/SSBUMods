@@ -100,6 +100,12 @@ static mut ROPE_X: [f32; MAX] = [0.0; MAX];
 /// Whether `ROPE_X` currently holds a real coordinate, so `src/params` answers `GENERATED_ROPE`
 /// honestly rather than claiming a rope exists before there is anywhere to put one.
 static mut ROPE_X_SET: [bool; MAX] = [false; MAX];
+/// THE POSTS' HEIGHT: status float `0x1000008`, unnamed in the constant table, which native
+/// `generate_rope` writes beside ROPE_X -- the captor's own `pos.y` (or the wall's, when a wall
+/// stops the rope) -- and which the rope's spawn callback (`FUN_00abede0`) builds the rope at. Left
+/// unanswered it fell through to Pikachu's status float, 0, so the ropes stood on the main floor
+/// whenever the whip was used in the air or on a platform (playtest 2026-10-18).
+static mut ROPE_Y: [f32; MAX] = [0.0; MAX];
 /// NOT ONE OF INCINEROAR'S IDS -- a port-only latch, and the only slot in this file that is.
 ///
 /// `whip_update_areas` needs to know whether the victim has reached the lariat area at least once.
@@ -132,6 +138,7 @@ pub fn reset(entry: usize) {
         LARIAT_AREA_LENGTH[entry] = 0.0;
         ROPE_X[entry] = 0.0;
         ROPE_X_SET[entry] = false;
+        ROPE_Y[entry] = 0.0;
         FLIGHT_FRAMES[entry] = 0;
         ROPE_HOLD_FROM[entry] = 0;
         ROPE_SPENT[entry] = 0.0;
@@ -203,6 +210,7 @@ slot!(
 );
 slot!(rope_x, set_rope_x, ROPE_X, f32, 0.0);
 slot!(rope_x_set, set_rope_x_set, ROPE_X_SET, bool, false);
+slot!(rope_y, set_rope_y, ROPE_Y, f32, 0.0);
 
 /// Frames elapsed in the current leg of the victim's flight -- THROWN, then ATTACH_ROPE.
 ///

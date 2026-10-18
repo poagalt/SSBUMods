@@ -304,6 +304,8 @@ const GENERATED_ROPE: i32 = 0x2000_00EA;
 /// VICTIM, reaching through `LinkModule::get_parent_id(LINK_NO_CAPTURE)` onto our accessor, and
 /// the only thing that knows the answer is this plugin.
 const SPECIAL_S_FLOAT_ROPE_X: i32 = 0x0100_0007;
+/// Unnamed in the constant table; native generate_rope writes the posts' height here.
+const SPECIAL_S_FLOAT_ROPE_Y: i32 = 0x0100_0008;
 
 /// `WorkModule::get_int(boma, FIGHTER_INSTANCE_WORK_ID_INT_ENTRY_ID)` without the import cycle.
 unsafe fn entry_of(boma: *mut BattleObjectModuleAccessor) -> usize {
@@ -395,12 +397,24 @@ unsafe fn get_float_hook(boma: *mut BattleObjectModuleAccessor, id: i32) -> f32 
             return x;
         }
     }
+    // The posts' height, the float generate_rope writes beside ROPE_X and the rope's spawn callback
+    // reads with it. See `state::rope_y`.
+    if id == SPECIAL_S_FLOAT_ROPE_Y && is_pikachu(boma) && in_whip_status(boma) {
+        let entry = entry_of(boma);
+        if crate::specials::whip::state::rope_x_set(entry) {
+            let y = crate::specials::whip::state::rope_y(entry);
+            announce_once(std::ptr::addr_of_mut!(SEEN_ROPE_Y), "rope_y", y);
+            return y;
+        }
+    }
     original!()(boma, id)
 }
 
 static mut SEEN_ROPE_FLAG: bool = false;
 
 static mut SEEN_ROPE_X: bool = false;
+
+static mut SEEN_ROPE_Y: bool = false;
 
 unsafe fn announce_once(seen: *mut bool, name: &str, value: f32) {
     if *seen {

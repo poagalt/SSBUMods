@@ -976,6 +976,9 @@ unsafe fn update_rope_x(fighter: &mut L2CFighterCommon) {
         entry,
         PostureModule::pos_x(boma) + ROPE_OFFSET_X * PostureModule::lr(boma),
     );
+    // And the posts' height, latched with it: native generate_rope's no-wall branch writes the
+    // captor's `pos.y` to float 0x1000008, which src/params answers from this.
+    state::set_rope_y(entry, PostureModule::pos_y(boma));
     state::set_rope_x_set(entry, true);
 }
 
