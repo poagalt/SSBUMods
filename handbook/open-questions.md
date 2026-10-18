@@ -157,14 +157,14 @@ units) because the sword's bone has a single transform.
 
 ## 5. Smaller open items
 
-- **`SPECIAL_LW_TURN`** — the port ships `game_speciallwturn` but registers no status, so
+- **RESOLVED: `SPECIAL_LW_TURN`** is registered now (`RAT_STATUS_KIND_SPECIAL_LW_TURN`, the retaliation from behind). Original note: the port ships `game_speciallwturn` but registers no status, so
   Incineroar's turn-during-Revenge is unported.
 - **Ptooie / neutral B** — the only un-ported slot. **The `clone_weapon` crash is root-caused as
   of 2026-09-14**, off the 100,508-function decompile; see below. The remaining question is whether
   to act on it, not what it is.
 - **`throw_invincible_frame` reads 0 on Pikachu** — the param is in none of the extracted files.
 - **The whip has no ledge-grab box.**
-- **No rope sprite.** Blocked by ADR 0002/0004; `extracted/fighter/gaogaen/motion/rope/c00/`
+- **RESOLVED 2026-10-18: the rope sprite.** Incineroar's rope article spawns, bends and closes (commits a69e9a4, 7fddfa1, 3fa6efd; the load crash and its camera-range root cause are in src/articles/mod.rs at the rope row). Original note: blocked by ADR 0002/0004; `extracted/fighter/gaogaen/motion/rope/c00/`
   exists locally, which is an unexplored angle. As of 2026-10-12, `generate_rope` has been read in
   full (the-article-path.md, "What `generate_rope` does after that read"). It ends in
   `generate_article(0, …)` behind a position gate, and article 0 on Pikachu is Thunder Jolt. So
@@ -174,7 +174,7 @@ units) because the sword's bone has a single transform.
   the checklist of what a ported spawn must leave behind.
 - **Call parity sits at 22 open entries**, every one reasoned. That is a reading list, not a defect
   list — see [parity.md](parity.md#why-call-parity-is-not-zero-and-why-that-is-correct).
-- **Every ported move still plays PIKACHU'S sound, and the fix needs the console before it needs
+- **RESOLVED 2026-10-17: ported moves play their donors' sounds** (tools/build-sound-bank.py, option A; Pikachu's own sounds where a move is his). Original note: every ported move still plays PIKACHU'S sound, and the fix needs the console before it needs
   code.** The generator drops `sound_` along with `expression_` (gen-moves.sh: "Take only the game_
   function, rename it, drop sound_/expression_"), so Pikachu's own `sound_attack11` still runs under
   Little Mac's jab. Porting the source's script is one line in the generator and would be a
