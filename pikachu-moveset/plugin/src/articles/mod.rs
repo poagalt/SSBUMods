@@ -245,6 +245,12 @@ pub const CANDIDATES: &[Candidate] = &[
     Candidate { host_name: "bow",         donor: "master",    donor_article: "bow",         weapon_kind: "WEAPON_KIND_MASTER_BOW",          clean: true,  enabled: true,  authored: false, model_from: "" },
     Candidate { host_name: "spikeball",   donor: "packun",    donor_article: "spikeball",   weapon_kind: "WEAPON_KIND_PACKUN_SPIKEBALL",    clean: false, enabled: false, authored: false, model_from: "" },
     Candidate { host_name: "rope",        donor: "gaogaen",   donor_article: "rope",        weapon_kind: "WEAPON_KIND_GAOGAEN_ROPE",        clean: false, enabled: true,  authored: false, model_from: "" },
+    // G&W's FIREMEN AND TRAMPOLINE, which his special_hi main generates beside the parachute
+    // (FIGHTER_GAMEWATCH_GENERATE_ARTICLE_RESCUE). Audits clean. LAST so no existing article id
+    // moves. Its own agent scripts (`gamewatch_rescue`: the `up`/`down` visibility swap at frames
+    // 1 and 8) run from lua2cpp_gamewatch, which smashline loads for the weapon's kind. Off until
+    // its model is pulled into work/arc-vis/fighter/gamewatch/model/rescue.
+    Candidate { host_name: "rescue",      donor: "gamewatch", donor_article: "rescue",      weapon_kind: "WEAPON_KIND_GAMEWATCH_RESCUE",    clean: true,  enabled: false, authored: false, model_from: "" },
 ];
 
 /// Whether the clones are actually installed. A declared constant rather than commented-out calls,

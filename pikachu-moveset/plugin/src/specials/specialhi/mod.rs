@@ -111,17 +111,21 @@ unsafe extern "C" fn pikachu_specialhi_main(fighter: &mut L2CFighterCommon) -> L
     // Arguments are the source's: generate(false, -1), visibility off on TARGET_ALL, motion with
     // (false, -1.0). Through crate::articles, so each call is a no-op if the row is ever off.
     //
-    // NOT TRANSCRIBED: the same three calls on FIGHTER_GAMEWATCH_GENERATE_ARTICLE_RESCUE, the
-    // firemen and trampoline. That weapon is not a CANDIDATES row, so Pikachu has no id for it,
-    // and passing G&W's id 1 would drive one of Pikachu's own articles.
+    // THE FIREMEN AND TRAMPOLINE come first, as in the source: FIGHTER_GAMEWATCH_GENERATE_ARTICLE_
+    // RESCUE is generated (and left visible -- its own game script swaps its `down`/`up` meshes),
+    // then the parachute, and both get the same motion below. Pikachu's id for it is the `rescue`
+    // row of articles::CANDIDATES.
     let boma = fighter.module_accessor;
+    crate::articles::generate_article(boma, "rescue", false, -1);
     crate::articles::generate_article(boma, "parachute", false, -1);
     crate::articles::set_visibility_whole(boma, "parachute", false, ArticleOperationTarget(*ARTICLE_OPE_TARGET_ALL));
 
     if fighter.global_table[0x16] != *SITUATION_KIND_GROUND {
+        crate::articles::change_motion(boma, "rescue", Hash40::new("special_air_hi"), false, -1.0);
         crate::articles::change_motion(boma, "parachute", Hash40::new("special_air_hi"), false, -1.0);
         MotionModule::change_motion(fighter.module_accessor, Hash40::new("special_air_hi"), 0.0, 1.0, false, 0.0, false, false);
     } else {
+        crate::articles::change_motion(boma, "rescue", Hash40::new("special_hi"), false, -1.0);
         crate::articles::change_motion(boma, "parachute", Hash40::new("special_hi"), false, -1.0);
         MotionModule::change_motion(fighter.module_accessor, Hash40::new("special_hi"), 0.0, 1.0, false, 0.0, false, false);
         fighter.set_situation(SITUATION_KIND_AIR.into());
@@ -229,7 +233,7 @@ unsafe extern "C" fn pikachu_specialhi_end(fighter: &mut L2CFighterCommon) -> L2
     // SOURCE (SpecialHi_end, 0x710000cd00): the parachute is removed unless the rise is handing
     // over to the drift, which keeps it and opens it. His FIGHTER_GAMEWATCH_STATUS_KIND_SPECIAL_HI_
     // FALL is this port's RAT_STATUS_KIND_SPECIAL_HI_OPEN. Before the early returns below, as in
-    // the source. (Its unconditional remove_exist of RESCUE is not transcribed; see _main.)
+    // the source. Its unconditional remove_exist of RESCUE follows the rotation reset below.
     if fighter.global_table[0xb] != RAT_STATUS_KIND_SPECIAL_HI_OPEN {
         crate::articles::remove(boma, "parachute", ArticleOperationTarget(*ARTICLE_OPE_TARGET_ALL));
     }
@@ -249,6 +253,9 @@ unsafe extern "C" fn pikachu_specialhi_end(fighter: &mut L2CFighterCommon) -> L2
     // putting the reset after them -- which is where it would naturally go -- would leave the
     // lean in place on every path that takes one. That is most of them.
     PostureModule::set_rot(boma, &Vector3f { x: 0.0, y: 0.0, z: 0.0 }, 0);
+
+    // SOURCE: remove_exist(FIGHTER_GAMEWATCH_GENERATE_ARTICLE_RESCUE, 0), unconditionally, here.
+    crate::articles::remove_exist(boma, "rescue", ArticleOperationTarget(*ARTICLE_OPE_TARGET_ALL));
 
     if fighter.global_table[0xb] != *FIGHTER_STATUS_KIND_LANDING {
         if fighter.global_table[0xb] != *FIGHTER_STATUS_KIND_LANDING_FALL_SPECIAL {
