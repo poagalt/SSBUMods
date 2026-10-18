@@ -298,8 +298,19 @@ emit_module() {
                   # because the module is @generated and a hand edit is wiped by the next build.
                   BEGIN { want = (index(" " trace " ", " " fname " ") > 0) }
                   !want { print; next }
-                  /^unsafe extern "C" fn / { print; print "    crate::telemetry::probe::acmd_enter(0);"; next }
+                  /^unsafe extern "C" fn / { print; print "    crate::telemetry::probe::acmd_enter(0);"; blk = 0; next }
                   /wait_loop_clear/ { print; print "    crate::telemetry::probe::acmd_pass(0);"; next }
+                  # ONE COUNTER PER is_excute BLOCK, which is the measurement three rounds of
+                  # fixes were missing. `acmd_enter` says the script ran; it does NOT say which of
+                  # its eleven hit blocks actually executed. A script that runs in full every cycle
+                  # and lands one hitbox is indistinguishable, from the outside, from a script that
+                  # only runs its first block -- and those need opposite fixes.
+                  /if macros::is_excute\(agent\) \{/ {
+                      print
+                      print "        crate::telemetry::probe::acmd_block(" blk ");"
+                      blk = blk + 1
+                      next
+                  }
                   { print }
               ' >> "$file"
         echo "" >> "$file"

@@ -132,10 +132,12 @@ unsafe extern "C" fn pikachu_effect_attack13(agent: &mut L2CAgentBase) {
 unsafe extern "C" fn pikachu_game_attack100(agent: &mut L2CAgentBase) {
     crate::telemetry::probe::acmd_enter(0);
     if macros::is_excute(agent) {
+        crate::telemetry::probe::acmd_block(0);
         macros::ATTACK(agent, 0, 0, Hash40::new("top"), 0.5, 361, 8, 0, 14, 8.09375, 0.0, 9.25, 12.140625, Some(0.0), Some(9.25), Some(12.140625), 0.5, 0.2, *ATTACK_SETOFF_KIND_OFF, *ATTACK_LR_CHECK_F, false, 0, 0.0, 0, false, false, false, false, true, *COLLISION_SITUATION_MASK_GA, *COLLISION_CATEGORY_MASK_ALL, *COLLISION_PART_MASK_ALL, false, Hash40::new("collision_attr_rush"), *ATTACK_SOUND_LEVEL_S, *COLLISION_SOUND_ATTR_PUNCH, *ATTACK_REGION_PUNCH);
     }
     wait(agent.lua_state_agent, 1.0);
     if macros::is_excute(agent) {
+        crate::telemetry::probe::acmd_block(1);
         AttackModule::clear_all(agent.module_accessor);
         WorkModule::on_flag(agent.module_accessor, *FIGHTER_STATUS_ATTACK_FLAG_100_CONTINUE_CHECK);
     }
@@ -143,82 +145,100 @@ unsafe extern "C" fn pikachu_game_attack100(agent: &mut L2CAgentBase) {
     crate::telemetry::probe::acmd_pass(0);
     frame(agent.lua_state_agent, 1.0);
     if macros::is_excute(agent) {
+        crate::telemetry::probe::acmd_block(2);
         macros::ATTACK(agent, 0, 0, Hash40::new("top"), 0.5, 361, 8, 0, 14, 8.09375, 0.0, 9.25, 12.140625, Some(0.0), Some(9.25), Some(12.140625), 0.5, 0.2, *ATTACK_SETOFF_KIND_OFF, *ATTACK_LR_CHECK_F, false, 0, 0.0, 0, false, false, false, false, true, *COLLISION_SITUATION_MASK_GA, *COLLISION_CATEGORY_MASK_ALL, *COLLISION_PART_MASK_ALL, false, Hash40::new("collision_attr_rush"), *ATTACK_SOUND_LEVEL_S, *COLLISION_SOUND_ATTR_PUNCH, *ATTACK_REGION_PUNCH);
     }
     wait(agent.lua_state_agent, 1.0);
     if macros::is_excute(agent) {
+        crate::telemetry::probe::acmd_block(3);
         AttackModule::clear_all(agent.module_accessor);
         WorkModule::on_flag(agent.module_accessor, *FIGHTER_STATUS_ATTACK_FLAG_100_CONTINUE_CHECK);
     }
     frame(agent.lua_state_agent, 3.0);
     if macros::is_excute(agent) {
+        crate::telemetry::probe::acmd_block(4);
         macros::ATTACK(agent, 0, 0, Hash40::new("top"), 0.5, 361, 8, 0, 14, 8.09375, 0.0, 9.25, 12.140625, Some(0.0), Some(9.25), Some(12.140625), 0.5, 0.2, *ATTACK_SETOFF_KIND_OFF, *ATTACK_LR_CHECK_F, false, 0, 0.0, 0, false, false, false, false, true, *COLLISION_SITUATION_MASK_GA, *COLLISION_CATEGORY_MASK_ALL, *COLLISION_PART_MASK_ALL, false, Hash40::new("collision_attr_rush"), *ATTACK_SOUND_LEVEL_S, *COLLISION_SOUND_ATTR_PUNCH, *ATTACK_REGION_PUNCH);
     }
     wait(agent.lua_state_agent, 1.0);
     if macros::is_excute(agent) {
+        crate::telemetry::probe::acmd_block(5);
         AttackModule::clear_all(agent.module_accessor);
         WorkModule::on_flag(agent.module_accessor, *FIGHTER_STATUS_ATTACK_FLAG_100_CONTINUE_CHECK);
     }
     frame(agent.lua_state_agent, 5.0);
     if macros::is_excute(agent) {
+        crate::telemetry::probe::acmd_block(6);
         macros::ATTACK(agent, 0, 0, Hash40::new("top"), 0.5, 361, 8, 0, 14, 8.09375, 0.0, 9.25, 12.140625, Some(0.0), Some(9.25), Some(12.140625), 0.5, 0.2, *ATTACK_SETOFF_KIND_OFF, *ATTACK_LR_CHECK_F, false, 0, 0.0, 0, false, false, false, false, true, *COLLISION_SITUATION_MASK_GA, *COLLISION_CATEGORY_MASK_ALL, *COLLISION_PART_MASK_ALL, false, Hash40::new("collision_attr_rush"), *ATTACK_SOUND_LEVEL_S, *COLLISION_SOUND_ATTR_PUNCH, *ATTACK_REGION_PUNCH);
     }
     wait(agent.lua_state_agent, 1.0);
     if macros::is_excute(agent) {
+        crate::telemetry::probe::acmd_block(7);
         AttackModule::clear_all(agent.module_accessor);
         WorkModule::on_flag(agent.module_accessor, *FIGHTER_STATUS_ATTACK_FLAG_100_CONTINUE_CHECK);
     }
     frame(agent.lua_state_agent, 7.0);
     if macros::is_excute(agent) {
+        crate::telemetry::probe::acmd_block(8);
         macros::ATTACK(agent, 0, 0, Hash40::new("top"), 0.5, 361, 8, 0, 14, 8.09375, 0.0, 9.25, 12.140625, Some(0.0), Some(9.25), Some(12.140625), 0.5, 0.2, *ATTACK_SETOFF_KIND_OFF, *ATTACK_LR_CHECK_F, false, 0, 0.0, 0, false, false, false, false, true, *COLLISION_SITUATION_MASK_GA, *COLLISION_CATEGORY_MASK_ALL, *COLLISION_PART_MASK_ALL, false, Hash40::new("collision_attr_rush"), *ATTACK_SOUND_LEVEL_S, *COLLISION_SOUND_ATTR_PUNCH, *ATTACK_REGION_PUNCH);
     }
     wait(agent.lua_state_agent, 1.0);
     if macros::is_excute(agent) {
+        crate::telemetry::probe::acmd_block(9);
         AttackModule::clear_all(agent.module_accessor);
         WorkModule::on_flag(agent.module_accessor, *FIGHTER_STATUS_ATTACK_FLAG_100_CONTINUE_CHECK);
     }
     frame(agent.lua_state_agent, 9.0);
     if macros::is_excute(agent) {
+        crate::telemetry::probe::acmd_block(10);
         macros::ATTACK(agent, 0, 0, Hash40::new("top"), 0.5, 361, 8, 0, 14, 8.09375, 0.0, 9.25, 12.140625, Some(0.0), Some(9.25), Some(12.140625), 0.5, 0.2, *ATTACK_SETOFF_KIND_OFF, *ATTACK_LR_CHECK_F, false, 0, 0.0, 0, false, false, false, false, true, *COLLISION_SITUATION_MASK_GA, *COLLISION_CATEGORY_MASK_ALL, *COLLISION_PART_MASK_ALL, false, Hash40::new("collision_attr_rush"), *ATTACK_SOUND_LEVEL_S, *COLLISION_SOUND_ATTR_PUNCH, *ATTACK_REGION_PUNCH);
     }
     wait(agent.lua_state_agent, 1.0);
     if macros::is_excute(agent) {
+        crate::telemetry::probe::acmd_block(11);
         AttackModule::clear_all(agent.module_accessor);
         WorkModule::on_flag(agent.module_accessor, *FIGHTER_STATUS_ATTACK_FLAG_100_CONTINUE_CHECK);
     }
     frame(agent.lua_state_agent, 11.0);
     if macros::is_excute(agent) {
+        crate::telemetry::probe::acmd_block(12);
         macros::ATTACK(agent, 0, 0, Hash40::new("top"), 0.5, 361, 8, 0, 14, 8.09375, 0.0, 9.25, 12.140625, Some(0.0), Some(9.25), Some(12.140625), 0.5, 0.2, *ATTACK_SETOFF_KIND_OFF, *ATTACK_LR_CHECK_F, false, 0, 0.0, 0, false, false, false, false, true, *COLLISION_SITUATION_MASK_GA, *COLLISION_CATEGORY_MASK_ALL, *COLLISION_PART_MASK_ALL, false, Hash40::new("collision_attr_rush"), *ATTACK_SOUND_LEVEL_S, *COLLISION_SOUND_ATTR_PUNCH, *ATTACK_REGION_PUNCH);
     }
     wait(agent.lua_state_agent, 1.0);
     if macros::is_excute(agent) {
+        crate::telemetry::probe::acmd_block(13);
         AttackModule::clear_all(agent.module_accessor);
         WorkModule::on_flag(agent.module_accessor, *FIGHTER_STATUS_ATTACK_FLAG_100_CONTINUE_CHECK);
     }
     frame(agent.lua_state_agent, 13.0);
     if macros::is_excute(agent) {
+        crate::telemetry::probe::acmd_block(14);
         macros::ATTACK(agent, 0, 0, Hash40::new("top"), 0.5, 361, 8, 0, 14, 8.09375, 0.0, 9.25, 12.140625, Some(0.0), Some(9.25), Some(12.140625), 0.5, 0.2, *ATTACK_SETOFF_KIND_OFF, *ATTACK_LR_CHECK_F, false, 0, 0.0, 0, false, false, false, false, true, *COLLISION_SITUATION_MASK_GA, *COLLISION_CATEGORY_MASK_ALL, *COLLISION_PART_MASK_ALL, false, Hash40::new("collision_attr_rush"), *ATTACK_SOUND_LEVEL_S, *COLLISION_SOUND_ATTR_PUNCH, *ATTACK_REGION_PUNCH);
     }
     wait(agent.lua_state_agent, 1.0);
     if macros::is_excute(agent) {
+        crate::telemetry::probe::acmd_block(15);
         AttackModule::clear_all(agent.module_accessor);
         WorkModule::on_flag(agent.module_accessor, *FIGHTER_STATUS_ATTACK_FLAG_100_CONTINUE_CHECK);
     }
     frame(agent.lua_state_agent, 15.0);
     if macros::is_excute(agent) {
+        crate::telemetry::probe::acmd_block(16);
         macros::ATTACK(agent, 0, 0, Hash40::new("top"), 0.5, 361, 8, 0, 14, 8.09375, 0.0, 9.25, 12.140625, Some(0.0), Some(9.25), Some(12.140625), 0.5, 0.2, *ATTACK_SETOFF_KIND_OFF, *ATTACK_LR_CHECK_F, false, 0, 0.0, 0, false, false, false, false, true, *COLLISION_SITUATION_MASK_GA, *COLLISION_CATEGORY_MASK_ALL, *COLLISION_PART_MASK_ALL, false, Hash40::new("collision_attr_rush"), *ATTACK_SOUND_LEVEL_S, *COLLISION_SOUND_ATTR_PUNCH, *ATTACK_REGION_PUNCH);
     }
     wait(agent.lua_state_agent, 1.0);
     if macros::is_excute(agent) {
+        crate::telemetry::probe::acmd_block(17);
         AttackModule::clear_all(agent.module_accessor);
         WorkModule::on_flag(agent.module_accessor, *FIGHTER_STATUS_ATTACK_FLAG_100_CONTINUE_CHECK);
     }
     frame(agent.lua_state_agent, 17.0);
     if macros::is_excute(agent) {
+        crate::telemetry::probe::acmd_block(18);
         macros::ATTACK(agent, 0, 0, Hash40::new("top"), 0.5, 361, 8, 0, 14, 8.09375, 0.0, 9.25, 12.140625, Some(0.0), Some(9.25), Some(12.140625), 0.5, 0.2, *ATTACK_SETOFF_KIND_OFF, *ATTACK_LR_CHECK_F, false, 0, 0.0, 0, false, false, false, false, true, *COLLISION_SITUATION_MASK_GA, *COLLISION_CATEGORY_MASK_ALL, *COLLISION_PART_MASK_ALL, false, Hash40::new("collision_attr_rush"), *ATTACK_SOUND_LEVEL_S, *COLLISION_SOUND_ATTR_PUNCH, *ATTACK_REGION_PUNCH);
     }
     wait(agent.lua_state_agent, 1.0);
     if macros::is_excute(agent) {
+        crate::telemetry::probe::acmd_block(19);
         AttackModule::clear_all(agent.module_accessor);
         WorkModule::on_flag(agent.module_accessor, *FIGHTER_STATUS_ATTACK_FLAG_100_CONTINUE_CHECK);
     }

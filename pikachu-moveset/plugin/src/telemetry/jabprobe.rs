@@ -112,7 +112,7 @@ unsafe extern "C" fn jab_frame(fighter: &mut L2CFighterCommon) {
     sink::diag(format!(
         "[rat] JABPROBE {who} st={status} motion={:#x} frame={:.1}/{:.1} looped={} \
          LOOPED={} CONTINUE={} CONTINUE_CHECK={} PRECEDE={} CHECK_COMBO_NUM={} \
-         100_COUNT={} CONTINUE_COUNT={} btn_off={} atk0={} atk1={} acmd_enter={} acmd_pass={} sleep={}",
+         100_COUNT={} CONTINUE_COUNT={} btn_off={} atk0={} atk1={} acmd_enter={} acmd_pass={} sleep={} blocks=[{}]",
         MotionModule::motion_kind(boma),
         MotionModule::frame(boma),
         MotionModule::end_frame(boma),
@@ -158,6 +158,12 @@ unsafe extern "C" fn jab_frame(fighter: &mut L2CFighterCommon) {
         // Whether the VM considers the script finished. If `src/rapidjab`'s wake is the half that
         // matters this reads 1 on the wrap frames and the enter count climbs with it.
         u8::from(MotionAnimcmdModule::is_sleep(boma)),
+        // THE ELEVEN HIT BLOCKS OF `game_attack100`, in order. Block 0 is the frame-0 ATTACK and
+        // block 1 its clear; 2..21 are the ten ATTACK/clear pairs at frames 1, 3, 5 ... 19.
+        // [N,N,0,0,...] means the script's frame base is wrong after the park and every later
+        // `frame(N)` is in the past, so `is_excute` refuses. [N,N,N,...] all equal means the
+        // ATTACKs are happening and the hitboxes are the problem.
+        super::probe::acmd_blocks(12),
     ));
 }
 

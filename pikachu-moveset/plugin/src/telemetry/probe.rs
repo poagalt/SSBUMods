@@ -387,3 +387,32 @@ pub unsafe fn acmd_take(slot: usize) -> (u32, u32) {
     ACMD_PASS[slot] = 0;
     out
 }
+
+/// WHICH `is_excute` BLOCK OF A TRACED SCRIPT ACTUALLY RAN.
+///
+/// THE MEASUREMENT THREE ROUNDS OF FIXES WERE MISSING, and the reason they were aimed wrongly.
+/// `acmd_enter`/`acmd_pass` say the script was entered and got past `wait_loop_clear`; they say
+/// nothing about which of its eleven hit blocks executed. The frame trace shows an attack hitbox
+/// live on motion frame 0 of every cycle and on none of frames 1-19, with BOTH counters climbing
+/// once per cycle -- so the script runs in full, every loop, and ten of its eleven hits produce
+/// nothing. That is a different fault from "the script only runs once", which is what was being
+/// fixed, and the two need opposite changes.
+///
+/// `game_attack100`'s blocks are, in order: the frame-0 ATTACK, its clear, then ten more
+/// ATTACK/clear pairs at frames 1, 3, 5 ... 19. If only block 0 and 1 fire, the script's frame
+/// base is wrong after the park and every later `frame(N)` is in the past, so `is_excute` is
+/// false. If all of them fire, the ATTACK calls are happening and the hitboxes are being cleared
+/// or never created, which is somewhere else entirely.
+static mut ACMD_BLOCK: [u32; 24] = [0; 24];
+
+pub unsafe fn acmd_block(i: usize) {
+    if i < 24 {
+        ACMD_BLOCK[i] = ACMD_BLOCK[i].saturating_add(1);
+    }
+}
+
+/// The first `n` block counters, compactly, for printing beside a line already being written.
+pub unsafe fn acmd_blocks(n: usize) -> String {
+    let n = n.min(24);
+    ACMD_BLOCK[..n].iter().map(|c| c.to_string()).collect::<Vec<_>>().join(",")
+}

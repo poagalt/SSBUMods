@@ -146,3 +146,36 @@ of the window. One playtest then contains the answer instead of a bit of it.
 
 The corollary, from the same experience: **when a bug survives two fixes, stop proposing a third
 and ship a probe that prints the real state at the real moment.**
+
+## Four rounds aimed at the wrong fault, and why (2026-10-18)
+
+The rapid jab took three fixes that each changed the symptom without fixing it, and the playtest
+that followed the third reported "unchanged". The faults in the WORK, not in the code:
+
+**1. Aggregates were read instead of the trace.** Twice a summary produced a confident model that
+the frame-by-frame trace refutes on sight, and the trace was already in the same log both times.
+"`acmd_enter` is stuck at 1" became "the VM never re-enters the script"; the per-frame sequence
+shows `enter` and `pass` BOTH climbing once per cycle, so the script runs in full every loop and
+ten of its eleven hits simply produce no hitbox. Those two need opposite fixes, and three rounds
+went to the wrong one.
+
+**2. A fix and its measurement shipped in the same build.** When the behaviour then changed there
+was no way to attribute it, and when it did not there was no way to tell a wrong fix from one that
+never ran. One question per build.
+
+**3. What the session CONTAINED was never recorded.** The round that reported the back throw
+"unchanged" has zero carry frames with a back stick anywhere in it -- the test may simply not have
+happened. Reading that as evidence about a fix is worse than having no data.
+
+**4. There is no ground truth for "correct".** Every target has been inferred from reading Little
+Mac's script and the engine's disassembly, never measured from a working rapid jab. Gate 4j blocks
+the obvious comparison for a good reason (a foreign `Agent::new` enters an unbounded wait at fight
+load), so the substitute is to measure OUR side exactly enough that the right answer is forced:
+which `is_excute` block fires, not how many hits landed.
+
+**How to apply.** Before changing behaviour again: print the exact per-frame sequence and read it.
+Ship measurement-only builds while a question is open. Make the probe record what was actually
+input, so "the fix did not work" and "the thing was not tried" are distinguishable. And verify the
+binary on the card is the one that was built -- `cmp` the downloaded .nro against
+`target/aarch64-skyline-switch/release/librat_of_doom.nro`, because the buildstamp lags a commit
+and is not that check.
