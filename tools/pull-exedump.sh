@@ -26,11 +26,10 @@ mkdir -p "$OUT"
 . "$ROOT/tools/console.sh"
 HOST=$CONSOLE_HOST
 PORT=5000
-B="ftp://$HOST:$PORT"
-FTP_USER=poaga
-FTP_PASS="$(cat "$ROOT/.ftp-credentials.local" 2>/dev/null | tr -d '\r\n')"
+B="$FTP_BASE"  # login and root from tools/console.sh
+
 A=()
-[ -n "$FTP_PASS" ] && A=(-u "$FTP_USER:$FTP_PASS")
+A=(-u "$FTP_USER:$FTP_PASS")
 
 get() {
     local name min dest

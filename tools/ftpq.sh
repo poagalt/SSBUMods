@@ -14,11 +14,9 @@ set -uo pipefail
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 . "$ROOT/tools/console.sh"
 HOST=$CONSOLE_HOST
-PORT=${FTP_PORT:-5000}
-USER=${FTP_USER:-poaga}
-PASS="$(tr -d '\r\n' < "$ROOT/.ftp-credentials.local" 2>/dev/null)"
-B="ftp://$HOST:$PORT"
-A=(-u "$USER:$PASS")
+# Login and root from tools/console.sh (sys-ftpd and sphaira differ; see there).
+B="$FTP_BASE"
+A=(-u "$FTP_USER:$FTP_PASS")
 op=${1:?op}; path=${2:-/}
 
 # RETRIED, BECAUSE A FLAKY ANSWER IS WORSE THAN NO ANSWER.
@@ -83,6 +81,6 @@ case "$op" in
           fi
           rm -f "$t"; sleep 2
         done ;;
-  del)  d=$(dirname "$path"); curl -s "${A[@]}" --max-time 60 -Q "-DELE $path" "$B${d%/}/" ;;
+  del)  d=$(dirname "$path"); curl -s "${A[@]}" --max-time 60 -Q "-DELE $FTP_ROOT$path" "$B${d%/}/" ;;
   *) echo "unknown op $op" >&2; exit 2 ;;
 esac

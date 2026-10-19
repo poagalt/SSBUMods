@@ -24,9 +24,8 @@ ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 # `.console-host.local` (FTP_HOST overrides it per command). No built-in default; see that file.
 . "$ROOT/tools/console.sh"
 HOST=$CONSOLE_HOST
-PORT=${FTP_PORT:-5000}
-B="ftp://$HOST:$PORT"
-echo "  deploying to $HOST (tools/console.sh)"
+B="$FTP_BASE"
+echo "  deploying to $HOST as ${FTP_USER}${FTP_ROOT:+, card at $FTP_ROOT} (tools/console.sh)"
 
 # CREDENTIALS, AND WHY THIS MATTERS MORE THAN IT LOOKS.
 #
@@ -44,12 +43,10 @@ echo "  deploying to $HOST (tools/console.sh)"
 #
 # With the login supplied, sys-ftpd answers regardless of what the console is doing, which is what
 # makes deploying and reading crash reports possible without asking for anything.
-FTP_USER=poaga
-FTP_PASS="$(cat "$ROOT/.ftp-credentials.local" 2>/dev/null | tr -d '\r\n')"
-CURL_AUTH=()
-if [ -n "$FTP_PASS" ]; then
-    CURL_AUTH=(-u "$FTP_USER:$FTP_PASS")
-fi
+#
+# SINCE 2026-10-18 THE SERVER IS SPHAIRA'S, anonymous, with the card under /sdmc:. tools/console.sh
+# works out which server it is talking to and exports the login and root; nothing here assumes.
+CURL_AUTH=(-u "$FTP_USER:$FTP_PASS")
 NRO="$ROOT/pikachu-moveset/plugin/target/aarch64-skyline-switch/release/librat_of_doom.nro"
 # THE SHIPPED TREE, NOT THE AUTHORING ONE. `mod/` is written in the host's c00 coordinate
 # system because that is what the generators and gates read; `ship/` is the same files moved
@@ -384,7 +381,7 @@ while read -r f; do
         echo "  SKIP  $f is still shipped -- remove it from RETIRED"; continue
     fi
     printf "  %-56s " "$f"
-    out=$(curl -s "${CURL_AUTH[@]}" --max-time 60 -Q "-DELE $REMOTE_ROOT/$f" "$DEST/" 2>&1)
+    out=$(curl -s "${CURL_AUTH[@]}" --max-time 60 -Q "-DELE $FTP_ROOT$REMOTE_ROOT/$f" "$DEST/" 2>&1)
     case "$out" in
         *550*) echo "already gone" ;;
         *)     echo "deleted" ;;

@@ -22,16 +22,14 @@ ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 . "$ROOT/tools/console.sh"
 HOST=$CONSOLE_HOST
 PORT=5000
-B="ftp://$HOST:$PORT"
+B="$FTP_BASE"  # login and root from tools/console.sh
 
 # CREDENTIALS, THE SAME ONES tools/deploy.sh USES. Anonymous access worked for a while and then
 # stopped with `430 Access denied`, which reads like a data-connection fault and is not one -- it
 # is authentication. deploy.sh has always read this file; these tools never did, so they broke the
 # first time the server wanted a login and the error pointed nowhere near the cause.
 FTP_USER="${FTP_USER:-poaga}"
-FTP_PASS="$(cat "$ROOT/.ftp-credentials.local" 2>/dev/null | tr -d '\r\n')"
-CURL_AUTH=()
-[ -n "$FTP_PASS" ] && CURL_AUTH=(-u "$FTP_USER:$FTP_PASS")
+CURL_AUTH=(-u "$FTP_USER:$FTP_PASS")
 
 OUT="$ROOT/work/crash"
 mkdir -p "$OUT"

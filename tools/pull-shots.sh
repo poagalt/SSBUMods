@@ -27,7 +27,7 @@ ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 . "$ROOT/tools/console.sh"
 HOST="$CONSOLE_HOST"
 PORT="${SWITCH_FTP_PORT:-5000}"
-B="ftp://$HOST:$PORT"
+B="$FTP_BASE"  # login and root from tools/console.sh
 N="${1:-5}"
 MODE="${2:-}"
 OUT="$ROOT/work/shots"
@@ -37,9 +37,7 @@ OUT="$ROOT/work/shots"
 # is authentication. deploy.sh has always read this file; these tools never did, so they broke the
 # first time the server wanted a login and the error pointed nowhere near the cause.
 FTP_USER="${FTP_USER:-poaga}"
-FTP_PASS="$(cat "$ROOT/.ftp-credentials.local" 2>/dev/null | tr -d '\r\n')"
-CURL_AUTH=()
-[ -n "$FTP_PASS" ] && CURL_AUTH=(-u "$FTP_USER:$FTP_PASS")
+CURL_AUTH=(-u "$FTP_USER:$FTP_PASS")
 
 mkdir -p "$OUT"
 

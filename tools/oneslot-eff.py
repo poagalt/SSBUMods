@@ -56,8 +56,23 @@ def console_host():
 
 HOST = console_host()
 PORT = os.environ.get("FTP_PORT", "5000")
-USER = os.environ.get("FTP_USER", "poaga")
 BASE = "/ultimate/mods"
+
+
+def profile():
+    """Login and card root, the way tools/console.sh works them out and caches them in
+    work/.ftp-profile: sys-ftpd logs in as poaga with the card at `/`; sphaira (from 2026-10-18)
+    is anonymous with the card at `/sdmc:`. Environment first, then that cache, then sys-ftpd's.
+    Run any shell tool once (tools/ftpq.sh list /) to write the cache for a new server."""
+    user = os.environ.get("FTP_USER")
+    root = os.environ.get("FTP_ROOT")
+    cache = os.path.join(ROOT, "work", ".ftp-profile")
+    if (user is None or root is None) and os.path.isfile(cache):
+        lines = open(cache, encoding="utf-8").read().split("\n")
+        if len(lines) >= 3 and lines[0] == "%s:%s" % (HOST, PORT):
+            user = user if user is not None else lines[1]
+            root = root if root is not None else lines[2]
+    return user or "poaga", root or ""
 
 
 def password():
@@ -65,12 +80,13 @@ def password():
         return fh.read().strip()
 
 
-PASS = password()
+USER, FTP_ROOT = profile()
+PASS = "" if USER == "anonymous" else password()
 DRY = False
 
 
 def url(path):
-    return "ftp://%s:%s%s" % (HOST, PORT, urllib.parse.quote(path))
+    return "ftp://%s:%s%s%s" % (HOST, PORT, FTP_ROOT, urllib.parse.quote(path))
 
 
 def curl(args, binary=False):
@@ -97,7 +113,7 @@ def rename(src, dst):
         return True
     r = subprocess.run(
         ["curl", "-s", "-u", "%s:%s" % (USER, PASS), "--max-time", "60",
-         url(BASE + "/"), "-Q", "RNFR " + src, "-Q", "RNTO " + dst, "-o", os.devnull],
+         url(BASE + "/"), "-Q", "RNFR " + FTP_ROOT + src, "-Q", "RNTO " + FTP_ROOT + dst, "-o", os.devnull],
         capture_output=True)
     return r.returncode == 0
 
@@ -115,7 +131,7 @@ def mkdir(path):
         return
     subprocess.run(
         ["curl", "-s", "-u", "%s:%s" % (USER, PASS), "--max-time", "30",
-         url(BASE + "/"), "-Q", "MKD " + path, "-o", os.devnull], capture_output=True)
+         url(BASE + "/"), "-Q", "MKD " + FTP_ROOT + path, "-o", os.devnull], capture_output=True)
 
 
 def upload(local, remote):

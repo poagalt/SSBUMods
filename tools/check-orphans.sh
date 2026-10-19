@@ -13,9 +13,8 @@ set -uo pipefail
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"; cd "$ROOT"
 . "$ROOT/tools/console.sh"
 HOST=$CONSOLE_HOST
-PORT=${FTP_PORT:-5000}
-PASS="$(tr -d '\r\n' < "$ROOT/.ftp-credentials.local" 2>/dev/null)"
-B="ftp://$HOST:$PORT"
+# Login and root from tools/console.sh (sys-ftpd and sphaira differ; see there).
+B="$FTP_BASE"
 REMOTE="/ultimate/mods/Rat of Doom"
 # THE SHIPPED TREE, NOT THE AUTHORING ONE. `mod/` is written in the host's c00 coordinate
 # system because that is what the generators and gates read; `ship/` is the same files moved
@@ -25,7 +24,7 @@ MOD="$ROOT/pikachu-moveset/ship"
 enc() { printf '%s' "$1" | sed 's/ /%20/g'; }
 listing() {
     local rel="$1"
-    curl -s -u "poaga:$PASS" --max-time 40 "$B$(enc "$REMOTE")$([ -n "$rel" ] && enc "/$rel")/" 2>/dev/null | tr -d '\r'
+    curl -s -u "$FTP_USER:$FTP_PASS" --max-time 40 "$B$(enc "$REMOTE")$([ -n "$rel" ] && enc "/$rel")/" 2>/dev/null | tr -d '\r'
 }
 walk() {
     local rel="$1" depth="$2"

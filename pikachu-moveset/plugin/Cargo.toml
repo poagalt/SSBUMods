@@ -20,10 +20,10 @@ smash_script = { git = "https://github.com/WuBoytH/smash-script", branch = "deve
 # into this plugin is game-version-specific, not just an ABI shim. An unpinned git dependency
 # silently takes master, which is how a 13.0.5 crate (fdc151fce) ended up talking to a 13.0.4
 # runtime (v1.6.6) on the second console.
-#   df194a03 = v1.6.6  -> Smash 13.0.4   (the second console)
-#   fdc151fc = v1.6.7+ -> Smash 13.0.5   (the development card)
+#   df194a03 = v1.6.6  -> Smash 13.0.4
+#   fdc151fc = v1.6.7+ -> Smash 13.0.5   (both consoles, since the second updated on 2026-10-18)
 # Change this line AND the runtime .nro together; they are one decision.
-smashline = { git = "https://github.com/HDR-Development/smashline", rev = "df194a03b918116adb7bda1c2b4565dcd82a4756" }
+smashline = { git = "https://github.com/HDR-Development/smashline", rev = "fdc151fcef981b09d4ab4b4ba62ca1a8850022a2" }
 smash_singletons = { git = "https://github.com/WuBoytH/smash_singletons.git" }
 # PINNED BY REV for the same reason smashline is: an unpinned git dependency silently takes
 # master, and this one reaches into the game's UI databases. e144a25 is 2026-04-27.
