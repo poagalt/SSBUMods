@@ -10,6 +10,11 @@
     python tools/code-index.py strings main "rope"         # strings, and which functions use them
     python tools/code-index.py sym main Specializer_Gaogaen
     python tools/code-index.py sql "select count(*) from refs where module='main'"
+    python tools/code-index.py asm packun 0x71000336a0     # one function's instructions (asm.txt.gz)
+
+    python tools/code-index.py merge                       # after `code-index.sh pointers`: fold each
+                                                           #   export.next/<m>/decomp-added.c into decomp.c
+    python tools/code-index.py swap                        # export/<m> -> export.old/<m>, export.next/<m> -> export/<m>
 
 WHY. `work/ghidra/main-all-100k.c` is text decompiled from `.text` alone: no strings, no data, so
 nothing reached through a pointer has a caller in it. This index is built from a FULL Ghidra
@@ -22,20 +27,26 @@ Modules are named as their ELF: `main`, `lua2cpp_pikachu`, ...; `pikachu` is acc
 """
 
 import argparse
+import bisect
 import os
+import shutil
 import sqlite3
 import sys
+import zlib
 
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 BASE = os.path.join(ROOT, "work", "code-index")
 EXPORT = os.path.join(BASE, "export")
+NEXT = os.path.join(BASE, "export.next")   # what `code-index.sh pointers` writes; `swap` promotes it
+OLD = os.path.join(BASE, "export.old")     # what `swap` moves aside
 DB = os.path.join(BASE, "ssbu-code.sqlite")
 
 SCHEMA = """
 create table modules (module text primary key, functions int, symbols int, refs int, strings int,
-                      decomp_path text, summary text);
+                      decomp_path text, summary text, asm_path text);
 create table functions (module text, entry int, end int, bytes int, name text, qname text,
-                        thunk_target int, signature text, decomp_off int, decomp_len int);
+                        thunk_target int, signature text, decomp_off int, decomp_len int,
+                        asm_member int);
 create table symbols (module text, addr int, name text, qname text, type text, source text,
                       is_primary int);
 create table refs (module text, src int, dst int, type text, src_fn int);
@@ -94,6 +105,109 @@ def decomp_offsets(path):
     return offs
 
 
+def asm_members(d):
+    """([first entry of each gzip member], [its byte offset]) from asm.idx, in address order."""
+    firsts, offs = [], []
+    for r in rows(os.path.join(d, "asm.idx")):
+        firsts.append(h(r[0])); offs.append(int(r[1]))
+    return firsts, offs
+
+
+def asm_section(path, member_off, entry):
+    """One function's lines out of asm.txt.gz: seek to its gzip member, inflate just that member."""
+    with open(path, "rb") as f:
+        f.seek(member_off)
+        z, out = zlib.decompressobj(16 + zlib.MAX_WBITS), []
+        while not z.eof:
+            chunk = f.read(1 << 16)
+            if not chunk:
+                break
+            out.append(z.decompress(chunk))
+    text = b"".join(out).decode("utf-8", "replace")
+    head = f"/* ==== 0x{entry:x}  "
+    i = text.find(head)
+    if i < 0:
+        return None
+    j = text.find("\n/* ==== 0x", i + len(head))
+    return text[i:] if j < 0 else text[i:j + 1]
+
+
+def sections(path):
+    """(entry, bytes) for every `/* ==== 0x… ` section of a decomp file, in file order."""
+    cur, buf = None, []
+    with open(path, "rb") as f:
+        for line in f:
+            if line.startswith(b"/* ==== 0x"):
+                if cur is not None:
+                    yield cur, b"".join(buf)
+                cur, buf = int(line[8:].split(None, 1)[0], 16), [line]
+            else:
+                buf.append(line)
+    if cur is not None:
+        yield cur, b"".join(buf)
+
+
+def cmd_merge(a):
+    """export.next/<m>/decomp.c = export/<m>/decomp.c with export.next/<m>/decomp-added.c folded in.
+
+    Old sections are copied byte for byte; an added section goes in at its address, and one whose
+    entry the old file already has (a function whose body changed) replaces it. Then the merged
+    entries are checked against export.next/<m>/functions.tsv: every function must have one."""
+    if not os.path.isdir(NEXT):
+        sys.exit(f"no {NEXT}; run `bash tools/code-index.sh pointers ...` first")
+    mods = [m for m in sorted(os.listdir(NEXT)) if a.module in (None, m, "lua2cpp_" + str(a.module))]
+    bad = 0
+    for m in mods:
+        nd, od = os.path.join(NEXT, m), os.path.join(EXPORT, m)
+        added_path = os.path.join(nd, "decomp-added.c")
+        if not os.path.exists(added_path):
+            print(f"{m}: no decomp-added.c, nothing to merge")
+            continue
+        added = dict(sections(added_path))
+        pending = sorted(added)
+        k = n_old = n_new = n_repl = 0
+        tmp = os.path.join(nd, "decomp.c.tmp")
+        with open(tmp, "wb") as w:
+            for e, body in sections(os.path.join(od, "decomp.c")):
+                while k < len(pending) and pending[k] < e:
+                    w.write(added[pending[k]]); k += 1; n_new += 1
+                if k < len(pending) and pending[k] == e:
+                    w.write(added[e]); k += 1; n_repl += 1
+                else:
+                    w.write(body); n_old += 1
+            while k < len(pending):
+                w.write(added[pending[k]]); k += 1; n_new += 1
+        want = {h(r[0]) for r in rows(os.path.join(nd, "functions.tsv"))}
+        have = set(decomp_offsets(tmp))
+        missing, extra = want - have, have - want
+        os.replace(tmp, os.path.join(nd, "decomp.c"))
+        ok = not missing
+        bad += not ok
+        print(f"{m}: {n_old:,} old sections kept, {n_new:,} added, {n_repl:,} replaced -> {len(have):,}; "
+              f"functions.tsv {len(want):,}" + ("" if ok else f"; MISSING {len(missing)}") +
+              (f"; {len(extra)} old sections with no function now" if extra else ""), flush=True)
+    if bad:
+        sys.exit(f"{bad} module(s) incomplete")
+
+
+def cmd_swap(a):
+    """Promote export.next/<m> to export/<m>, moving the old one to export.old/<m>."""
+    if not os.path.isdir(NEXT):
+        sys.exit(f"no {NEXT}")
+    os.makedirs(OLD, exist_ok=True)
+    for m in sorted(os.listdir(NEXT)):
+        nd, od, bd = os.path.join(NEXT, m), os.path.join(EXPORT, m), os.path.join(OLD, m)
+        if not os.path.isfile(os.path.join(nd, "decomp.c")):
+            print(f"{m}: no merged decomp.c in export.next, left alone (run merge)")
+            continue
+        if os.path.exists(bd):
+            sys.exit(f"{bd} already exists; move it away first")
+        if os.path.exists(od):
+            shutil.move(od, bd)
+        shutil.move(nd, od)
+        print(f"{m}: swapped (previous export in {os.path.relpath(bd, ROOT)})")
+
+
 def cmd_build(a):
     os.makedirs(BASE, exist_ok=True)
     tmp = DB + ".tmp"
@@ -108,9 +222,18 @@ def cmd_build(a):
         d = os.path.join(EXPORT, m)
         dc = os.path.join(d, "decomp.c")
         offs = decomp_offsets(dc) if os.path.exists(dc) else {}
-        con.executemany("insert into functions values (?,?,?,?,?,?,?,?,?,?)",
+        ag = os.path.join(d, "asm.txt.gz")
+        members = asm_members(d) if os.path.exists(ag) else None
+
+        def member(e):
+            if not members:
+                return None
+            i = bisect.bisect_right(members[0], e) - 1
+            return members[1][i] if i >= 0 else None
+        con.executemany("insert into functions values (?,?,?,?,?,?,?,?,?,?,?)",
                         ((m, h(r[0]), h(r[1]), int(r[2]), unesc(r[3]), unesc(r[4]), h(r[5]), unesc(r[6]),
-                          *offs.get(h(r[0]), (None, None))) for r in rows(os.path.join(d, "functions.tsv"))))
+                          *offs.get(h(r[0]), (None, None)), member(h(r[0])))
+                         for r in rows(os.path.join(d, "functions.tsv"))))
         con.executemany("insert into symbols values (?,?,?,?,?,?,?)",
                         ((m, h(r[0]), unesc(r[1]), unesc(r[2]), r[3], r[4], int(r[5]))
                          for r in rows(os.path.join(d, "symbols.tsv"))))
@@ -138,8 +261,9 @@ def cmd_build(a):
                   for t in ("functions", "symbols", "refs", "strings")]
         summ = open(os.path.join(d, "summary.txt"), encoding="utf-8").read() if os.path.exists(
             os.path.join(d, "summary.txt")) else ""
-        con.execute("insert into modules values (?,?,?,?,?,?,?)",
-                    (m, *counts, os.path.relpath(dc, ROOT) if offs else None, summ))
+        con.execute("insert into modules values (?,?,?,?,?,?,?,?)",
+                    (m, *counts, os.path.relpath(dc, ROOT) if offs else None, summ,
+                     os.path.relpath(ag, ROOT) if members else None))
         con.commit()
         print(f"{m}: {counts[0]:,} functions, {counts[1]:,} symbols, {counts[2]:,} refs, "
               f"{counts[3]:,} strings, {len(offs):,} decompiled", flush=True)
@@ -214,6 +338,19 @@ def cmd_fn(a):
             f.seek(r[5]); print(f.read(r[6]).decode("utf-8", "replace"))
 
 
+def cmd_asm(a):
+    ix = Index(); m = ix.module(a.module); e = ix.resolve(m, a.what)
+    r = ix.con.execute("select entry, asm_member from functions where module=? and entry<=? and end>=? "
+                       "order by entry desc limit 1", (m, e, e)).fetchone()
+    if not r:
+        sys.exit(f"0x{e:x} is not inside a function in {m}")
+    path = ix.con.execute("select asm_path from modules where module=?", (m,)).fetchone()[0]
+    if path is None or r[1] is None:
+        sys.exit(f"{m} has no asm.txt.gz in the index; re-export it (tools/code-index.sh pointers)")
+    s = asm_section(os.path.join(ROOT, path), r[1], r[0])
+    print(s if s is not None else f"0x{r[0]:x} not found in its asm member")
+
+
 def cmd_callers(a):
     ix = Index(); m = ix.module(a.module); e = ix.resolve(m, a.what)
     for src, t, fn in ix.con.execute("select src, type, src_fn from refs where module=? and dst=? and "
@@ -268,7 +405,10 @@ def main():
     ap = argparse.ArgumentParser(description=__doc__.split("\n\n")[0])
     sub = ap.add_subparsers(dest="cmd", required=True)
     sub.add_parser("build").set_defaults(f=cmd_build)
-    for name, f in (("fn", cmd_fn), ("callers", cmd_callers), ("refs-to", cmd_refs_to), ("refs-from", cmd_refs_from)):
+    p = sub.add_parser("merge"); p.add_argument("module", nargs="?"); p.set_defaults(f=cmd_merge)
+    sub.add_parser("swap").set_defaults(f=cmd_swap)
+    for name, f in (("fn", cmd_fn), ("asm", cmd_asm), ("callers", cmd_callers), ("refs-to", cmd_refs_to),
+                    ("refs-from", cmd_refs_from)):
         p = sub.add_parser(name); p.add_argument("module"); p.add_argument("what"); p.set_defaults(f=f)
         if name == "fn":
             p.add_argument("--no-c", action="store_true", help="the function row only")

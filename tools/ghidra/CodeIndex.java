@@ -14,6 +14,12 @@
 //
 //   CI_OUT    output directory; one subdirectory per program
 //   CI_DECOMP "0" to skip decompilation (the inventories alone take a minute or two)
+//   CI_KNOWN  a PREVIOUS export root (e.g. .../export). When set, the decompile is incremental:
+//             only functions absent from <CI_KNOWN>/<program>/functions.tsv, or whose end/bytes
+//             differ there, are decompiled, into decomp-added.c; `tools/code-index.py merge`
+//             then folds them into the old decomp.c in address order. Everything else is still
+//             written in full (it is minutes, not the hour the decompile of `main` is).
+//   CI_ASM    "0" to skip asm.txt.gz
 //
 // Writes, per program:
 //   functions.tsv  entry  end  bytes  name  qualified_name  thunk_target  signature
@@ -21,6 +27,9 @@
 //   refs.tsv       from  to  type  from_function_entry      (memory addresses only; no stack/register)
 //   strings.tsv    address  length  value                    (tab, newline and backslash escaped)
 //   decomp.c       every function, `/* ==== addr  name ==== */`-delimited like the older corpus
+//                  (decomp-added.c instead, holding only the new/changed ones, under CI_KNOWN)
+//   asm.txt.gz     every function's instructions, delimited the same way: `addr: word  insn ; -> target`
+//   asm.idx        first_entry  member_offset    (asm.txt.gz is one gzip member per 64 functions)
 //   summary.txt    counts and timings
 import ghidra.app.script.GhidraScript;
 import ghidra.app.decompiler.*;
@@ -161,7 +170,118 @@ public class CodeIndex extends GhidraScript {
         }
         note("strings " + nstr);
         note(String.format("inventories in %ds", (System.currentTimeMillis() - t0) / 1000));
+
+        // ---- assembly, per function --------------------------------------------------------
+        //
+        // The decompile is the readable form; this is the exact one, for when an instruction,
+        // a register or an offset matters. Each line names what the instruction references.
+        //
+        // GZIPPED, AS ONE MEMBER PER 64 FUNCTIONS. Plain, this is ~50 bytes an instruction: 600 MB
+        // for `main` and ~1.5 GB across the NROs, on a disk that is short of room. A multi-member
+        // gzip is still one ordinary .gz (zcat and zgrep read it whole), and asm.idx records where
+        // each member starts, so one function is a seek and a few KB of inflate, not a whole file.
+        if (!"0".equals(System.getenv("CI_ASM"))) {
+            long ta = System.currentTimeMillis();
+            long nins = 0;
+            Listing listing = currentProgram.getListing();
+            SymbolTable st = currentProgram.getSymbolTable();
+            final int MEMBER = 64;
+            try (FileOutputStream fos = new FileOutputStream(dir.resolve("asm.txt.gz").toFile());
+                 BufferedWriter idx = open("asm.idx")) {
+                idx.write("first_entry\tmember_offset\n");
+                BufferedWriter w = null;
+                java.util.zip.GZIPOutputStream gz = null;
+                int inMember = 0;
+                for (Function f : fns) {
+                    if (w == null || inMember == MEMBER) {
+                        if (w != null) {
+                            w.flush();
+                            gz.finish();
+                        }
+                        idx.write(hex(f.getEntryPoint()) + "\t" + fos.getChannel().position() + "\n");
+                        // finish() ends a member without closing the file underneath it.
+                        gz = new java.util.zip.GZIPOutputStream(new FilterOutputStream(fos) {
+                            @Override
+                            public void write(byte[] b, int off, int len) throws IOException {
+                                out.write(b, off, len);
+                            }
+
+                            @Override
+                            public void close() throws IOException {
+                                flush();
+                            }
+                        }, 1 << 16);
+                        w = new BufferedWriter(new OutputStreamWriter(gz, StandardCharsets.UTF_8), 1 << 16);
+                        inMember = 0;
+                    }
+                    inMember++;
+                    w.write("/* ==== " + hex(f.getEntryPoint()) + "  " + f.getSymbol().getName(true) + " ==== */\n");
+                    InstructionIterator ii = listing.getInstructions(f.getBody(), true);
+                    while (ii.hasNext()) {
+                        Instruction ins = ii.next();
+                        long word = 0;
+                        byte[] b = ins.getBytes();
+                        for (int i = b.length - 1; i >= 0; i--) {
+                            word = (word << 8) | (b[i] & 0xff);
+                        }
+                        StringBuilder line = new StringBuilder(80);
+                        line.append(Long.toHexString(ins.getAddress().getOffset())).append(": ")
+                            .append(String.format("%08x", word)).append("  ").append(ins.toString());
+                        String sep = "  ; -> ";
+                        for (Reference r : ins.getReferencesFrom()) {
+                            Address to = r.getToAddress();
+                            if (!real(to) || r.getReferenceType().isFallthrough()) {
+                                continue;
+                            }
+                            Symbol s = st.getPrimarySymbol(to);
+                            line.append(sep).append(s == null ? hex(to) : s.getName(true));
+                            sep = ", ";
+                        }
+                        w.write(line.append('\n').toString());
+                        nins++;
+                    }
+                    w.write("\n");
+                }
+                if (w != null) {
+                    w.flush();
+                    gz.finish();
+                }
+            }
+            note(String.format("asm %d instructions in %ds", nins, (System.currentTimeMillis() - ta) / 1000));
+        }
         if (!decomp) return;
+
+        // ---- incremental: decompile only what the previous export does not have ----------
+        String known = System.getenv("CI_KNOWN");
+        String decompName = "decomp.c";
+        if (known != null && !known.isEmpty()) {
+            Path old = Paths.get(known, dir.getFileName().toString(), "functions.tsv");
+            Map<String, String> was = new HashMap<>();
+            try (BufferedReader rd = Files.newBufferedReader(old, StandardCharsets.UTF_8)) {
+                rd.readLine();
+                for (String ln; (ln = rd.readLine()) != null; ) {
+                    String[] c = ln.split("\t", 4);
+                    was.put(c[0], c[1] + "\t" + c[2]);
+                }
+            }
+            List<Function> todo = new ArrayList<>();
+            int fresh = 0, changed = 0;
+            for (Function f : fns) {
+                String prev = was.get(hex(f.getEntryPoint()));
+                String now = hex(f.getBody().getMaxAddress()) + "\t" + f.getBody().getNumAddresses();
+                if (prev == null) {
+                    fresh++;
+                    todo.add(f);
+                }
+                else if (!prev.equals(now)) {
+                    changed++;
+                    todo.add(f);
+                }
+            }
+            note(String.format("incremental against %s: %d known, %d new, %d changed bodies", old, was.size(), fresh, changed));
+            fns = todo;
+            decompName = "decomp-added.c";
+        }
 
         // ---- decompile every function, in address order -----------------------------------
         //
@@ -171,7 +291,7 @@ public class CodeIndex extends GhidraScript {
         long td = System.currentTimeMillis();
         final AtomicInteger done = new AtomicInteger(), failed = new AtomicInteger();
         final int total = fns.size(), CHUNK = 4000;
-        try (BufferedWriter w = open("decomp.c")) {
+        try (BufferedWriter w = open(decompName)) {
             for (int start = 0; start < total; start += CHUNK) {
                 List<Function> chunk = fns.subList(start, Math.min(total, start + CHUNK));
                 Map<Address, String> byAddr = new ConcurrentHashMap<>();

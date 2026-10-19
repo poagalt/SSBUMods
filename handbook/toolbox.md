@@ -18,6 +18,7 @@ authority on its usage; this page is for finding the right one.
 | `disasm --statusmap` | the status-kind → function map, from `sv_set_status_func` call sites |
 | `ssbu.py find <anything>` | **start here**: everything every index and doc knows about a name, address, hash or value. See [lookup.md](lookup.md) |
 | `code-index.py fn\|callers\|refs-to\|strings` | the game's code without opening Ghidra, data references included |
+| `code-index.py asm <m> <fn>` | one function's instructions as Ghidra bounds and names them (from `asm.txt.gz`) |
 | `move-index.py move <f> <motion>` | one move: animation, frames, hitboxes, effects with colours, sounds, articles, statuses, what is missing |
 | REA (MCP server `rea`) | **who calls this, what uses this string, where does this argument come from**, followed hop by hop in one live Ghidra or Hopper session. Opens `work/rea/*.elf` by Linux path. See [rea.md](rea.md) |
 | `rea-elf.py main\|nro <m>\|all` | wraps a module as an AArch64 ELF REA can open, named from its own `.dynsym`/`.rela` |
