@@ -50,3 +50,11 @@ pikachu-moveset/ship/
 # tools/effmerge build output (the build goes to vendor/tools/effmerge)
 tools/effmerge/bin/
 tools/effmerge/obj/
+
+# Stripped from the whole history before the repository went public (2026-10-18), and kept out:
+# game assets, a third-party plugin binary, and release tarballs that bundled game assets. The
+# local copies live under work/history-stripped/.
+pikachu-moveset/staged-spikeball/
+pikachu-moveset/reference-assets/
+pikachu-moveset/mod/fighter/pikachu/
+releases/**/*.tar.gz
