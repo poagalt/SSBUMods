@@ -95,9 +95,20 @@ grep -q '^pub const WHIP_CLIFF_HANGDATA: bool = true;' "$WHIP_SRC" && SHIP_WHIP_
 # through WorkModule; it never sees a native read. So the object ships, from his own vl.prc,
 # exactly while the row that clones the ball is enabled -- the pairing 3b checks.
 # ============================================================================================
+#
+# OFF AGAIN (playtest 2026-10-18, build 4297178): with it shipped, loading a TRAINING match with
+# Rat of Doom stalled forever -- no crash report, and the log stops before the first article
+# object initialises, i.e. during fighter load. It was the only load-time change since the last
+# good load (f5fef9d), and it is exactly the case the note above warns about: Pikachu's 21st
+# article param, which Training Modpack's save state walks. The ball's life is covered instead by
+# src/specials/ptooie's `ball_life_check`, which gives it Piranha Plant's own 120 when the native
+# read comes back empty. Re-arm only as its own watched boot.
 ART_SRC="$ROOT/pikachu-moveset/plugin/src/articles/mod.rs"
 SHIP_SPIKEBALL=0
-grep -q 'host_name: "spikeball".*enabled: true' "$ART_SRC" && SHIP_SPIKEBALL=1
+SHIP_SPIKEBALL_ARMED=0
+if [ "$SHIP_SPIKEBALL_ARMED" = "1" ]; then
+    grep -q 'host_name: "spikeball".*enabled: true' "$ART_SRC" && SHIP_SPIKEBALL=1
+fi
 
 if [ "$SHIP_PARAM_SPECIAL_S" = "0" ] && [ "$SHIP_WHIP_CLIFF_HANG" = "0" ] && [ "$SHIP_SPIKEBALL" = "0" ]; then
     rm -f "$OUT"
