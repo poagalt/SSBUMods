@@ -41,6 +41,7 @@
 // underscore and none collides with Incineroar's -- and any key not in these tables falls through
 // to the game.
 mod ptooie;
+mod rope;
 mod table;
 
 use smash::app::{lua_bind::*, utility, BattleObjectModuleAccessor};
@@ -72,6 +73,11 @@ const PARAM_SPECIAL_N: u64 = 0x0f_8991_92aa;
 /// whole object is answered, from `ptooie.rs`, for a spikeball whose owner is a Rat of Doom.
 const PARAM_SPIKEBALL: u64 = 0x0f_679a_af13;
 
+/// `hash40("param_rope")`, the object Incineroar's ROPE reads off itself: its Bend status's
+/// `bend_time` (12), the frame the native rope lets the victim go and jumps to the rebound. Answered
+/// for a rope whose owner is a Rat of Doom, from `rope.rs`, like the spikeball's.
+const PARAM_ROPE: u64 = 0x0a_031c_e500;
+
 /// THE WHOLE OBJECT, GENERATED. `table.rs` is written by tools/gen-paramprovider.sh straight from
 /// `extracted/fighter/gaogaen/param/vl.prc`, and the int/float split is the prc's own.
 ///
@@ -89,6 +95,7 @@ const PARAM_SPIKEBALL: u64 = 0x0f_679a_af13;
 /// Generated rather than transcribed because fifty hand-typed floats is fifty chances to typo a
 /// value that then looks like a physics bug.
 use ptooie::{PTOOIE_FLOATS, PTOOIE_INTS, SPIKEBALL};
+use rope::ROPE;
 use table::{FLOATS, INTS};
 
 /// Is this accessor a RAT OF DOOM -- a Pikachu on the gated costume?
@@ -114,9 +121,15 @@ unsafe fn is_pikachu(boma: *mut BattleObjectModuleAccessor) -> bool {
 /// matched `param_spikeball`, so the owner lookup never runs for any other read in the game -- a
 /// vanilla Piranha Plant's ball pays it and falls through.
 unsafe fn is_rat_spikeball(boma: *mut BattleObjectModuleAccessor) -> bool {
+    is_rat_weapon(boma, *WEAPON_KIND_PACKUN_SPIKEBALL)
+}
+
+/// Is this accessor a weapon of `kind` that a RAT OF DOOM owns? The same test for every cloned
+/// article whose own params the hook answers.
+unsafe fn is_rat_weapon(boma: *mut BattleObjectModuleAccessor, kind: i32) -> bool {
     if boma.is_null()
         || utility::get_category(&mut *boma) != *BATTLE_OBJECT_CATEGORY_WEAPON
-        || utility::get_kind(&mut *boma) != *WEAPON_KIND_PACKUN_SPIKEBALL
+        || utility::get_kind(&mut *boma) != kind
     {
         return false;
     }
@@ -125,6 +138,20 @@ unsafe fn is_rat_spikeball(boma: *mut BattleObjectModuleAccessor) -> bool {
         Some(o) => is_pikachu(o),
         None => false,
     }
+}
+
+/// The rope's answer, for either accessor, from Incineroar's `param_rope`.
+unsafe fn rope(key: u64) -> Option<f32> {
+    let i = ROPE.iter().position(|(k, _, _)| *k == key)?;
+    let (_, value, name) = ROPE[i];
+    let bit = 1u64 << i;
+    if SEEN_ROPE & bit == 0 {
+        SEEN_ROPE |= bit;
+        crate::telemetry::sink::diag(format!(
+            "[rat] PARAM a Rat's rope asked for {name} -- answered {value} (Incineroar's param_rope)"
+        ));
+    }
+    Some(value)
 }
 
 /// Piranha Plant's `param_spikeball` value for `key`, for code that needs the number itself
@@ -175,6 +202,11 @@ unsafe fn get_param_int_hook(
             return value as i32;
         }
     }
+    if object == PARAM_ROPE && is_rat_weapon(boma, *WEAPON_KIND_GAOGAEN_ROPE) {
+        if let Some(value) = rope(key) {
+            return value as i32;
+        }
+    }
     if object == PARAM_SPECIAL_N && is_pikachu(boma) {
         if let Some(i) = PTOOIE_INTS.iter().position(|(k, _, _)| *k == key) {
             let (_, value, name) = PTOOIE_INTS[i];
@@ -214,6 +246,11 @@ unsafe fn get_param_float_hook(
 ) -> f32 {
     if object == PARAM_SPIKEBALL && is_rat_spikeball(boma) {
         if let Some(value) = spikeball(key) {
+            return value;
+        }
+    }
+    if object == PARAM_ROPE && is_rat_weapon(boma, *WEAPON_KIND_GAOGAEN_ROPE) {
+        if let Some(value) = rope(key) {
             return value;
         }
     }
@@ -334,6 +371,7 @@ static mut SEEN_FLOAT: u64 = 0;
 static mut SEEN_PTOOIE_INT: u64 = 0;
 static mut SEEN_PTOOIE_FLOAT: u64 = 0;
 static mut SEEN_SPIKEBALL: u64 = 0;
+static mut SEEN_ROPE: u64 = 0;
 
 /// `FIGHTER_GAOGAEN_INSTANCE_WORK_ID_FLAG_SPECIAL_S_GENERATED_ROPE`, which the VICTIM reads OFF US.
 ///

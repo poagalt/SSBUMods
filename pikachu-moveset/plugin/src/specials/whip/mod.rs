@@ -992,12 +992,25 @@ unsafe fn update_rope_x(fighter: &mut L2CFighterCommon) {
 //   spawn   SpecialSThrow main calls generate_rope, whose spawn callback (main FUN_00abede0) builds
 //           the rope at ROPE_X/ROPE_Y with the owner's facing NEGATED. Its own Appear status then
 //           plays `appear` and moves to Wait -- unaltered.
-//   bend    the victim entering SWING_GAOGAEN_ATTACH_ROPE is what puts a real rope into Bend, whose
-//           main plays `bend`. The Bend STATUS also unlinks the victim and messages the owner, which
-//           is the half ADR 0004 excludes, so the motion is played and the status is not.
-//   close   SpecialSEnd_end and SpecialSThrow_end both call
-//           change_status_exist(ROPE, WEAPON_GAOGAEN_ROPE_STATUS_KIND_END); the rope's End status
-//           plays `appear` reversed and removes itself with its own notify_event_msc_cmd.
+//   bend    the victim entering SWING_GAOGAEN_ATTACH_ROPE is what puts a real rope into its own
+//           BEND status, and the port does exactly that (`rope_bend`). Read out of lua2cpp_gaogaen
+//           (13.0.5, main FUN_7100027560, loop FUN_7100027f50, script game_bend):
+//             - Bend plays `bend` from frame 0; its game_bend sets REBOUND_FRAME to 36.
+//             - Each frame, once the motion frame reaches param_rope.bend_time (12): it sends
+//               0x226f4131dd to whoever is attached through ROPE_LINK_NO_ATTACH (the victim, whose
+//               generic handler turns it into the rebound), unlinks them, sends 0x25c84e475a to
+//               its owner through LINK_NO_CONSTRAINT (Incineroar places his lariat search areas
+//               on it), and jumps `bend` to REBOUND_FRAME -- the stretch is frames 0-12 and the
+//               snap back 36-60.
+//             - When `bend` ends, END.
+//           ADR 0004 still holds, and is why the STATUS is now safe: no victim is linked, so the
+//           unlink has nothing to undo and the attach event reaches nobody, and a Pikachu's
+//           generic event handler has no case for 0x25c84e475a. The port releases the victim on the
+//           measured native hold, logged beside the rope's own frame (`rope_cue`), and the lariat
+//           areas are its own.
+//   close   END plays `appear` reversed and removes itself with its own notify_event_msc_cmd --
+//           after a bend the rope does that BY ITSELF. SpecialSEnd_end and SpecialSThrow_end also
+//           call change_status_exist(ROPE, END) for a rope that is still up.
 //
 // Every spawn goes through `crate::articles::rope_ready()`: the rope's class has two slots that
 // read Incineroar's params, and it is only safe once src/articles/neutralize.rs has verified its
@@ -1064,8 +1077,93 @@ unsafe fn rope_bend(boma: *mut BattleObjectModuleAccessor) {
         return;
     };
     if crate::articles::rope_ready() && ArticleModule::is_exist(boma, id) {
-        ArticleModule::change_motion(boma, id, Hash40::new("bend"), false, -1.0);
+        ArticleModule::change_status_exist(boma, id, *WEAPON_GAOGAEN_ROPE_STATUS_KIND_BEND);
     }
+}
+
+/// The rope's `Throw_TR` in the world, through the ROPE's own ModelModule (the only joint read
+/// src/sword trusts on an article). `None` without a rope to read.
+unsafe fn rope_joint(boma: *mut BattleObjectModuleAccessor) -> Option<Vector3f> {
+    let id = crate::articles::article_id("rope")?;
+    if !crate::articles::rope_ready() || !ArticleModule::is_exist(boma, id) {
+        return None;
+    }
+    let abm = crate::articles::accessor(boma, id)?;
+    let mut p = Vector3f { x: 0.0, y: 0.0, z: 0.0 };
+    ModelModule::joint_global_position(abm, Hash40::new("throw_tr"), &mut p, true);
+    Some(p)
+}
+
+/// THE VICTIM RIDES THE ROPE FOR THE HOLD, AS NATIVELY.
+///
+/// The rope's own class links the victim to it for ATTACH_ROPE (main sub_3404560 sends them
+/// 0x22b95a7320 and requests BEND; sub_3403e70 makes the link), and the rope's `bend` animates its
+/// `Throw_TR` joint: local z 0 on frame 0, 7.725 on frame 1, then 0.234, 0.221, 0.207 ... a frame,
+/// 9.615 by frame 12 -- the exact shape of the native victim trace (-41.55, then -48.15, -48.32,
+/// -48.49 ... -49.39), and 9.615 at the rope's scale is the 7.84 `ROPE_STRETCH_X` measured. ADR
+/// 0004 forbids the link itself, so the victim's x is set where it would carry them: its x at the
+/// attach plus how far the joint has moved since. y is the victim's own.
+unsafe fn rope_carry_begin(
+    boma: *mut BattleObjectModuleAccessor,
+    vboma: *mut BattleObjectModuleAccessor,
+    entry: usize,
+) {
+    match rope_joint(boma) {
+        Some(j) => {
+            state::set_rope_victim_x0(entry, PostureModule::pos_x(vboma));
+            state::set_rope_joint_x0(entry, j.x);
+            state::set_rope_carry_on(entry, true);
+            crate::telemetry::sink::diag(format!(
+                "[rat] WHIP p{entry} rope carry from victim x {:.2}, Throw_TR ({:.2},{:.2}) -- rope at ({:.2},{:.2})",
+                PostureModule::pos_x(vboma), j.x, j.y, state::rope_x(entry), state::rope_y(entry)
+            ));
+        }
+        None => state::set_rope_carry_on(entry, false),
+    }
+}
+
+unsafe fn rope_carry(
+    boma: *mut BattleObjectModuleAccessor,
+    vboma: *mut BattleObjectModuleAccessor,
+    entry: usize,
+) -> bool {
+    if !state::rope_carry_on(entry) {
+        return false;
+    }
+    let Some(j) = rope_joint(boma) else {
+        return false;
+    };
+    let x = state::rope_victim_x0(entry) + (j.x - state::rope_joint_x0(entry));
+    let p = Vector3f { x, y: PostureModule::pos_y(vboma), z: 0.0 };
+    PostureModule::set_pos(vboma, &p);
+    crate::telemetry::sink::diag(format!(
+        "[rat] WHIP p{entry} rope carry: Throw_TR x {:.2} (moved {:+.2}) -> victim x {x:.2}",
+        j.x, j.x - state::rope_joint_x0(entry)
+    ));
+    true
+}
+
+/// WHERE THE ROPE IS IN ITS OWN BEND, for the release line. The victim is let go on the measured
+/// native hold (`ROPE_HOLD_FRAMES`, from native traces of the VICTIM's status change), and the rope
+/// lets go on its own `bend_time` in its own Bend status; both are native, and this puts the rope's
+/// side next to the victim's in the log so the two can be compared frame for frame.
+unsafe fn rope_cue(boma: *mut BattleObjectModuleAccessor) -> String {
+    let Some(id) = crate::articles::article_id("rope") else {
+        return "no rope row".to_string();
+    };
+    if !crate::articles::rope_ready() || !ArticleModule::is_exist(boma, id) {
+        return "no rope".to_string();
+    }
+    let Some(abm) = crate::articles::accessor(boma, id) else {
+        return "no rope accessor".to_string();
+    };
+    let bend_time = WorkModule::get_param_float(abm, hash40("param_rope"), hash40("bend_time"));
+    format!(
+        "rope status {:#x} frame {:.1} (bend_time {bend_time}, rebound {})",
+        StatusModule::status_kind(abm),
+        MotionModule::frame(abm),
+        WorkModule::get_int(abm, *WEAPON_GAOGAEN_ROPE_INSTANCE_WORK_ID_INT_REBOUND_FRAME)
+    )
 }
 
 /// `change_status_exist(ROPE, END)`, once: a rope already in End is left to finish.
@@ -1128,7 +1226,6 @@ unsafe fn rope_hold(boma: *mut BattleObjectModuleAccessor) {
     if ROPE_AGE[e] >= 0 {
         ROPE_AGE[e] += 1;
     }
-    rope_unbend(boma, id, abm, e);
     if (px - x).abs() > 0.1 || (py - y).abs() > 0.1 || GroundModule::get_correct(abm) != *GROUND_CORRECT_KIND_NONE {
         place_rope(abm, x, y);
         if logging {
@@ -1138,69 +1235,6 @@ unsafe fn rope_hold(boma: *mut BattleObjectModuleAccessor) {
                 GroundModule::get_correct(abm)
             ));
         }
-    }
-}
-
-/// THE ROPES SNAP FLAT THE MOMENT THE VICTIM LEAVES THEM. Playtest 2026-10-18, after the bend was
-/// first made to end: "it should snap back right after the opponent leaves the ropes, right now it
-/// only snaps back during the hit after". `bend` is 60 frames and the victim rebounds off it at
-/// about frame 10 -- the rebound is the release branch above -- so waiting for the motion to run
-/// out held the stretch through the lariat. `rope_unbend` stays as the floor for a bend that is
-/// never released.
-unsafe fn rope_flat(boma: *mut BattleObjectModuleAccessor, why: &str) {
-    let Some(id) = crate::articles::article_id("rope") else {
-        return;
-    };
-    if !crate::articles::rope_ready() || !ArticleModule::is_exist(boma, id) {
-        return;
-    }
-    let Some(abm) = crate::articles::accessor(boma, id) else {
-        return;
-    };
-    if MotionModule::motion_kind(abm) != hash40("bend") {
-        return;
-    }
-    let e = entry_of(boma).min(7);
-    let frame = MotionModule::frame(abm);
-    ArticleModule::change_motion(boma, id, Hash40::new("wait"), false, -1.0);
-    BEND_AGE[e] = -1;
-    crate::telemetry::sink::diag(format!("[rat] WHIP p{e} rope flat at bend frame {frame:.1}: {why}"));
-}
-
-/// Frames since the rope's `bend` began, per entry, for its log; -1 when it is not bending.
-static mut BEND_AGE: [i32; 8] = [-1; 8];
-
-/// THE BEND GOES BACK TO FLAT. Playtest 2026-10-18: the ropes "don't snap back to a normal flat
-/// position after the enemy hits it". `rope_bend` plays `bend` inside the rope's own Wait status
-/// (ADR 0004 keeps it out of the native Bend status, which would unlink the victim), and nothing
-/// in Wait ever replaces a motion that has run out -- so the last frame of `bend`, the ropes
-/// stretched, is held for the rest of the throw. The native Bend status hands the rope back to
-/// Wait, whose motion is `wait`; this does that when `bend` reaches its end. Frame-based as well as
-/// `is_end`, so it holds whether or not `bend` is flagged as a loop.
-unsafe fn rope_unbend(
-    boma: *mut BattleObjectModuleAccessor,
-    id: i32,
-    abm: *mut BattleObjectModuleAccessor,
-    e: usize,
-) {
-    if MotionModule::motion_kind(abm) != hash40("bend") {
-        BEND_AGE[e] = -1;
-        return;
-    }
-    BEND_AGE[e] += 1;
-    let (frame, end) = (MotionModule::frame(abm), MotionModule::end_frame(abm));
-    if BEND_AGE[e] < 40 && BEND_AGE[e] % 4 == 0 {
-        crate::telemetry::sink::diag(format!(
-            "[rat] WHIP p{e} rope bend f{} motion frame {frame:.1}/{end:.1} rate {:.2}",
-            BEND_AGE[e], MotionModule::rate(abm)
-        ));
-    }
-    if MotionModule::is_end(abm) || frame + 1.0 >= end {
-        ArticleModule::change_motion(boma, id, Hash40::new("wait"), false, -1.0);
-        crate::telemetry::sink::diag(format!(
-            "[rat] WHIP p{e} rope bend ran out after {} frame(s) -> wait", BEND_AGE[e]
-        ));
-        BEND_AGE[e] = -1;
     }
 }
 
@@ -2780,6 +2814,7 @@ unsafe fn whip_flight(fighter: &mut L2CFighterCommon, entry: usize, off: f32) {
                 PostureModule::pos_x(vboma)
             ));
             state::set_rope_spent(entry, 0.0);
+            rope_carry_begin(boma, vboma, entry);
             state::set_flight_frames(entry, 0);
             // The captor's animation frame at the moment of attaching, so the hold can be counted
             // in the same units it was measured in. See `ROPE_HOLD_FRAMES`.
@@ -2798,7 +2833,8 @@ unsafe fn whip_flight(fighter: &mut L2CFighterCommon, entry: usize, off: f32) {
     // animation terms while the playtest read the whole bounce as too long anyway. Counting the
     // same thing the measurement counted removes the ambiguity entirely: if twenty animation
     // frames is wrong, the number is wrong, rather than the unit.
-    // PAY OUT THE ROPE'S GIVE, ONE `_speed_over_rope` PER FRAME, BECAUSE THERE IS NO ROPE TO DO IT.
+    // THE FALLBACK WHEN NO ROPE CARRIES THEM (`rope_carry` does, as natively, whenever the rope
+    // article is up): PAY OUT THE ROPE'S GIVE, ONE `_speed_over_rope` PER FRAME.
     //
     // Native ATTACH_ROPE does not hold the victim still: it slides them the last 7.84 out and
     // then settles, and the shape is identical across all 58 traced whips --
@@ -2814,8 +2850,9 @@ unsafe fn whip_flight(fighter: &mut L2CFighterCommon, entry: usize, off: f32) {
     // by hand for exactly the same reason. The speed is the game's; only the total is measured,
     // and it stops dead once the measured give is spent rather than creeping the way the
     // pre-place version did.
+    let carried = rope_carry(boma, vboma, entry);
     let spent = state::rope_spent(entry);
-    if spent < ROPE_STRETCH_X {
+    if !carried && spent < ROPE_STRETCH_X {
         let over_rope = WorkModule::get_param_float(
             boma,
             hash40("param_special_s"),
@@ -2838,7 +2875,8 @@ unsafe fn whip_flight(fighter: &mut L2CFighterCommon, entry: usize, off: f32) {
     if held >= ROPE_HOLD_FRAMES {
         crate::telemetry::sink::diag(format!(
             "[rat] WHIP p{entry} rope releases {id:#x} after {held} animation frame(s) \
-             ({n} game frames) at off={off:.2} -- rebounding"
+             ({n} game frames) at off={off:.2} -- rebounding; {}",
+            rope_cue(boma)
         ));
         state::set_flight_frames(entry, 0);
         crate::victim::request_status(
@@ -2846,6 +2884,5 @@ unsafe fn whip_flight(fighter: &mut L2CFighterCommon, entry: usize, off: f32) {
             *FIGHTER_STATUS_KIND_SWING_GAOGAEN_RETURN,
             "whip rope rebound",
         );
-        rope_flat(boma, "the victim left the ropes");
     }
 }

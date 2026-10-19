@@ -233,3 +233,15 @@ slot!(rope_hold_from, set_rope_hold_from, ROPE_HOLD_FROM, i32, 0);
 /// itself, one `special_s_through_target_speed_over_rope` per frame, and this is the meter.
 static mut ROPE_SPENT: [f32; MAX] = [0.0; MAX];
 slot!(rope_spent, set_rope_spent, ROPE_SPENT, f32, 0.0);
+
+/// THE ROPE CARRIES THE VICTIM NOW (2026-10-18), so the meter above is only the fallback for a
+/// whip with no rope article. Natively the victim is linked to the rope for ATTACH_ROPE and rides
+/// its `Throw_TR` joint, which the rope's own `bend` animates (see `rope_carry` in ../mod.rs). These
+/// are the two x's the carry is measured from: the victim's, and the joint's, at the attach.
+static mut ROPE_VICTIM_X0: [f32; MAX] = [0.0; MAX];
+slot!(rope_victim_x0, set_rope_victim_x0, ROPE_VICTIM_X0, f32, 0.0);
+static mut ROPE_JOINT_X0: [f32; MAX] = [0.0; MAX];
+slot!(rope_joint_x0, set_rope_joint_x0, ROPE_JOINT_X0, f32, 0.0);
+/// Whether this whip's attach found the rope's joint to measure from.
+static mut ROPE_CARRY: [bool; MAX] = [false; MAX];
+slot!(rope_carry_on, set_rope_carry_on, ROPE_CARRY, bool, false);
