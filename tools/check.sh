@@ -212,8 +212,12 @@ local rc=0
 # $V, $A, $clone_on, $clone_rows and $clone_live are derived once in the preamble -- 3f and 3g
 # read them too, and the gates no longer share a shell. See the hoist comment up there.
 k=0; pname=""
+# EVERY ENABLED ROW, clean or covered: a row neutralize.rs covers (the rope, Ptooie's spikeball) is
+# cloned and in the game just the same, and $clone_live counts only the clean ones -- which is how
+# the spikeball's param_spikeball, shipped on purpose, first read here as "something was ADDED".
+enabled_rows=$(printf '%s\n' "$clone_rows" | awk -F'|' '$3=="true" {print $1}')
 if [ -f "$V" ]; then
-  for n in $clone_live; do
+  for n in $enabled_rows; do
     key=$(bash "$ROOT/tools/hash40.sh" "param_$n" 2>/dev/null | awk '{print $1}' | head -1)
     kp=$(printf '0x%012x' "$key" 2>/dev/null || echo "")
     [ -n "$kp" ] || continue
@@ -222,7 +226,7 @@ if [ -f "$V" ]; then
     fi
   done
 fi
-nlive=$(printf '%s\n' "$clone_live" | grep -c . || true)
+nlive=$(printf '%s\n' "$enabled_rows" | grep -c . || true)
 [ -n "$pname" ] || pname="param_<article>"
 # THE CLONE DOES NOT REQUIRE param_spikeball, and this check used to insist that it did.
 #
@@ -267,7 +271,8 @@ want_ss=$(grep -cx 'SHIP_PARAM_SPECIAL_S=1' "$ROOT/tools/gen-vlprc.sh" || true)
 # plugin's WHIP_CLIFF_HANGDATA rather than a flag of its own, so read the same line it reads.
 want_whip=$(grep -cx 'pub const WHIP_CLIFF_HANGDATA: bool = true;' \
             "$ROOT/pikachu-moveset/plugin/src/specials/whip/mod.rs" || true)
-want_vl=$(( want_ss + want_whip ))
+# Ptooie's ball (2026-10-18) is the third reason, and it is the article param counted above as $k.
+want_vl=$(( want_ss + want_whip + k ))
 if [ "$want_vl" != "0" ] && [ ! -f "$V" ]; then
   echo "  FAIL gen-vlprc.sh ships a vl.prc (param_special_s=$want_ss whip ledge box=$want_whip) but none is present"; rc=1
 elif [ "$want_vl" = "0" ] && [ -f "$V" ]; then
@@ -276,8 +281,10 @@ elif [ "$want_vl" = "0" ]; then
   echo "  ok  param_special_s override off, no vl.prc shipped (vanilla, no load-time risk)"
 else
   n=$("$ROOT/tools/prc-tool/target/release/vlkeys.exe" "$V" 2>/dev/null | grep -c '^ *0x' || true)
-  if [ "$n" != "20" ]; then
-    echo "  FAIL shipped vl.prc has $n top-level entries, expected 20 -- something was ADDED, not replaced"; rc=1
+  # Vanilla's 20, plus exactly the article params of live clones ($k, checked above against the
+  # Candidates rows) -- anything else was ADDED rather than replaced.
+  if [ "$n" != "$(( 20 + k ))" ]; then
+    echo "  FAIL shipped vl.prc has $n top-level entries, expected $(( 20 + k )) (20 + $k article param(s)) -- something was ADDED, not replaced"; rc=1
   fi
   if [ "$want_ss" != "0" ]; then
     tts=$("$ROOT/tools/prc-tool/target/release/prcdump.exe" "$V" \

@@ -1141,6 +1141,32 @@ unsafe fn rope_hold(boma: *mut BattleObjectModuleAccessor) {
     }
 }
 
+/// THE ROPES SNAP FLAT THE MOMENT THE VICTIM LEAVES THEM. Playtest 2026-10-18, after the bend was
+/// first made to end: "it should snap back right after the opponent leaves the ropes, right now it
+/// only snaps back during the hit after". `bend` is 60 frames and the victim rebounds off it at
+/// about frame 10 -- the rebound is the release branch above -- so waiting for the motion to run
+/// out held the stretch through the lariat. `rope_unbend` stays as the floor for a bend that is
+/// never released.
+unsafe fn rope_flat(boma: *mut BattleObjectModuleAccessor, why: &str) {
+    let Some(id) = crate::articles::article_id("rope") else {
+        return;
+    };
+    if !crate::articles::rope_ready() || !ArticleModule::is_exist(boma, id) {
+        return;
+    }
+    let Some(abm) = crate::articles::accessor(boma, id) else {
+        return;
+    };
+    if MotionModule::motion_kind(abm) != hash40("bend") {
+        return;
+    }
+    let e = entry_of(boma).min(7);
+    let frame = MotionModule::frame(abm);
+    ArticleModule::change_motion(boma, id, Hash40::new("wait"), false, -1.0);
+    BEND_AGE[e] = -1;
+    crate::telemetry::sink::diag(format!("[rat] WHIP p{e} rope flat at bend frame {frame:.1}: {why}"));
+}
+
 /// Frames since the rope's `bend` began, per entry, for its log; -1 when it is not bending.
 static mut BEND_AGE: [i32; 8] = [-1; 8];
 
@@ -2820,5 +2846,6 @@ unsafe fn whip_flight(fighter: &mut L2CFighterCommon, entry: usize, off: f32) {
             *FIGHTER_STATUS_KIND_SWING_GAOGAEN_RETURN,
             "whip rope rebound",
         );
+        rope_flat(boma, "the victim left the ropes");
     }
 }

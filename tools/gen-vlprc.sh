@@ -20,11 +20,11 @@
 #                      so overwriting Thunder's params would buy nothing and risk something.
 #   param_special_hi   same: the G&W up-B port hardcodes its two multipliers from his own status
 #                      code, and Quick Attack's params are not consulted by anything left running.
-#   param_spikeball    an ARTICLE param, and article params must track articles/mod.rs
-#                      CLONE_ENABLED exactly -- see tools/check.sh step 3b. Adding one with no
-#                      weapon behind it takes Pikachu from 20 article params to 21, and Training
-#                      Modpack's save state walks article indices calling get_article and
-#                      remove_exist_object_id.
+#   param_spikeball    an ARTICLE param, and article params must track articles/mod.rs exactly
+#                      -- see tools/check.sh step 3b. Adding one with no weapon behind it takes
+#                      Pikachu from 20 article params to 21, and Training Modpack's save state
+#                      walks article indices calling get_article and remove_exist_object_id.
+#                      SO IT SHIPS EXACTLY WHEN THE SPIKEBALL ROW IS ENABLED (2026-10-18, below).
 #
 # Regenerate with:  bash tools/gen-vlprc.sh
 #
@@ -83,8 +83,23 @@ VLAPPEND="$ROOT/tools/prc-tool/target/release/vlappend.exe"
 WHIP_SRC="$ROOT/pikachu-moveset/plugin/src/specials/whip/mod.rs"
 SHIP_WHIP_CLIFF_HANG=0
 grep -q '^pub const WHIP_CLIFF_HANGDATA: bool = true;' "$WHIP_SRC" && SHIP_WHIP_CLIFF_HANG=1
+# ============================================================================================
+# PTOOIE'S BALL NEEDS ITS OWN PARAM OBJECT IN HERE, AND THE PLUGIN'S HOOK CANNOT STAND IN FOR IT.
+#
+# Playtest 2026-10-18: the ball "appears briefly then disappears in a puff of smoke". The ball's
+# lua counts WEAPON_INSTANCE_WORK_ID_INT_LIFE down every frame and removes itself
+# (notify_event_msc_cmd 0x199c462b5d) at 0 -- and nothing in its lua ever SETS it: no lua2cpp_packun
+# code reads `param_spikeball.life` (120). The weapon's native init does, and for a CLONE that
+# native read is answered by smashline from the HOST's vl.prc under `param_<new name>`. Pikachu's
+# has none, so the ball is born with no life. src/params answers the five keys its lua reads
+# through WorkModule; it never sees a native read. So the object ships, from his own vl.prc,
+# exactly while the row that clones the ball is enabled -- the pairing 3b checks.
+# ============================================================================================
+ART_SRC="$ROOT/pikachu-moveset/plugin/src/articles/mod.rs"
+SHIP_SPIKEBALL=0
+grep -q 'host_name: "spikeball".*enabled: true' "$ART_SRC" && SHIP_SPIKEBALL=1
 
-if [ "$SHIP_PARAM_SPECIAL_S" = "0" ] && [ "$SHIP_WHIP_CLIFF_HANG" = "0" ]; then
+if [ "$SHIP_PARAM_SPECIAL_S" = "0" ] && [ "$SHIP_WHIP_CLIFF_HANG" = "0" ] && [ "$SHIP_SPIKEBALL" = "0" ]; then
     rm -f "$OUT"
     echo "  param_special_s override DISABLED -- Pikachu keeps his vanilla vl.prc"
     echo "  (it null-dereferenced in smashline's load_fighter_effects on fighter load)"
@@ -108,5 +123,9 @@ if [ "$SHIP_WHIP_CLIFF_HANG" = "1" ]; then
     ratio=$(awk '$1=="gaogaen"{g=$3} $1=="pikachu"{p=$3} END{printf "%.7f", g/p}' "$ROOT/tools/scales.tsv")
     "$VLAPPEND" "$TMP" "$ROOT/extracted/fighter/gaogaen/param/vl.prc" cliff_hang_data 1 1 "$TMP" \
       --scale "$ratio" | sed 's/^/  /'
+fi
+if [ "$SHIP_SPIKEBALL" = "1" ]; then
+    # ADDED, not replaced: Pikachu has no param_spikeball of his own.
+    "$VLMERGE" "$TMP" "$ROOT/extracted/fighter/packun/param/vl.prc" param_spikeball "$TMP" | sed 's/^/  /'
 fi
 mv "$TMP" "$OUT"

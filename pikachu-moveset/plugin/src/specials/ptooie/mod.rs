@@ -118,6 +118,30 @@ unsafe fn to_hit_end(fighter: &mut L2CFighterCommon, from: &str) {
     fighter.change_status(RAT_STATUS_KIND_SPECIAL_N_HIT_END.into(), false.into());
 }
 
+/// THE BALL'S LIFE, CHECKED THE MOMENT IT EXISTS. Its lua counts WEAPON_INSTANCE_WORK_ID_INT_LIFE
+/// down each frame and removes itself at 0, and only its NATIVE init sets it, from
+/// `param_spikeball.life`. tools/gen-vlprc.sh now ships that object for smashline to answer the read
+/// with; this says whether it did. If the ball is born with no life anyway, it is given Piranha
+/// Plant's own number from the same object (src/params/ptooie.rs) rather than a move that cannot
+/// be used -- and says so, because that means the vl.prc route did not reach the native read.
+unsafe fn ball_life_check(boma: *mut BattleObjectModuleAccessor) {
+    let Some(b) = ball_boma(boma) else {
+        return;
+    };
+    let life = WorkModule::get_int(b, *WEAPON_INSTANCE_WORK_ID_INT_LIFE);
+    if life > 0 {
+        crate::telemetry::sink::diag(format!("[rat] PTOOIE p{} ball born with life {life}", entry_of(boma)));
+        return;
+    }
+    let param = crate::params::spikeball_param(smash::hash40("life")).unwrap_or(120.0) as i32;
+    WorkModule::set_int(b, param, *WEAPON_INSTANCE_WORK_ID_INT_LIFE);
+    crate::telemetry::sink::diag(format!(
+        "[rat] PTOOIE p{} ball born with life {life} -- the native read of param_spikeball.life did \
+         not reach the shipped vl.prc; set to Piranha Plant's {param}",
+        entry_of(boma)
+    ));
+}
+
 // ---- the reproduced native helpers ------------------------------------------------------------
 
 /// `FighterSpecializer_Packun::is_special_n_spikeball_changed_status`, with OUR status numbers.
@@ -486,6 +510,7 @@ unsafe extern "C" fn special_n_main_loop(fighter: &mut L2CFighterCommon) -> L2CV
             crate::telemetry::sink::diag(format!(
                 "[rat] PTOOIE p{} ball generated: exist={}", entry_of(boma), ArticleModule::is_exist(boma, id)
             ));
+            ball_life_check(boma);
         }
         WorkModule::off_flag(boma, *FIGHTER_PACKUN_STATUS_SPECIAL_N_FLAG_GENERATE_ARTICLE_SPIKEBALL);
     }

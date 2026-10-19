@@ -127,6 +127,12 @@ unsafe fn is_rat_spikeball(boma: *mut BattleObjectModuleAccessor) -> bool {
     }
 }
 
+/// Piranha Plant's `param_spikeball` value for `key`, for code that needs the number itself
+/// rather than an answer to the engine (src/specials/ptooie's life check).
+pub fn spikeball_param(key: u64) -> Option<f32> {
+    SPIKEBALL.iter().find(|(k, _, _)| *k == key).map(|(_, v, _)| *v)
+}
+
 /// The ball's answer, for either accessor: one table, because its int/float split is not
 /// recoverable from prcdump (see tools/gen-ptooieparams.sh).
 unsafe fn spikeball(key: u64) -> Option<f32> {
